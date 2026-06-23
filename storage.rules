@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function allowedUser() {
+      return signedIn() && request.auth.token.email == "jerry83145@gmail.com";
+    }
+
+    match /raw/{month}/{category}/{fileName} {
+      allow read, write: if allowedUser();
+      allow delete: if false;
+    }
+
+    match /pending/{fileName} {
+      allow read, write: if allowedUser();
+      allow delete: if false;
+    }
+
+    match /vouchers/{month}/{type}/{fileName} {
+      allow read, write: if allowedUser();
+      allow delete: if false;
+    }
+  }
+}

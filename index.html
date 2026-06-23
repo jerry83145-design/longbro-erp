@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>隆博ERP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">財</div>
+          <div>
+            <strong>隆博ERP</strong>
+            <span>Accounting Desk</span>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="主要功能">
+          <button class="nav-item active" type="button" data-view="overview">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">◆</span>
+            總覽
+          </button>
+          <button class="nav-item" type="button" data-view="ledger" data-type="income">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">＋</span>
+            收入管理
+          </button>
+          <button class="nav-item" type="button" data-view="ledger" data-type="expense">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">▦</span>
+            支出管理
+          </button>
+          <button class="nav-item" type="button" data-view="cashflow">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">↕</span>
+            現金流
+          </button>
+          <button class="nav-item" type="button" data-view="inventory">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">▣</span>
+            進銷存
+          </button>
+          <button class="nav-item" type="button" data-view="vouchers">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">□</span>
+            憑證中心
+          </button>
+          <button class="nav-item" type="button" data-view="pending">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">!</span>
+            待處理事項
+          </button>
+          <button class="nav-item" type="button" data-view="reports">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">◐</span>
+            報表中心
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">⚙</span>
+            系統設定
+          </button>
+        </nav>
+
+        <div class="sidebar-status">
+          <span class="status-dot"></span>
+          <strong>前端預覽模式</strong>
+          <small>資料暫存與 Firebase 設定分開管理</small>
+        </div>
+      </aside>
+
+      <main class="content-shell">
+        <header class="content-header">
+          <div>
+            <p class="eyebrow" id="pageEyebrow">EXPENSE MANAGEMENT</p>
+            <h1 id="pageTitle">支出管理</h1>
+            <p id="pageSubtitle">新增、整理並追蹤每一筆公司支出</p>
+          </div>
+          <div class="header-actions">
+            <div class="auth-panel">
+              <span id="authStatus">尚未登入</span>
+              <button id="signInButton" class="secondary-button" type="button">Google 登入</button>
+              <button id="signOutButton" class="secondary-button" type="button" hidden>登出</button>
+            </div>
+            <button id="topActionButton" type="button">＋ 新增支出</button>
+          </div>
+        </header>
+
+        <section class="summary-grid" aria-label="本月統計">
+          <article class="summary-card primary" data-card-id="expense" data-summary-type="expense">
+            <span class="card-drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span id="expenseSummaryLabel">本月支出</span>
+            <strong id="monthExpense">NT$ 0</strong>
+          </article>
+          <article class="summary-card income" data-card-id="income" data-summary-type="income">
+            <span class="card-drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span id="incomeSummaryLabel">本月收入</span>
+            <strong id="monthIncome">NT$ 0</strong>
+          </article>
+          <article class="summary-card" data-card-id="count">
+            <span class="card-drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span id="countSummaryLabel">本月筆數</span>
+            <strong id="monthCount">0 筆</strong>
+          </article>
+          <article class="summary-card warning" data-card-id="pending">
+            <span class="card-drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span id="pendingSummaryLabel">待補憑證</span>
+            <strong id="pendingVoucher">0 筆</strong>
+          </article>
+        </section>
+
+        <section id="setupNotice" class="notice" hidden>
+          Firebase 尚未設定。現在可先用本機預覽畫面，正式儲存前請先修改
+          <strong>src/firebase-config.js</strong>。
+        </section>
+
+        <section id="overviewView" class="view-panel active">
+          <div class="placeholder-panel">
+            <p class="eyebrow">ERP OVERVIEW</p>
+            <h2>營運總覽</h2>
+            <div class="rule-list">
+              <article>
+                <strong>經營損益</strong>
+                <span>追蹤營收、商品成本、金流物流成本、包材、毛利率與淨利率。</span>
+              </article>
+              <article>
+                <strong>現金狀態</strong>
+                <span>之後銀行對帳單匯入後，會拆出已收、已付、應收未收、應付未付與股東代墊。</span>
+              </article>
+              <article>
+                <strong>待處理提醒</strong>
+                <span>集中查看待補憑證、待分類、可能重複入帳、平台待撥款與待會計師確認。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="ledgerView" class="view-panel">
+          <section class="ledger-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">NEW RECORD</p>
+                <h2 id="formTitle">新增支出紀錄</h2>
+              </div>
+              <div class="panel-actions">
+                <div class="segmented" aria-label="收入或支出">
+                  <button class="segment active" type="button" data-type="expense">支出</button>
+                  <button class="segment" type="button" data-type="income">收入</button>
+                </div>
+                <button id="importLedgerButton" class="secondary-button" type="button">匯入 Excel</button>
+                <input id="importLedgerInput" type="file" accept=".xlsx,.xls,.csv" hidden />
+                <button id="toggleOptionsButton" class="secondary-button" type="button">管理選項</button>
+              </div>
+            </div>
+
+            <form id="ledgerForm" class="ledger-form">
+              <div class="field">
+                <label for="dateInput">日期 <b>*</b></label>
+                <input id="dateInput" type="date" min="2026-01-01" max="2035-12-31" required />
+              </div>
+
+              <div class="field with-add">
+                <label for="counterpartySelect">交易對象 <b>*</b></label>
+                <select id="counterpartySelect" required></select>
+                <button class="icon-button" type="button" data-add-option="counterparties">+</button>
+              </div>
+
+              <div class="field wide">
+                <label for="itemInput">項目／摘要 <b>*</b></label>
+                <input id="itemInput" type="text" placeholder="例如：卡盒、印章、運費" required />
+              </div>
+
+              <div class="field">
+                <label for="amountInput"><span id="amountLabel">支出金額</span> <b>*</b></label>
+                <input id="amountInput" type="number" min="1" step="1" inputmode="numeric" placeholder="輸入金額" required />
+              </div>
+
+              <div class="field with-add">
+                <label for="cashflowSelect">金流方式 <b>*</b></label>
+                <select id="cashflowSelect" required></select>
+                <button class="icon-button" type="button" data-add-option="cashflows">+</button>
+              </div>
+
+              <div class="field with-add">
+                <label for="accountSelect"><span id="accountLabel">支出帳戶</span> <b>*</b></label>
+                <select id="accountSelect" required></select>
+                <button class="icon-button" type="button" data-add-option="accounts">+</button>
+              </div>
+
+              <div class="field with-add">
+                <label for="majorSelect">大類 <b>*</b></label>
+                <select id="majorSelect" required></select>
+                <button class="icon-button" type="button" data-add-option="majors">+</button>
+              </div>
+
+              <div class="field with-add">
+                <label for="middleSelect">中類 <b>*</b></label>
+                <select id="middleSelect" required></select>
+                <button class="icon-button" type="button" data-add-option="middles">+</button>
+              </div>
+
+              <div class="field with-add">
+                <label for="minorSelect">細項 <b>*</b></label>
+                <select id="minorSelect" required></select>
+                <button class="icon-button" type="button" data-add-option="minors">+</button>
+              </div>
+
+              <div class="field wide">
+                <label for="noteSelect">備註</label>
+                <select id="noteSelect"></select>
+                <textarea id="noteInput" rows="2" placeholder="選擇自訂後可輸入備註" hidden></textarea>
+              </div>
+
+              <div class="field file-field">
+                <label for="voucherInput">發票／收據檔案</label>
+                <label class="drop-zone" for="voucherInput">
+                  <span>拖曳檔案至此，或點擊選擇</span>
+                  <small>未上傳時默認無發票；有上傳會自動標記為有</small>
+                  <input id="voucherInput" type="file" accept=".jpg,.jpeg,.png,.pdf" />
+                </label>
+                <div id="voucherPreview" class="muted-text">目前默認：無發票</div>
+              </div>
+
+              <div class="form-footer">
+                <button id="clearButton" class="secondary-button" type="button">清除內容</button>
+                <button id="saveButton" type="submit">儲存紀錄</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="optionsPanel" class="options-panel" hidden>
+            <div class="section-heading">
+              <div>
+                <h2 id="optionsTitle">管理支出選項</h2>
+                <p class="muted-text">目前只會編輯正在使用的支出／收入欄位。</p>
+              </div>
+              <button id="resetOptionsButton" class="secondary-button" type="button">還原本類預設</button>
+            </div>
+            <div id="optionsEditor" class="options-grid"></div>
+          </section>
+
+          <section class="records-panel">
+            <div class="section-heading">
+              <h2>最近紀錄</h2>
+              <button id="refreshRecordsButton" class="secondary-button" type="button">重新整理</button>
+            </div>
+            <div id="recordsList" class="record-list empty-state">尚無資料</div>
+          </section>
+        </section>
+
+        <section id="pendingView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">ACTION CENTER</p>
+            <h2>待處理事項</h2>
+            <div class="rule-list">
+              <article>
+                <strong>待補憑證</strong>
+                <span>未上傳發票或收據的流水帳會集中在這裡。</span>
+              </article>
+              <article>
+                <strong>待確認交易</strong>
+                <span>分類不明、金流方式不明、可能重複入帳的項目會列入確認。</span>
+              </article>
+              <article>
+                <strong>待會計師確認</strong>
+                <span>營業稅、折舊、攤銷、月底調整等專業判斷先集中保留。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="cashflowView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">CASHFLOW</p>
+            <h2>現金流</h2>
+            <div class="rule-list">
+              <article>
+                <strong>銀行對帳單匯入</strong>
+                <span>規劃匯入銀行明細，核對實際收款、付款與手續費。</span>
+              </article>
+              <article>
+                <strong>平台待撥款</strong>
+                <span>銷售發生與平台撥款時間不同時，先列為應收或待撥款。</span>
+              </article>
+              <article>
+                <strong>股東代墊</strong>
+                <span>股東先付款的支出獨立追蹤，不直接混入公司銀行現金流。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="inventoryView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">INVENTORY</p>
+            <h2>進銷存</h2>
+            <div class="rule-list">
+              <article>
+                <strong>進貨</strong>
+                <span>匯入進貨資料，記錄商品、數量、單位成本與供應來源。</span>
+              </article>
+              <article>
+                <strong>銷貨成本</strong>
+                <span>未來毛利率會優先使用進銷存計算出的實際銷貨成本。</span>
+              </article>
+              <article>
+                <strong>庫存</strong>
+                <span>追蹤期初、進貨、銷貨、退貨與期末庫存。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="vouchersView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">VOUCHERS</p>
+            <h2>憑證中心</h2>
+            <div class="rule-list">
+              <article>
+                <strong>發票與收據</strong>
+                <span>集中管理已上傳憑證，連回流水帳來源交易。</span>
+              </article>
+              <article>
+                <strong>待補憑證</strong>
+                <span>未上傳發票或收據的交易會自動列入待處理。</span>
+              </article>
+              <article>
+                <strong>重複入帳提醒</strong>
+                <span>先付款後補發票時，系統會對比前後兩筆資料再詢問是否刪除前筆。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="reportsView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">REPORT CENTER</p>
+            <h2>分類報表</h2>
+            <p class="muted-text">選擇你想看的日期區間，系統會依目前流水帳紀錄彙總收入、支出、淨額與分類。</p>
+
+            <div class="report-filter">
+              <div class="field">
+                <label for="reportStartInput">起始日期</label>
+                <input id="reportStartInput" type="date" min="2026-01-01" max="2035-12-31" />
+              </div>
+              <div class="field">
+                <label for="reportEndInput">結束日期</label>
+                <input id="reportEndInput" type="date" min="2026-01-01" max="2035-12-31" />
+              </div>
+              <button id="generateReportButton" type="button">產生區間報表</button>
+              <button id="exportReportButton" class="secondary-button" type="button" disabled>匯出 Excel</button>
+            </div>
+
+            <div id="customReportResult" class="custom-report">
+              <div class="empty-state">請先選擇起始日期與結束日期。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="settingsView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">SYSTEM RULES</p>
+            <h2>系統設定</h2>
+            <div class="rule-list">
+              <article>
+                <strong>原始資料規則</strong>
+                <span>原始檔不可修改、覆蓋、重新命名或刪除，只能複製到處理中。</span>
+              </article>
+              <article>
+                <strong>報表規則</strong>
+                <span>報表不得覆蓋同名檔案，需建立新版並保留來源追溯。</span>
+              </article>
+              <article>
+                <strong>自動化時間</strong>
+                <span>日報、週報、月報皆以台灣時間 11:00 為準。</span>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
