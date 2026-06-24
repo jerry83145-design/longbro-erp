@@ -133,6 +133,10 @@ const inventoryOpeningBoxQtyInput = document.querySelector("#inventoryOpeningBox
 const inventoryOpeningCardQtyInput = document.querySelector("#inventoryOpeningCardQtyInput");
 const inventoryOpeningCostInput = document.querySelector("#inventoryOpeningCostInput");
 const saveInventorySettingsButton = document.querySelector("#saveInventorySettingsButton");
+const recycleBinList = document.querySelector("#recycleBinList");
+const refreshRecycleBinButton = document.querySelector("#refreshRecycleBinButton");
+const auditLogList = document.querySelector("#auditLogList");
+const refreshAuditLogButton = document.querySelector("#refreshAuditLogButton");
 
 const fields = {
   date: document.querySelector("#dateInput"),
@@ -169,6 +173,14 @@ let lastReportRows = [];
 let lastReportSummary = null;
 let editingRecordId = null;
 let editingInventoryId = null;
+let recycleBinCache = [];
+let auditLogCache = [];
+
+const recycleCollections = [
+  { name: "ledgerRecords", label: "流水帳" },
+  { name: "bankTransactions", label: "銀行資料" },
+  { name: "inventoryRecords", label: "庫存" },
+];
 
 const isConfigured = !Object.values(firebaseConfig).some((value) =>
   String(value).includes("請填入"),
@@ -373,6 +385,15 @@ saveInventorySettingsButton.addEventListener("click", () => {
   saveInventorySettings();
   renderInventory();
   showToast("庫存期初已儲存。");
+});
+
+refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
+refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
+
+recycleBinList?.addEventListener("click", async (event) => {
+  const restoreButton = event.target.closest("[data-recycle-restore]");
+  if (!restoreButton) return;
+  await restoreDeletedRecord(restoreButton.dataset.collection, restoreButton.dataset.recordId);
 });
 
 bankImportInput.addEventListener("change", async () => {
@@ -854,6 +875,10 @@ function showView(view) {
   if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
   if (view === "pending") renderPendingCenter();
+  if (view === "settings") {
+    loadRecycleBinRecords();
+    loadAuditLogs();
+  }
 }
 
 function updatePageMeta(key) {
@@ -1077,9 +1102,7 @@ function buildDuplicateMessage(previous, current) {
 }
 
 async function deletePreviousRecord(record) {
-  if (isConfigured) {
-    await firebaseApi.deleteDoc(firebaseApi.doc(db, "ledgerRecords", record.id));
-  }
+  await softDeleteRecord("ledgerRecords", record.id, record);
   recordsCache = recordsCache.filter((item) => item.id !== record.id);
   if (!isConfigured) saveLocalRecords();
 }
@@ -1111,6 +1134,9 @@ async function updateRecord(record) {
     voucherFileNames: newVoucherMetadata.length ? newVoucherMetadata.map((file) => file.name) : existingVoucherNames,
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
+
+  const previousRecord = recordsCache.find((item) => item.id === editingRecordId);
+  await writeAuditLog("update", "ledgerRecords", editingRecordId, previousRecord, cleanedRecord);
 
   if (isConfigured) {
     await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", editingRecordId), cleanedRecord);
@@ -1577,6 +1603,7 @@ async function loadRecords() {
   );
   recordsCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((record) => !record.deletedAt)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   setReportDatesFromRecords(recordsCache);
   setCashflowDatesFromRecords(recordsCache);
@@ -2124,6 +2151,335 @@ function getBankTransactionAmount(transaction) {
   return Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
 }
 
+async function writeAuditLog(action, collectionName, recordId, before = null, after = null) {
+  const log = {
+    action,
+    collectionName,
+    recordId,
+    before: sanitizeAuditRecord(before),
+    after: sanitizeAuditRecord(after),
+    createdAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    createdBy: currentUser?.email || "local-preview",
+    userId: currentUser?.uid || "local-preview",
+  };
+
+  if (isConfigured) {
+    await firebaseApi.addDoc(firebaseApi.collection(db, "auditLogs"), log);
+    return;
+  }
+
+  const logs = JSON.parse(localStorage.getItem("auditLogsPreview") || "[]");
+  logs.unshift({ id: crypto.randomUUID(), ...log });
+  localStorage.setItem("auditLogsPreview", JSON.stringify(logs.slice(0, 300)));
+}
+
+function sanitizeAuditRecord(record) {
+  if (!record) return null;
+  const { voucherFiles, voucherFile, ...safeRecord } = record;
+  return safeRecord;
+}
+
+async function loadAuditLogs() {
+  if (!auditLogList) return;
+
+  if (!isConfigured) {
+    auditLogCache = loadLocalAuditLogs();
+    renderAuditLogs();
+    return;
+  }
+
+  if (!currentUser || !db) {
+    auditLogCache = [];
+    renderAuditLogs();
+    return;
+  }
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "auditLogs"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(100),
+    ),
+  );
+
+  auditLogCache = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => getRecordTimeValue({ updatedAt: b.createdAt }) - getRecordTimeValue({ updatedAt: a.createdAt }));
+  renderAuditLogs();
+}
+
+function renderAuditLogs() {
+  if (!auditLogList) return;
+
+  if (!auditLogCache.length) {
+    auditLogList.className = "pending-list empty-state";
+    auditLogList.textContent = "目前沒有操作紀錄。";
+    return;
+  }
+
+  auditLogList.className = "pending-list audit-list";
+  auditLogList.innerHTML = auditLogCache.slice(0, 50).map(renderAuditLogItem).join("");
+}
+
+function renderAuditLogItem(log) {
+  const targetRecord = log.after || log.before || {};
+  const title = getAuditRecordTitle(log.collectionName, targetRecord);
+  const meta = getAuditRecordMeta(log.collectionName, targetRecord);
+  const diff = getAuditDiffText(log);
+
+  return `
+    <article class="pending-item recycle-item">
+      <div class="pending-left">
+        <span class="status-pill">${escapeHtml(getAuditActionLabel(log.action))}</span>
+        <div>
+          <strong>${escapeHtml(getRecycleCollectionLabel(log.collectionName))} · ${escapeHtml(title)}</strong>
+          <p>${escapeHtml(meta)}</p>
+          <small>${escapeHtml(formatRecordTime(log.createdAt))} · ${escapeHtml(log.createdBy || "未知操作者")}${diff ? ` · ${escapeHtml(diff)}` : ""}</small>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function getAuditActionLabel(action) {
+  if (action === "update") return "修改";
+  if (action === "delete") return "刪除";
+  if (action === "restore") return "復原";
+  return action || "操作";
+}
+
+function getAuditRecordTitle(collectionName, record) {
+  if (collectionName === "bankTransactions") return record.description || record.sourceFile || "銀行資料";
+  if (collectionName === "inventoryRecords") return record.name || "庫存紀錄";
+  return record.item || record.counterparty || "流水帳紀錄";
+}
+
+function getAuditRecordMeta(collectionName, record) {
+  if (collectionName === "bankTransactions") {
+    const amount = Number(record.deposit || record.withdrawal || 0);
+    const direction = record.deposit ? "流入" : record.withdrawal ? "流出" : "金額";
+    return `${record.date || "未填日期"} · ${record.account || "未填帳戶"} · ${direction} NT$ ${formatNumber(amount)}`;
+  }
+
+  if (collectionName === "inventoryRecords") {
+    const action = inventoryActionLabels[record.action] || record.action || "庫存";
+    return `${record.date || "未填日期"} · ${action} · ${formatNumber(record.quantity)} · NT$ ${formatNumber(record.totalCost)}`;
+  }
+
+  return `${record.date || "未填日期"} · ${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`;
+}
+
+function getAuditDiffText(log) {
+  if (log.action !== "update" || !log.before || !log.after) return "";
+  const changes = [];
+  ["date", "counterparty", "item", "amount", "account", "settlementStatus", "name", "quantity", "totalCost", "status"].forEach((field) => {
+    if (String(log.before[field] ?? "") !== String(log.after[field] ?? "")) changes.push(field);
+  });
+  return changes.length ? `變更 ${changes.length} 欄` : "內容已更新";
+}
+
+async function softDeleteRecord(collectionName, recordId, record) {
+  const updates = {
+    deletedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    deletedBy: currentUser?.email || "local-preview",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  await writeAuditLog("delete", collectionName, recordId, record, { ...record, ...updates });
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, collectionName, recordId), updates);
+    return;
+  }
+
+  const deletedRecords = loadLocalDeletedRecords();
+  deletedRecords.unshift({ collectionName, id: recordId, ...record, ...updates });
+  localStorage.setItem("deletedRecordsPreview", JSON.stringify(deletedRecords.slice(0, 300)));
+}
+
+async function loadRecycleBinRecords() {
+  if (!recycleBinList) return;
+
+  if (!isConfigured) {
+    recycleBinCache = loadLocalDeletedRecords();
+    renderRecycleBin();
+    return;
+  }
+
+  if (!currentUser || !db) {
+    recycleBinCache = [];
+    renderRecycleBin();
+    return;
+  }
+
+  const deletedRecords = [];
+
+  for (const collectionInfo of recycleCollections) {
+    const snapshot = await firebaseApi.getDocs(
+      firebaseApi.query(
+        firebaseApi.collection(db, collectionInfo.name),
+        firebaseApi.where("userId", "==", currentUser.uid),
+        firebaseApi.limit(200),
+      ),
+    );
+
+    snapshot.docs
+      .map((doc) => ({ id: doc.id, collectionName: collectionInfo.name, collectionLabel: collectionInfo.label, ...doc.data() }))
+      .filter((record) => record.deletedAt)
+      .forEach((record) => deletedRecords.push(record));
+  }
+
+  recycleBinCache = deletedRecords.sort((a, b) => getRecordTimeValue({ updatedAt: b.deletedAt }) - getRecordTimeValue({ updatedAt: a.deletedAt }));
+  renderRecycleBin();
+}
+
+function renderRecycleBin() {
+  if (!recycleBinList) return;
+
+  if (!recycleBinCache.length) {
+    recycleBinList.className = "pending-list empty-state";
+    recycleBinList.textContent = "目前沒有刪除資料。";
+    return;
+  }
+
+  recycleBinList.className = "pending-list recycle-list";
+  recycleBinList.innerHTML = recycleBinCache.map(renderRecycleBinItem).join("");
+}
+
+function renderRecycleBinItem(record) {
+  const title = getRecycleItemTitle(record);
+  const meta = getRecycleItemMeta(record);
+  const deletedBy = record.deletedBy ? ` · 刪除者：${record.deletedBy}` : "";
+
+  return `
+    <article class="pending-item recycle-item">
+      <div class="pending-left">
+        <span class="status-pill">${escapeHtml(record.collectionLabel || getRecycleCollectionLabel(record.collectionName))}</span>
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <p>${escapeHtml(meta)}</p>
+          <small>刪除時間：${escapeHtml(formatRecordTime(record.deletedAt))}${escapeHtml(deletedBy)}</small>
+        </div>
+      </div>
+      <button class="secondary-button" type="button" data-recycle-restore data-collection="${escapeHtml(record.collectionName)}" data-record-id="${escapeHtml(record.id)}">復原</button>
+    </article>
+  `;
+}
+
+function getRecycleCollectionLabel(collectionName) {
+  return recycleCollections.find((item) => item.name === collectionName)?.label || collectionName;
+}
+
+function getRecycleItemTitle(record) {
+  if (record.collectionName === "bankTransactions") return record.description || record.sourceFile || "銀行資料";
+  if (record.collectionName === "inventoryRecords") return record.name || "庫存紀錄";
+  return record.item || record.counterparty || "流水帳紀錄";
+}
+
+function getRecycleItemMeta(record) {
+  if (record.collectionName === "bankTransactions") {
+    const amount = Number(record.deposit || record.withdrawal || 0);
+    const direction = record.deposit ? "流入" : record.withdrawal ? "流出" : "金額";
+    return `${record.date || "未填日期"} · ${record.account || "未填帳戶"} · ${direction} NT$ ${formatNumber(amount)}`;
+  }
+
+  if (record.collectionName === "inventoryRecords") {
+    const action = inventoryActionLabels[record.action] || record.action || "庫存";
+    return `${record.date || "未填日期"} · ${action} · ${formatNumber(record.quantity)} · NT$ ${formatNumber(record.totalCost)}`;
+  }
+
+  return `${record.date || "未填日期"} · ${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`;
+}
+
+function formatRecordTime(value) {
+  if (!value) return "未記錄";
+  const date = typeof value.toDate === "function" ? value.toDate() : new Date(getRecordTimeValue({ updatedAt: value }));
+  if (Number.isNaN(date.getTime())) return "未記錄";
+  return `${toDateValue(date)} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+async function restoreDeletedRecord(collectionName, recordId) {
+  const record = recycleBinCache.find((item) => item.collectionName === collectionName && item.id === recordId);
+  if (!record) {
+    showToast("找不到要復原的資料。");
+    return;
+  }
+
+  const updates = {
+    deletedAt: null,
+    deletedBy: "",
+    restoredAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    restoredBy: currentUser?.email || "local-preview",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  await writeAuditLog("restore", collectionName, recordId, record, { ...record, ...updates });
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, collectionName, recordId), updates);
+  } else {
+    restoreLocalDeletedRecord(collectionName, recordId, updates);
+  }
+
+  await loadRecycleBinRecords();
+  await refreshDataAfterRestore(collectionName);
+  showToast("資料已復原。");
+}
+
+async function refreshDataAfterRestore(collectionName) {
+  if (collectionName === "ledgerRecords") {
+    if (isConfigured) await loadRecords();
+    else {
+      renderRecords(recordsCache);
+      updateSummary(recordsCache);
+    }
+    return;
+  }
+
+  if (collectionName === "bankTransactions") {
+    if (isConfigured) await loadBankTransactions();
+    else renderBankTransactions();
+    return;
+  }
+
+  if (collectionName === "inventoryRecords") {
+    if (isConfigured) await loadInventoryRecords();
+    else renderInventory();
+  }
+}
+
+function restoreLocalDeletedRecord(collectionName, recordId, updates) {
+  const deletedRecords = loadLocalDeletedRecords();
+  const record = deletedRecords.find((item) => item.collectionName === collectionName && item.id === recordId);
+  if (!record) return;
+
+  const restoredRecord = { ...record, ...updates };
+  delete restoredRecord.collectionName;
+  delete restoredRecord.collectionLabel;
+  delete restoredRecord.deletedAt;
+  delete restoredRecord.deletedBy;
+
+  if (collectionName === "ledgerRecords") {
+    recordsCache.unshift(restoredRecord);
+    saveLocalRecords();
+  }
+
+  if (collectionName === "bankTransactions") {
+    bankTransactionsCache.unshift(restoredRecord);
+    saveLocalBankTransactions();
+  }
+
+  if (collectionName === "inventoryRecords") {
+    inventoryCache.unshift(restoredRecord);
+    saveLocalInventoryRecords();
+  }
+
+  localStorage.setItem(
+    "deletedRecordsPreview",
+    JSON.stringify(deletedRecords.filter((item) => !(item.collectionName === collectionName && item.id === recordId))),
+  );
+}
+
 function getBankTransactionKey(transaction) {
   if (transaction.importKey) return transaction.importKey;
   return [
@@ -2361,6 +2717,7 @@ async function loadBankTransactions() {
   );
   bankTransactionsCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((transaction) => !transaction.deletedAt)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   renderBankTransactions();
   renderPendingCenter();
@@ -2796,6 +3153,8 @@ async function handleEditBankTransaction(transaction) {
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
 
+  await writeAuditLog("update", "bankTransactions", transaction.id, transaction, { ...transaction, ...updates });
+
   if (isConfigured) {
     await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), updates);
     await loadBankTransactions();
@@ -2819,7 +3178,7 @@ async function handleDeleteBankTransaction(transaction) {
   if (!confirmed) return;
 
   if (isConfigured) {
-    await firebaseApi.deleteDoc(firebaseApi.doc(db, "bankTransactions", transaction.id));
+    await softDeleteRecord("bankTransactions", transaction.id, transaction);
     await loadBankTransactions();
   } else {
     bankTransactionsCache = bankTransactionsCache.filter((item) => item.id !== transaction.id);
@@ -2829,7 +3188,7 @@ async function handleDeleteBankTransaction(transaction) {
   }
 
   renderCashflow();
-  showToast("銀行資料已刪除。");
+  showToast("銀行資料已移到刪除紀錄。");
 }
 
 function renderPendingCenter() {
@@ -3149,6 +3508,9 @@ async function updateInventoryRecord(record) {
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
 
+  const previousRecord = inventoryCache.find((item) => item.id === editingInventoryId);
+  await writeAuditLog("update", "inventoryRecords", editingInventoryId, previousRecord, payload);
+
   if (isConfigured) {
     await firebaseApi.updateDoc(firebaseApi.doc(db, "inventoryRecords", editingInventoryId), payload);
     await loadInventoryRecords();
@@ -3181,6 +3543,7 @@ async function loadInventoryRecords() {
   );
   inventoryCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((record) => !record.deletedAt)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   renderInventory();
   renderRecords(recordsCache);
@@ -3297,7 +3660,7 @@ async function handleDeleteInventoryRecord(record) {
   if (!confirmed) return;
 
   if (isConfigured) {
-    await firebaseApi.deleteDoc(firebaseApi.doc(db, "inventoryRecords", record.id));
+    await softDeleteRecord("inventoryRecords", record.id, record);
     await loadInventoryRecords();
   } else {
     inventoryCache = inventoryCache.filter((item) => item.id !== record.id);
@@ -3310,7 +3673,7 @@ async function handleDeleteInventoryRecord(record) {
   renderCashflow();
   renderPendingCenter();
   renderSettlementCenter();
-  showToast("庫存紀錄已刪除。");
+  showToast("庫存紀錄已移到刪除紀錄。");
 }
 
 async function updateLedgerInventoryLinks(record, links) {
@@ -4417,6 +4780,22 @@ function loadLocalBankTransactions() {
 
 function saveLocalBankTransactions() {
   localStorage.setItem("bankTransactionsPreview", JSON.stringify(bankTransactionsCache));
+}
+
+function loadLocalDeletedRecords() {
+  try {
+    return JSON.parse(localStorage.getItem("deletedRecordsPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function loadLocalAuditLogs() {
+  try {
+    return JSON.parse(localStorage.getItem("auditLogsPreview") || "[]");
+  } catch {
+    return [];
+  }
 }
 
 function stripFile(record) {

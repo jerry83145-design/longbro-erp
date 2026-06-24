@@ -512,6 +512,28 @@
 
         <section id="settingsView" class="view-panel">
           <div class="placeholder-panel">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">RECYCLE BIN</p>
+                <h2>資料回收桶</h2>
+                <p class="muted-text">刪除的流水帳、銀行資料、庫存會先保留在這裡，可再復原。</p>
+              </div>
+              <button id="refreshRecycleBinButton" class="secondary-button" type="button">重新整理</button>
+            </div>
+            <div id="recycleBinList" class="pending-list empty-state">目前沒有刪除資料。</div>
+          </div>
+          <div class="placeholder-panel">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">AUDIT LOG</p>
+                <h2>操作紀錄</h2>
+                <p class="muted-text">查看最近修改、刪除、復原紀錄，方便追蹤資料變動。</p>
+              </div>
+              <button id="refreshAuditLogButton" class="secondary-button" type="button">重新整理</button>
+            </div>
+            <div id="auditLogList" class="pending-list empty-state">目前沒有操作紀錄。</div>
+          </div>
+          <div class="placeholder-panel">
             <p class="eyebrow">SYSTEM RULES</p>
             <h2>系統設定</h2>
             <div class="rule-list">

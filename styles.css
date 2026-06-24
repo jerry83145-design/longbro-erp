@@ -985,6 +985,34 @@ textarea:focus {
   background: #fffaf0;
 }
 
+.pending-left {
+  display: contents;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 999px;
+  background: #e8f4f3;
+  color: var(--teal);
+  font-weight: 900;
+  padding: 6px 14px;
+}
+
+.recycle-list {
+  margin-top: 18px;
+}
+
+.recycle-item {
+  grid-template-columns: 130px 1fr auto;
+}
+
+.recycle-item small {
+  margin-top: 4px;
+}
+
 .pending-item div strong,
 .pending-item div span,
 .pending-item div small {
