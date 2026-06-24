@@ -778,6 +778,165 @@ textarea:focus {
   color: var(--muted);
 }
 
+.bank-reconcile-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.bank-reconcile-summary article,
+.bank-reconcile-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.bank-reconcile-summary span {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.bank-reconcile-summary strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+}
+
+.bank-reconcile-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.bank-reconcile-group h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.bank-reconcile-group.matched {
+  border-color: #b7ded8;
+}
+
+.bank-reconcile-group.classified {
+  border-color: #c9d8ee;
+}
+
+.bank-reconcile-group.unmatched {
+  border-color: #f0d09a;
+}
+
+.bank-reconcile-group.ignored {
+  border-color: #d8e0df;
+}
+
+.bank-reconcile-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.bank-reconcile-item:first-of-type {
+  border-top: 0;
+}
+
+.bank-reconcile-item span,
+.bank-reconcile-item small {
+  display: block;
+  color: var(--muted);
+}
+
+.bank-reconcile-item small {
+  margin-top: 4px;
+}
+
+.bank-reconcile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.bank-reconcile-item button {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 7px 10px;
+  font-weight: 800;
+}
+
+.bank-issue-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.bank-issue-summary article,
+.bank-issue-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.bank-issue-summary span {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.bank-issue-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--warn);
+  font-size: 22px;
+}
+
+.bank-issue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bank-issue-item {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.bank-issue-item > span {
+  border-radius: 999px;
+  background: #fff4df;
+  color: #9a6700;
+  padding: 7px 10px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.bank-issue-item.amountMismatch > span,
+.bank-issue-item.duplicateMatch > span {
+  background: #ffe8e8;
+  color: #b91c1c;
+}
+
+.bank-issue-item strong,
+.bank-issue-item small {
+  display: block;
+}
+
+.bank-issue-item small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .pending-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1185,6 +1344,126 @@ textarea:focus {
   box-shadow: var(--shadow);
 }
 
+.match-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 30, 30, 0.46);
+  padding: 24px;
+}
+
+.match-dialog {
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 22px 54px rgba(9, 47, 47, 0.2);
+  overflow: hidden;
+}
+
+.match-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.match-dialog-header h3 {
+  margin: 4px 0 6px;
+  font-size: 26px;
+}
+
+.match-dialog-header p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
+.match-dialog-header button {
+  align-self: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  width: 38px;
+  height: 38px;
+  font-size: 24px;
+}
+
+.match-dialog-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px 24px;
+  background: #fbfdfd;
+  border-bottom: 1px solid var(--line);
+}
+
+.match-dialog-summary span {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.match-dialog-summary strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 20px;
+}
+
+.match-dialog-list {
+  display: grid;
+  gap: 10px;
+  padding: 18px 24px;
+  overflow: auto;
+}
+
+.match-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+
+.match-option:has(input:checked) {
+  border-color: #8fcfc7;
+  background: #f0faf8;
+}
+
+.match-option input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+.match-option span,
+.match-option small {
+  display: block;
+}
+
+.match-option small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.match-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px 22px;
+  border-top: 1px solid var(--line);
+}
+
 @media (max-width: 1120px) {
   .dashboard-shell {
     grid-template-columns: 1fr;
@@ -1219,6 +1498,14 @@ textarea:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .bank-reconcile-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-issue-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .ledger-form {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
@@ -1240,6 +1527,39 @@ textarea:focus {
 
   .sidebar-nav {
     grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+
+  .bank-reconcile-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-reconcile-item {
+    grid-template-columns: 1fr;
+  }
+
+  .bank-issue-summary,
+  .bank-issue-item {
+    grid-template-columns: 1fr;
+  }
+
+  .match-dialog-overlay {
+    padding: 12px;
+  }
+
+  .match-dialog-summary,
+  .match-option {
+    grid-template-columns: 1fr;
+  }
+
+  .match-dialog-header {
+    padding: 18px;
+  }
+
+  .match-dialog-list,
+  .match-dialog-summary,
+  .match-dialog-actions {
+    padding-left: 18px;
+    padding-right: 18px;
   }
 
   .content-header,

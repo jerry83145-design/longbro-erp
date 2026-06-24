@@ -55,6 +55,11 @@ const inventoryUnitLabels = {
   supply: "件",
 };
 
+const settlementStatuses = {
+  expense: ["已付款", "待付款", "信用卡未請款", "月結未付", "股東代墊未沖", "不適用"],
+  income: ["已收款", "待收款", "平台待撥", "月結未收", "不適用"],
+};
+
 const setupNotice = document.querySelector("#setupNotice");
 const authStatus = document.querySelector("#authStatus");
 const signInButton = document.querySelector("#signInButton");
@@ -63,6 +68,8 @@ const ledgerForm = document.querySelector("#ledgerForm");
 const formTitle = document.querySelector("#formTitle");
 const amountLabel = document.querySelector("#amountLabel");
 const accountLabel = document.querySelector("#accountLabel");
+const settlementStatusLabel = document.querySelector("#settlementStatusLabel");
+const dueDateLabel = document.querySelector("#dueDateLabel");
 const saveButton = document.querySelector("#saveButton");
 const clearButton = document.querySelector("#clearButton");
 const toggleOptionsButton = document.querySelector("#toggleOptionsButton");
@@ -106,6 +113,7 @@ const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
 const pendingSummary = document.querySelector("#pendingSummary");
 const pendingList = document.querySelector("#pendingList");
+const settlementList = document.querySelector("#settlementList");
 const inventoryForm = document.querySelector("#inventoryForm");
 const inventoryDateInput = document.querySelector("#inventoryDateInput");
 const inventoryTypeSelect = document.querySelector("#inventoryTypeSelect");
@@ -133,6 +141,8 @@ const fields = {
   amount: document.querySelector("#amountInput"),
   cashflow: document.querySelector("#cashflowSelect"),
   account: document.querySelector("#accountSelect"),
+  settlementStatus: document.querySelector("#settlementStatusSelect"),
+  dueDate: document.querySelector("#dueDateInput"),
   major: document.querySelector("#majorSelect"),
   middle: document.querySelector("#middleSelect"),
   minor: document.querySelector("#minorSelect"),
@@ -201,6 +211,12 @@ const pageMeta = {
     subtitle: "匯入銀行對帳單，追蹤實際收款、付款、平台待撥款與股東代墊",
     action: "新增支出",
   },
+  settlement: {
+    eyebrow: "SETTLEMENT",
+    title: "收付款核對",
+    subtitle: "處理應收、應付、帳期與後續銀行對帳單核對",
+    action: "新增紀錄",
+  },
   inventory: {
     eyebrow: "INVENTORY",
     title: "進銷存",
@@ -240,6 +256,7 @@ renderLedgerInventorySync();
 renderInventorySources();
 renderInventory();
 renderPendingCenter();
+renderSettlementCenter();
 renderBankTransactions();
 
 if (isConfigured) {
@@ -254,6 +271,7 @@ if (isConfigured) {
   renderCashflow();
   renderInventory();
   renderPendingCenter();
+  renderSettlementCenter();
   renderBankTransactions();
 }
 
@@ -332,6 +350,23 @@ saveCashflowSettingsButton.addEventListener("click", () => {
   saveCashflowSettings();
   renderCashflow();
   showToast("現金流期初已儲存。");
+});
+
+cashflowResult.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-bank-action]");
+  if (!button) return;
+
+  const transaction = bankTransactionsCache.find((item) => item.id === button.dataset.bankId);
+  if (!transaction) return;
+
+  if (button.dataset.bankAction === "reconcile") {
+    await reconcileBankTransaction(transaction);
+    return;
+  }
+
+  if (button.dataset.bankAction === "unmatch") {
+    await unmatchBankTransaction(transaction);
+  }
 });
 
 saveInventorySettingsButton.addEventListener("click", () => {
@@ -426,6 +461,18 @@ pendingList.addEventListener("click", (event) => {
   updatePageMeta(target === "ledger" ? type : target);
 });
 
+settlementList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-settlement-action]");
+  if (!button) return;
+
+  const record = recordsCache.find((item) => item.id === button.dataset.recordId);
+  if (!record) return;
+
+  if (button.dataset.settlementAction === "settle") {
+    await settleLedgerRecord(record);
+  }
+});
+
 document.querySelectorAll("[data-add-option]").forEach((button) => {
   button.addEventListener("click", () => {
     addOption(button.dataset.addOption);
@@ -466,6 +513,7 @@ clearButton.addEventListener("click", () => {
   voucherPreview.textContent = "目前默認：無發票";
   renderBatchVoucherList([]);
   fields.noteText.hidden = true;
+  renderSettlementStatusOptions();
   renderLedgerInventorySync();
   resetEditingState();
 });
@@ -499,6 +547,16 @@ bankTransactionList.addEventListener("click", async (event) => {
   if (actionButton) {
     const transaction = bankTransactionsCache.find((item) => item.id === actionButton.dataset.bankId);
     if (!transaction) return;
+
+    if (actionButton.dataset.bankAction === "reconcile") {
+      await reconcileBankTransaction(transaction);
+      return;
+    }
+
+    if (actionButton.dataset.bankAction === "unmatch") {
+      await unmatchBankTransaction(transaction);
+      return;
+    }
 
     if (actionButton.dataset.bankAction === "edit") {
       await handleEditBankTransaction(transaction);
@@ -562,6 +620,10 @@ ledgerForm.addEventListener("submit", async (event) => {
     }
 
     if (editingRecordId) {
+      if (previousRecord?.settledDate) {
+        record.settledDate = previousRecord.settledDate;
+        record.settlementStatus = record.type === "income" ? "已收款" : "已付款";
+      }
       if (previousRecord && !record.voucherFiles.length && (previousRecord.voucher || previousRecord.vouchers?.length || previousRecord.voucherFileNames?.length)) {
         record.voucher = previousRecord.voucher;
         record.vouchers = previousRecord.vouchers || [];
@@ -582,7 +644,10 @@ ledgerForm.addEventListener("submit", async (event) => {
       await handleLedgerInventorySync(savedRecord);
       renderRecords(recordsCache);
       updateSummary(recordsCache);
+      renderCustomReport();
       renderCashflow();
+      renderPendingCenter();
+      renderSettlementCenter();
     }
 
     clearButton.click();
@@ -751,8 +816,17 @@ function updateFormLabels() {
   formTitle.textContent = isExpense ? "新增支出紀錄" : "新增收入紀錄";
   amountLabel.textContent = isExpense ? "支出金額" : "收入金額";
   accountLabel.textContent = isExpense ? "支出帳戶" : "收款帳戶";
+  settlementStatusLabel.textContent = isExpense ? "付款狀態" : "收款狀態";
+  dueDateLabel.textContent = isExpense ? "預計付款日" : "預計收款日";
+  renderSettlementStatusOptions();
   updateActiveSummaryCard();
   if (currentView === "ledger") updatePageMeta(recordType);
+}
+
+function renderSettlementStatusOptions(value = fields.settlementStatus.value) {
+  const options = settlementStatuses[recordType];
+  fields.settlementStatus.innerHTML = options.map((status) => `<option value="${status}">${status}</option>`).join("");
+  fields.settlementStatus.value = options.includes(value) ? value : options[0];
 }
 
 function setRecordType(type) {
@@ -777,6 +851,7 @@ function showView(view) {
   document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`)?.classList.add("active");
   if (view === "cashflow") renderCashflow();
+  if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
   if (view === "pending") renderPendingCenter();
 }
@@ -873,6 +948,8 @@ function buildRecord() {
   const note = fields.note.value === "自訂" ? fields.noteText.value.trim() : fields.note.value;
   const voucherFiles = getVoucherFiles();
   const voucherFileNames = voucherFiles.map((file) => file.name);
+  const dueDate = fields.dueDate.value;
+  const settlementStatus = resolveSettlementStatus(fields.settlementStatus.value, dueDate, "", recordType);
 
   if (!date || date < "2026-01-01" || date > "2035-12-31") {
     showToast("請選擇 2026-2035 之間的日期。");
@@ -899,6 +976,9 @@ function buildRecord() {
     invoiceStatus: voucherFiles.length ? "有" : "無",
     cashflow: fields.cashflow.value,
     account: fields.account.value,
+    settlementStatus,
+    dueDate,
+    settledDate: "",
     major: fields.major.value,
     middle: fields.middle.value,
     minor: fields.minor.value,
@@ -909,6 +989,13 @@ function buildRecord() {
     voucherFileNames,
     voucherBatchStatus: voucherFiles.length > 1 ? "待配對" : "",
   };
+}
+
+function resolveSettlementStatus(status, dueDate, settledDate, type) {
+  if (settledDate) return type === "income" ? "已收款" : "已付款";
+  if (dueDate && status === "已收款") return "待收款";
+  if (dueDate && status === "已付款") return "待付款";
+  return status;
 }
 
 function getVoucherFiles() {
@@ -1010,6 +1097,7 @@ async function handleDeleteRecord(record) {
   renderCustomReport();
   renderCashflow();
   renderPendingCenter();
+  renderSettlementCenter();
   showToast("紀錄已刪除。");
 }
 
@@ -1039,6 +1127,7 @@ async function updateRecord(record) {
   renderCustomReport();
   renderCashflow();
   renderPendingCenter();
+  renderSettlementCenter();
 }
 
 function startEditingRecord(record) {
@@ -1053,6 +1142,8 @@ function startEditingRecord(record) {
   fields.amount.value = Number(record.amount || 0);
   ensureSelectValue(fields.cashflow, record.cashflow);
   ensureSelectValue(fields.account, record.account);
+  renderSettlementStatusOptions(record.settlementStatus);
+  fields.dueDate.value = record.dueDate || "";
   ensureSelectValue(fields.major, record.major);
   ensureSelectValue(fields.middle, record.middle);
   ensureSelectValue(fields.minor, record.minor);
@@ -1268,6 +1359,8 @@ async function importLedgerFile(file) {
     updateSummary(recordsCache);
     renderCustomReport();
     renderCashflow();
+    renderPendingCenter();
+    renderSettlementCenter();
   }
 
   showToast(`已匯入 ${parsed.length} 筆資料。`);
@@ -1295,6 +1388,14 @@ function parseImportRow(row, sourceRow) {
   const extraExpense = parseAmount(pickValue(row, ["額外費用", "其他費用"]));
   const refundAmount = parseAmount(pickValue(row, ["退貨金額", "退款金額"]));
   const netSales = parseAmount(pickValue(row, ["淨銷售額", "淨銷售", "淨收入"]));
+  const dueDate = normalizeImportDate(pickValue(row, ["預計收付款日", "預計付款日", "預計收款日", "到期日", "帳期日", "dueDate"])) || "";
+  const settledDate = normalizeImportDate(pickValue(row, ["實際收付款日", "實際付款日", "實際收款日", "settledDate"])) || "";
+  const settlementStatus = resolveSettlementStatus(
+    normalizeSettlementStatus(pickValue(row, ["收付款狀態", "付款狀態", "收款狀態", "狀態", "settlementStatus"]), type),
+    dueDate,
+    settledDate,
+    type,
+  );
 
   if (!date || !amount || !item) {
     return null;
@@ -1310,6 +1411,9 @@ function parseImportRow(row, sourceRow) {
     invoiceStatus,
     cashflow: String(pickValue(row, ["金流方式", "付款方式", "收款方式", "支出方式", "收入方式", "cashflow"]) || inferImportCashflow(row, type)).trim(),
     account: String(pickValue(row, ["帳戶", "支出帳戶", "收款帳戶", "account"]) || inferImportAccount(type)).trim(),
+    settlementStatus,
+    dueDate,
+    settledDate,
     major: String(pickValue(row, ["大類", "major"]) || inferImportMajor(type)).trim(),
     middle: String(pickValue(row, ["中類", "middle"]) || inferImportMiddle(row, type)).trim(),
     minor: String(pickValue(row, ["細項", "minor"]) || inferImportMinor(row, type)).trim(),
@@ -1446,6 +1550,21 @@ function normalizeInvoiceStatus(value) {
   return "無";
 }
 
+function normalizeSettlementStatus(value, type) {
+  const text = String(value || "").trim();
+  const options = settlementStatuses[type] || settlementStatuses.expense;
+  if (!text) return type === "income" ? "已收款" : "已付款";
+  if (options.includes(text)) return text;
+  if (/已收|收訖|入帳/.test(text)) return "已收款";
+  if (/待撥/.test(text)) return "平台待撥";
+  if (/未收|待收|應收/.test(text)) return "待收款";
+  if (/已付|付訖|付款完成/.test(text)) return "已付款";
+  if (/信用卡|刷卡|未請款/.test(text)) return "信用卡未請款";
+  if (/月結/.test(text)) return type === "income" ? "月結未收" : "月結未付";
+  if (/未付|待付|應付/.test(text)) return "待付款";
+  return type === "income" ? "待收款" : "待付款";
+}
+
 async function loadRecords() {
   if (!currentUser || !db) return;
 
@@ -1470,6 +1589,7 @@ async function loadRecords() {
     renderCashflow();
   }
   renderPendingCenter();
+  renderSettlementCenter();
 }
 
 function renderCustomReport() {
@@ -1494,8 +1614,10 @@ function renderCustomReport() {
   const soldCost = buildSoldCostSummary(records);
   const salesIncome = soldCost.salesIncome;
   const productCost = soldCost.productCost;
-  const logisticsCost = soldCost.logisticsCost;
+  const bankDirectCost = sumBankSalesDirectCosts(start, end);
+  const logisticsCost = soldCost.logisticsCost + bankDirectCost;
   const packagingCost = soldCost.packagingCost;
+  const costOfGoodsSold = productCost + logisticsCost + packagingCost;
   const pending = records.filter((record) => record.pendingReason).length;
   const grossProfit = salesIncome - productCost - logisticsCost - packagingCost;
   const operatingExpense = sumOperatingExpense(records);
@@ -1513,6 +1635,8 @@ function renderCustomReport() {
     productCost,
     logisticsCost,
     packagingCost,
+    costOfGoodsSold,
+    bankDirectCost,
     grossProfit,
     grossMargin,
     otherExpense: operatingExpense,
@@ -1530,6 +1654,10 @@ function renderCustomReport() {
       <article class="report-summary-card">
         <span>銷售收入</span>
         <strong>NT$ ${formatNumber(salesIncome)}</strong>
+      </article>
+      <article class="report-summary-card">
+        <span>銷貨成本</span>
+        <strong>NT$ ${formatNumber(costOfGoodsSold)}</strong>
       </article>
       <article class="report-summary-card">
         <span>營業費用</span>
@@ -1589,13 +1717,21 @@ function renderCashflow() {
       ${renderCashflowCard("平台待撥款", summary.platformPending, "pending")}
       ${renderCashflowCard("股東代墊餘額", summary.shareholderAdvance, "advance")}
       ${renderCashflowCard("已還代墊", summary.shareholderRepayment, "expense")}
-      ${renderCashflowCard("銀行未配對", summary.bankUnmatchedCount, "count", "筆")}
+      ${renderCashflowCard("銀行未正式配帳", summary.bankUnmatchedCount, "count", "筆")}
     </div>
 
     <div class="cashflow-breakdown">
       <section>
         <h3>帳戶小計</h3>
         ${summary.accountRows.length ? summary.accountRows.map(renderCashflowAccountRow).join("") : `<div class="record-group-empty">尚無帳戶資料</div>`}
+      </section>
+      <section>
+        <h3>銀行核對表</h3>
+        ${renderBankReconciliationReport(bankTransactions)}
+      </section>
+      <section>
+        <h3>銀行核對異常</h3>
+        ${renderBankReconciliationIssues(records, bankTransactions)}
       </section>
       <section>
         <h3>現金流明細</h3>
@@ -1655,7 +1791,7 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
     endingCash: Number(opening.openingBank || 0) + Number(opening.openingCash || 0) + cashIn - cashOut,
     reconcileCount,
     bankUnmatchedCount: bankTransactions.filter((transaction) =>
-      !["已配收入", "已配支出", "已配平台撥款", "已配代墊還款", "不入帳"].includes(transaction.status),
+      !isBankTransactionFormallyMatched(transaction) && transaction.status !== "不入帳",
     ).length,
     accountRows: Array.from(accountTotals.values()).sort((a, b) => a.account.localeCompare(b.account, "zh-Hant")),
     flowRows,
@@ -1664,6 +1800,10 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
 
 function classifyCashflowRecord(record) {
   const text = `${record.cashflow || ""} ${record.account || ""} ${record.note || ""} ${record.item || ""}`;
+  if (record.settlementStatus === "平台待撥") return "platformPending";
+  if (record.settlementStatus === "股東代墊未沖") return "shareholderAdvance";
+  if (record.settlementStatus === "已收款") return "cashIn";
+  if (record.settlementStatus === "已付款") return "cashOut";
   if (record.type === "expense" && /張晟睿.*墊付|張晟睿.*代墊|墊付款|償還代墊|代墊款/.test(text)) return "shareholderRepayment";
   if (record.type === "expense" && /信用卡|刷卡|股東代墊|代墊/.test(text)) return "shareholderAdvance";
   if (record.type === "income" && /平台|待撥/.test(text)) return "platformPending";
@@ -1713,6 +1853,241 @@ function renderCashflowFlowRow(record) {
       <strong>${sign} NT$ ${formatNumber(record.amount)}</strong>
     </article>
   `;
+}
+
+function renderBankReconciliationReport(transactions) {
+  if (!transactions.length) {
+    return `<div class="record-group-empty">此區間尚無銀行資料。</div>`;
+  }
+
+  const matched = transactions.filter(isBankTransactionFormallyMatched);
+  const classified = transactions.filter(isBankTransactionClassified);
+  const ignored = transactions.filter((transaction) => transaction.status === "不入帳");
+  const unmatched = transactions.filter((transaction) =>
+    !isBankTransactionFormallyMatched(transaction)
+    && !isBankTransactionClassified(transaction)
+    && transaction.status !== "不入帳"
+  );
+
+  return `
+    <div class="bank-reconcile-summary">
+      <article>
+        <span>正式配帳務</span>
+        <strong>${formatNumber(matched.length)} 筆</strong>
+      </article>
+      <article>
+        <span>已分類未配帳務</span>
+        <strong>${formatNumber(classified.length)} 筆</strong>
+      </article>
+      <article>
+        <span>未配對</span>
+        <strong>${formatNumber(unmatched.length)} 筆</strong>
+      </article>
+      <article>
+        <span>不入帳</span>
+        <strong>${formatNumber(ignored.length)} 筆</strong>
+      </article>
+    </div>
+    <div class="bank-reconcile-columns">
+      ${renderBankReconciliationGroup("正式配帳務", matched, "matched")}
+      ${renderBankReconciliationGroup("已分類未配帳務", classified, "classified")}
+      ${renderBankReconciliationGroup("未配對", unmatched, "unmatched")}
+      ${renderBankReconciliationGroup("不入帳", ignored, "ignored")}
+    </div>
+  `;
+}
+
+function isBankTransactionFormallyMatched(transaction) {
+  return getMatchedLedgerIds(transaction).length > 0;
+}
+
+function isBankTransactionClassified(transaction) {
+  return !isBankTransactionFormallyMatched(transaction)
+    && ["已配收入", "已配支出", "已配平台撥款", "已配代墊還款"].includes(transaction.status);
+}
+
+function getMatchedLedgerIds(transaction) {
+  if (Array.isArray(transaction.matchedLedgerIds) && transaction.matchedLedgerIds.length) {
+    return transaction.matchedLedgerIds.filter(Boolean);
+  }
+  return transaction.matchedLedgerId ? [transaction.matchedLedgerId] : [];
+}
+
+function renderBankReconciliationGroup(title, transactions, tone) {
+  return `
+    <section class="bank-reconcile-group ${tone}">
+      <h4>${title}</h4>
+      ${
+        transactions.length
+          ? transactions.map(renderBankReconciliationItem).join("")
+          : `<div class="record-group-empty">目前沒有資料</div>`
+      }
+    </section>
+  `;
+}
+
+function renderBankReconciliationItem(transaction) {
+  const amount = Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
+  const sign = Number(transaction.deposit || 0) ? "+" : "-";
+  const ledgerText = transaction.matchedLedgerItem
+    ? `配對帳務：${transaction.matchedLedgerItem}`
+    : transaction.matchedLedgerId
+      ? "配對帳務：已配帳務"
+      : isBankTransactionClassified(transaction)
+        ? `${transaction.status}，尚未配帳務`
+        : "尚未選擇帳務";
+  const differenceText = transaction.matchDifference
+    ? `差額：NT$ ${formatNumber(transaction.matchDifference)} · ${transaction.differenceHandling || "待確認"}`
+    : "";
+
+  return `
+    <article class="bank-reconcile-item">
+      <div>
+        <strong>${escapeHtml(transaction.date)}</strong>
+        <span>${escapeHtml(transaction.description || transaction.sourceFile || "銀行資料")}</span>
+        <small>${escapeHtml(ledgerText)}</small>
+        ${differenceText ? `<small>${escapeHtml(differenceText)}</small>` : ""}
+      </div>
+      <div>
+        <strong>${sign} NT$ ${formatNumber(amount)}</strong>
+        <span>${escapeHtml(transaction.status || "待核對")}</span>
+        <div class="bank-reconcile-actions">
+          ${isBankTransactionFormallyMatched(transaction)
+            ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">重新配帳</button>`
+            : transaction.status !== "不入帳"
+              ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">配帳務</button>`
+              : ""}
+          ${isBankTransactionFormallyMatched(transaction) || isBankTransactionClassified(transaction) ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="unmatch">退回待核對</button>` : ""}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderBankReconciliationIssues(records, transactions) {
+  const issues = buildBankReconciliationIssues(records, transactions);
+
+  if (!issues.length) {
+    return `<div class="record-group-empty">目前沒有核對異常。</div>`;
+  }
+
+  const counts = issues.reduce((map, issue) => {
+    map[issue.type] = (map[issue.type] || 0) + 1;
+    return map;
+  }, {});
+
+  return `
+    <div class="bank-issue-summary">
+      <article>
+        <span>金額不一致</span>
+        <strong>${formatNumber(counts.amountMismatch || 0)} 筆</strong>
+      </article>
+      <article>
+        <span>帳務未配銀行</span>
+        <strong>${formatNumber(counts.ledgerUnmatched || 0)} 筆</strong>
+      </article>
+      <article>
+        <span>未正式配帳務</span>
+        <strong>${formatNumber(counts.bankUnmatched || 0)} 筆</strong>
+      </article>
+      <article>
+        <span>重複配對</span>
+        <strong>${formatNumber(counts.duplicateMatch || 0)} 筆</strong>
+      </article>
+    </div>
+    <div class="bank-issue-list">
+      ${issues.map(renderBankReconciliationIssue).join("")}
+    </div>
+  `;
+}
+
+function buildBankReconciliationIssues(records, transactions) {
+  const issues = [];
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const matchedTransactions = transactions.filter((transaction) => getMatchedLedgerIds(transaction).length);
+  const matchCounts = matchedTransactions.reduce((map, transaction) => {
+    getMatchedLedgerIds(transaction).forEach((ledgerId) => {
+      map[ledgerId] = (map[ledgerId] || 0) + 1;
+    });
+    return map;
+  }, {});
+
+  matchedTransactions.forEach((transaction) => {
+    const matchedLedgerIds = getMatchedLedgerIds(transaction);
+    const matchedRecords = matchedLedgerIds.map((ledgerId) => recordsById.get(ledgerId)).filter(Boolean);
+    const bankAmount = getBankTransactionAmount(transaction);
+    const ledgerAmount = Number(transaction.matchedLedgerAmount || matchedRecords.reduce((total, record) => total + Number(record.amount || 0), 0));
+
+    const handledDifference = transaction.differenceHandling && transaction.differenceHandling !== "待確認";
+    if (matchedRecords.length && bankAmount !== ledgerAmount && !handledDifference) {
+      issues.push({
+        type: "amountMismatch",
+        title: "金額不一致",
+        date: transaction.date,
+        subject: transaction.description || transaction.sourceFile || "銀行資料",
+        detail: `銀行 NT$ ${formatNumber(bankAmount)}，帳務 NT$ ${formatNumber(ledgerAmount)}。${transaction.differenceHandling ? `差額處理：${transaction.differenceHandling}` : ""}`,
+      });
+    }
+  });
+
+  records
+    .filter((record) => ["已收款", "已付款"].includes(record.settlementStatus))
+    .filter((record) => !record.bankTransactionId)
+    .forEach((record) => {
+      issues.push({
+        type: "ledgerUnmatched",
+        title: "帳務已收付，銀行未核對",
+        date: record.date,
+        subject: record.item,
+        detail: `${record.type === "income" ? "收入" : "支出"} NT$ ${formatNumber(record.amount)} 尚未配到銀行交易。`,
+      });
+    });
+
+  transactions
+    .filter((transaction) => !isBankTransactionFormallyMatched(transaction) && transaction.status !== "不入帳")
+    .forEach((transaction) => {
+      const classified = isBankTransactionClassified(transaction);
+      issues.push({
+        type: "bankUnmatched",
+        title: classified ? "已分類未配帳務" : "銀行交易未配對",
+        date: transaction.date,
+        subject: transaction.description || transaction.sourceFile || "銀行資料",
+        detail: classified
+          ? `${transaction.status}，但尚未選到實際收入／支出。銀行金額 NT$ ${formatNumber(getBankTransactionAmount(transaction))}。`
+          : `銀行金額 NT$ ${formatNumber(getBankTransactionAmount(transaction))} 尚未配到帳務。`,
+      });
+    });
+
+  Object.entries(matchCounts)
+    .filter(([, count]) => count > 1)
+    .forEach(([ledgerId, count]) => {
+      const record = recordsById.get(ledgerId);
+      issues.push({
+        type: "duplicateMatch",
+        title: "同一筆帳務被多筆銀行交易配對",
+        date: record?.date || "",
+        subject: record?.item || "已配帳務",
+        detail: `目前有 ${formatNumber(count)} 筆銀行交易配到同一筆帳務，請確認是否為分批付款或重複配對。`,
+      });
+    });
+
+  return issues.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function renderBankReconciliationIssue(issue) {
+  return `
+    <article class="bank-issue-item ${issue.type}">
+      <span>${escapeHtml(issue.title)}</span>
+      <div>
+        <strong>${escapeHtml(issue.subject)}</strong>
+        <small>${escapeHtml(issue.date)} · ${escapeHtml(issue.detail)}</small>
+      </div>
+    </article>
+  `;
+}
+
+function getBankTransactionAmount(transaction) {
+  return Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
 }
 
 async function importBankFile(file) {
@@ -1805,6 +2180,7 @@ function readBankRows(sheet) {
         "收入",
         "貸方",
         "入金",
+        "匯入",
         "轉入",
         "存款金額",
         "收入金額",
@@ -1812,6 +2188,7 @@ function readBankRows(sheet) {
         "支出",
         "借方",
         "扣款",
+        "匯出",
         "轉出",
         "提款金額",
         "支出金額",
@@ -1836,9 +2213,11 @@ function readBankRows(sheet) {
 
 function parseBankRow(row, sourceRow, sourceFile) {
   const date = normalizeImportDate(pickValue(row, ["日期", "交易日期", "入帳日", "交易日", "帳務日", "date"]));
-  const description = String(pickValue(row, ["摘要", "說明", "交易明細", "交易內容", "備註", "description"]) || "").trim();
-  let deposit = parseAmount(pickValue(row, ["存入", "收入", "貸方", "貸", "入金", "轉入", "存款金額", "收入金額", "收方", "右方", "deposit", "credit"]));
-  let withdrawal = parseAmount(pickValue(row, ["提出", "支出", "借方", "借", "扣款", "轉出", "提款金額", "支出金額", "付方", "左方", "withdrawal", "debit"]));
+  const descriptionText = String(pickValue(row, ["摘要", "說明", "交易說明", "交易明細", "交易內容", "備註", "description"]) || "").trim();
+  const counterpartyText = String(pickValue(row, ["匯款人／收款人", "匯款人/收款人", "匯款人", "收款人", "交易對象", "counterparty"]) || "").trim();
+  const description = [descriptionText, counterpartyText].filter(Boolean).join(" · ");
+  let deposit = parseAmount(pickValue(row, ["存入", "收入", "貸方", "貸", "入金", "匯入", "轉入", "存款金額", "收入金額", "收方", "右方", "deposit", "credit"]));
+  let withdrawal = parseAmount(pickValue(row, ["提出", "支出", "借方", "借", "扣款", "匯出", "轉出", "提款金額", "支出金額", "付方", "左方", "withdrawal", "debit"]));
   const signedAmount = parseSignedAmount(pickValue(row, ["金額", "交易金額", "收支金額", "amount"]));
   const balance = parseAmount(pickValue(row, ["餘額", "結餘", "存款餘額", "balance"]));
 
@@ -1880,9 +2259,9 @@ function inferBankSideAmounts(row) {
     const amount = parseAmount(value);
     if (!amount) return;
 
-    if (/存入|收入|貸方|入金|轉入|收方|存款/.test(header)) {
+    if (/存入|收入|貸方|入金|匯入|轉入|收方|存款/.test(header)) {
       deposit += amount;
-    } else if (/提出|支出|借方|扣款|轉出|付方|提款/.test(header)) {
+    } else if (/提出|支出|借方|扣款|匯出|轉出|付方|提款/.test(header)) {
       withdrawal += amount;
     }
   });
@@ -1939,6 +2318,11 @@ function renderBankTransactionRow(transaction) {
       ? `- NT$ ${formatNumber(transaction.withdrawal)}`
       : "待辨識";
   const status = transaction.status || "待核對";
+  const matchedText = transaction.matchedLedgerItem
+    ? `已配：${transaction.matchedLedgerItem}`
+    : transaction.matchedLedgerId
+      ? "已配帳務"
+      : "";
   const statusButtons = [
     ["已配收入", "配收入"],
     ["已配支出", "配支出"],
@@ -1952,10 +2336,13 @@ function renderBankTransactionRow(transaction) {
       <div>
         <strong>${escapeHtml(transaction.description || transaction.sourceFile || "銀行資料")}</strong>
         <span>${escapeHtml(transaction.account)} · ${escapeHtml(transaction.sourceFile || "")}</span>
+        ${matchedText ? `<small>${escapeHtml(matchedText)}</small>` : ""}
       </div>
       <strong>${amountText}</strong>
       <span>${escapeHtml(status)}</span>
       <div class="bank-actions">
+        <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">配帳務</button>
+        ${isBankTransactionFormallyMatched(transaction) || isBankTransactionClassified(transaction) ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="unmatch">退回待核對</button>` : ""}
         ${statusButtons
           .map(([nextStatus, label]) => `
             <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-status="${escapeHtml(nextStatus)}" ${status === nextStatus ? "disabled" : ""}>${label}</button>
@@ -1976,23 +2363,350 @@ async function updateBankTransactionStatus(transaction, status) {
     status,
     pendingReason,
     matchedType: status,
+    matchedLedgerId: "",
+    matchedLedgerIds: [],
+    matchedLedgerItem: "",
+    matchedLedgerItems: [],
+    matchedLedgerAmount: 0,
+    matchDifference: 0,
+    differenceHandling: "",
+    differenceNote: "",
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
+  const matchedLedgerIds = getMatchedLedgerIds(transaction);
+  const linkedRecords = recordsCache.filter((record) => matchedLedgerIds.includes(record.id));
+  const buildLedgerUpdates = (record) => ({
+    settlementStatus: getUnmatchedLedgerSettlementStatus(record),
+    settledDate: "",
+    bankTransactionId: "",
+    bankMatchedDate: "",
+    bankMatchedAmount: 0,
+    bankMatchedDescription: "",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  });
 
   if (isConfigured) {
     await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), updates);
+    for (const linkedRecord of linkedRecords) {
+      await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", linkedRecord.id), buildLedgerUpdates(linkedRecord));
+    }
+    if (linkedRecords.length) await loadRecords();
     await loadBankTransactions();
   } else {
     bankTransactionsCache = bankTransactionsCache.map((item) =>
       item.id === transaction.id ? { ...item, ...updates } : item,
     );
+    if (linkedRecords.length) {
+      recordsCache = recordsCache.map((record) =>
+        matchedLedgerIds.includes(record.id) ? { ...record, ...buildLedgerUpdates(record) } : record,
+      );
+      saveLocalRecords();
+    }
     saveLocalBankTransactions();
     renderBankTransactions();
     renderPendingCenter();
   }
 
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderCustomReport();
   renderCashflow();
-  showToast(`銀行交易已標記為：${status}`);
+  renderSettlementCenter();
+  showToast(`銀行交易已分類為：${status}`);
+}
+
+async function reconcileBankTransaction(transaction) {
+  const direction = getBankTransactionDirection(transaction);
+  if (!direction) {
+    showToast("這筆銀行資料沒有存入或提出金額，無法配帳務。");
+    return;
+  }
+
+  if (getMatchedLedgerIds(transaction).length) {
+    const confirmed = window.confirm("這筆銀行資料已經配過帳務，是否重新配對？");
+    if (!confirmed) return;
+  }
+
+  const candidates = getBankLedgerCandidates(transaction, direction);
+  if (!candidates.length) {
+    showToast(`找不到可配對的${direction.type === "income" ? "收入" : "支出"}紀錄。`);
+    return;
+  }
+
+  const selectedRecords = await openLedgerMatchDialog(transaction, direction, candidates.slice(0, 30));
+  if (!selectedRecords) return;
+
+  if (!selectedRecords.length) {
+    showToast("請至少勾選一筆帳務。");
+    return;
+  }
+
+  const selectedTotal = selectedRecords.reduce((total, record) => total + Number(record.amount || 0), 0);
+  const differenceInfo = getMatchDifferenceInfo(direction.amount, selectedTotal);
+  if (!differenceInfo) return;
+
+  await applyBankLedgerMatches(transaction, selectedRecords, direction, differenceInfo);
+}
+
+function getMatchDifferenceInfo(bankAmount, ledgerAmount) {
+  const difference = bankAmount - ledgerAmount;
+  if (!difference) {
+    return { difference: 0, handling: "", note: "" };
+  }
+
+  const choice = window.prompt(
+    [
+      "銀行金額與勾選帳務合計不同，請選擇差額處理：",
+      "",
+      `銀行：NT$ ${formatNumber(bankAmount)}`,
+      `帳務合計：NT$ ${formatNumber(ledgerAmount)}`,
+      `差額：NT$ ${formatNumber(difference)}`,
+      "",
+      "1. 銷貨成本－金流／平台成本",
+      "2. 短溢收",
+      "3. 待確認",
+      "4. 仍視為可接受差額",
+    ].join("\n"),
+    "3",
+  );
+  if (choice === null) return null;
+
+  const handlingMap = {
+    1: "銷貨成本－金流／平台成本",
+    2: "短溢收",
+    3: "待確認",
+    4: "可接受差額",
+  };
+  const handling = handlingMap[String(choice).trim()];
+  if (!handling) {
+    showToast("差額處理選項無效，請重新配對。");
+    return null;
+  }
+
+  const note = window.prompt("差額備註，可留空", handling) ?? "";
+  return { difference, handling, note };
+}
+
+function openLedgerMatchDialog(transaction, direction, candidates) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "match-dialog-overlay";
+    overlay.innerHTML = `
+      <div class="match-dialog" role="dialog" aria-modal="true" aria-label="配帳務">
+        <div class="match-dialog-header">
+          <div>
+            <p class="eyebrow">BANK MATCH</p>
+            <h3>勾選要配對的帳務</h3>
+            <p>銀行資料：${escapeHtml(transaction.date)} · NT$ ${formatNumber(direction.amount)} · ${escapeHtml(transaction.description || transaction.sourceFile || "")}</p>
+          </div>
+          <button type="button" data-match-close>×</button>
+        </div>
+        <div class="match-dialog-summary">
+          <span>銀行金額 <strong>NT$ ${formatNumber(direction.amount)}</strong></span>
+          <span>已選合計 <strong data-match-total>NT$ 0</strong></span>
+          <span>差額 <strong data-match-diff>NT$ ${formatNumber(direction.amount)}</strong></span>
+        </div>
+        <div class="match-dialog-list">
+          ${candidates.map((record) => `
+            <label class="match-option">
+              <input type="checkbox" data-match-record-id="${escapeHtml(record.id)}" />
+              <span>
+                <strong>${escapeHtml(record.date)} · ${escapeHtml(record.item)}</strong>
+                <small>${escapeHtml(record.counterparty)} · ${escapeHtml(record.settlementStatus || "")}</small>
+              </span>
+              <strong>NT$ ${formatNumber(record.amount)}</strong>
+            </label>
+          `).join("")}
+        </div>
+        <div class="match-dialog-actions">
+          <button type="button" class="secondary-button" data-match-cancel>取消</button>
+          <button type="button" data-match-confirm>確認配對</button>
+        </div>
+      </div>
+    `;
+
+    const close = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    const updateTotal = () => {
+      const selectedIds = Array.from(overlay.querySelectorAll("[data-match-record-id]:checked")).map((item) => item.dataset.matchRecordId);
+      const total = candidates
+        .filter((record) => selectedIds.includes(record.id))
+        .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+      overlay.querySelector("[data-match-total]").textContent = `NT$ ${formatNumber(total)}`;
+      overlay.querySelector("[data-match-diff]").textContent = `NT$ ${formatNumber(direction.amount - total)}`;
+    };
+
+    overlay.addEventListener("change", updateTotal);
+    overlay.querySelector("[data-match-close]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-match-cancel]").addEventListener("click", () => close(null));
+    overlay.querySelector("[data-match-confirm]").addEventListener("click", () => {
+      const selectedIds = Array.from(overlay.querySelectorAll("[data-match-record-id]:checked")).map((item) => item.dataset.matchRecordId);
+      close(candidates.filter((record) => selectedIds.includes(record.id)));
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(null);
+    });
+
+    document.body.appendChild(overlay);
+  });
+}
+
+function getBankTransactionDirection(transaction) {
+  const deposit = Number(transaction.deposit || 0);
+  const withdrawal = Number(transaction.withdrawal || 0);
+  if (deposit > 0) return { type: "income", amount: deposit, status: "已配收入", settlementStatus: "已收款" };
+  if (withdrawal > 0) return { type: "expense", amount: withdrawal, status: "已配支出", settlementStatus: "已付款" };
+  return null;
+}
+
+function getBankLedgerCandidates(transaction, direction) {
+  return recordsCache
+    .filter((record) => record.type === direction.type)
+    .filter((record) => !record.bankTransactionId || record.bankTransactionId === transaction.id)
+    .sort((a, b) => {
+      const aAmountScore = Number(a.amount || 0) === direction.amount ? 1 : 0;
+      const bAmountScore = Number(b.amount || 0) === direction.amount ? 1 : 0;
+      if (aAmountScore !== bAmountScore) return bAmountScore - aAmountScore;
+      return getDateDistance(a.date, transaction.date) - getDateDistance(b.date, transaction.date);
+    });
+}
+
+function getDateDistance(a, b) {
+  const first = new Date(`${a || ""}T00:00:00`).getTime();
+  const second = new Date(`${b || ""}T00:00:00`).getTime();
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return Number.MAX_SAFE_INTEGER;
+  return Math.abs(first - second);
+}
+
+async function applyBankLedgerMatches(transaction, selectedRecords, direction, differenceInfo = { difference: 0, handling: "", note: "" }) {
+  const matchedLedgerIds = selectedRecords.map((record) => record.id);
+  const matchedLedgerItems = selectedRecords.map((record) => record.item);
+  const matchedLedgerAmount = selectedRecords.reduce((total, record) => total + Number(record.amount || 0), 0);
+  const bankUpdates = {
+    status: direction.status,
+    pendingReason: "",
+    matchedType: direction.status,
+    matchedLedgerId: matchedLedgerIds[0],
+    matchedLedgerIds,
+    matchedLedgerItem: matchedLedgerItems.join("、"),
+    matchedLedgerItems,
+    matchedLedgerAmount,
+    matchDifference: differenceInfo.difference || 0,
+    differenceHandling: differenceInfo.handling || "",
+    differenceNote: differenceInfo.note || "",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+  const buildLedgerUpdates = (record) => ({
+    settlementStatus: direction.settlementStatus,
+    settledDate: transaction.date || toDateValue(new Date()),
+    bankTransactionId: transaction.id,
+    bankMatchedDate: transaction.date || "",
+    bankMatchedAmount: Number(record.amount || 0),
+    bankMatchedDescription: transaction.description || transaction.sourceFile || "",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  });
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), bankUpdates);
+    for (const record of selectedRecords) {
+      await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), buildLedgerUpdates(record));
+    }
+    await loadRecords();
+    await loadBankTransactions();
+  } else {
+    bankTransactionsCache = bankTransactionsCache.map((item) =>
+      item.id === transaction.id ? { ...item, ...bankUpdates } : item,
+    );
+    recordsCache = recordsCache.map((item) =>
+      matchedLedgerIds.includes(item.id) ? { ...item, ...buildLedgerUpdates(item) } : item,
+    );
+    saveLocalBankTransactions();
+    saveLocalRecords();
+  }
+
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderCustomReport();
+  renderCashflow();
+  renderBankTransactions();
+  renderPendingCenter();
+  renderSettlementCenter();
+  showToast("銀行交易已配對帳務。");
+}
+
+async function unmatchBankTransaction(transaction) {
+  if (!isBankTransactionFormallyMatched(transaction) && !isBankTransactionClassified(transaction)) {
+    showToast("這筆銀行交易目前沒有配對狀態。");
+    return;
+  }
+
+  const matchedLedgerIds = getMatchedLedgerIds(transaction);
+  const matchedRecords = recordsCache.filter((item) => matchedLedgerIds.includes(item.id));
+  const recordNames = matchedRecords.map((record) => record.item).join("、");
+  const confirmed = window.confirm(
+    `確定要將這筆銀行交易退回待核對嗎？\n\n銀行：${transaction.description || transaction.sourceFile || "銀行資料"}\n目前狀態：${transaction.status || "待核對"}${transaction.matchedLedgerItem || recordNames ? `\n帳務：${transaction.matchedLedgerItem || recordNames}` : ""}`,
+  );
+  if (!confirmed) return;
+
+  const bankUpdates = {
+    status: "待核對",
+    pendingReason: "已取消配對，尚未重新核對帳務。",
+    matchedType: "",
+    matchedLedgerId: "",
+    matchedLedgerIds: [],
+    matchedLedgerItem: "",
+    matchedLedgerItems: [],
+    matchedLedgerAmount: 0,
+    matchDifference: 0,
+    differenceHandling: "",
+    differenceNote: "",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+  const buildLedgerUpdates = (record) => ({
+    settlementStatus: getUnmatchedLedgerSettlementStatus(record),
+    settledDate: "",
+    bankTransactionId: "",
+    bankMatchedDate: "",
+    bankMatchedAmount: 0,
+    bankMatchedDescription: "",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  });
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), bankUpdates);
+    for (const record of matchedRecords) {
+      await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), buildLedgerUpdates(record));
+    }
+    await loadRecords();
+    await loadBankTransactions();
+  } else {
+    bankTransactionsCache = bankTransactionsCache.map((item) =>
+      item.id === transaction.id ? { ...item, ...bankUpdates } : item,
+    );
+    if (matchedRecords.length) {
+      recordsCache = recordsCache.map((item) =>
+        matchedLedgerIds.includes(item.id) ? { ...item, ...buildLedgerUpdates(item) } : item,
+      );
+    }
+    saveLocalBankTransactions();
+    saveLocalRecords();
+  }
+
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderCustomReport();
+  renderCashflow();
+  renderBankTransactions();
+  renderPendingCenter();
+  renderSettlementCenter();
+  showToast("已退回待核對，可重新配帳務。");
+}
+
+function getUnmatchedLedgerSettlementStatus(record) {
+  if (record.dueDate) return record.type === "income" ? "待收款" : "待付款";
+  return record.type === "income" ? "已收款" : "已付款";
 }
 
 async function handleEditBankTransaction(transaction) {
@@ -2108,6 +2822,9 @@ function buildPendingItems() {
     if (bucket === "shareholderAdvance") {
       items.push(createPendingItem("cashflow", "股東代墊未沖", record.date, record.item, "已刷卡代墊，尚待公司轉出沖銷", "公司存摺出現張晟睿墊付款後再核對。", "cashflow"));
     }
+
+    const settlementItem = buildSettlementPendingItem(record);
+    if (settlementItem) items.push(settlementItem);
   });
 
   inventoryCache.forEach((record) => {
@@ -2143,6 +2860,32 @@ function buildPendingItems() {
   return items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
+function buildSettlementPendingItem(record) {
+  const isReceivable = isReceivableRecord(record);
+  const isPayable = isPayableRecord(record);
+  if (!isReceivable && !isPayable) return null;
+
+  const title = isReceivable ? "應收待處理" : "應付待處理";
+  const action = isReceivable ? "確認實際收款日，或補上預計收款日。" : "確認實際付款日，或補上預計付款日。";
+
+  if (!record.dueDate) {
+    return createPendingItem("settlement", title, record.date, record.item, "尚未填帳期／預計日期", action, "ledger", record.type);
+  }
+
+  const today = toDateValue(new Date());
+  if (record.dueDate < today) {
+    return createPendingItem("settlement", title, record.dueDate, record.item, "已逾期未結清", action, "ledger", record.type);
+  }
+
+  const soon = new Date(`${today}T00:00:00`);
+  soon.setDate(soon.getDate() + 7);
+  if (record.dueDate <= toDateValue(soon)) {
+    return createPendingItem("settlement", title, record.dueDate, record.item, "7 天內到期", action, "ledger", record.type);
+  }
+
+  return null;
+}
+
 function createPendingItem(group, title, date, subject, reason, action, targetView, targetType = "") {
   return { group, title, date, subject, reason, action, targetView, targetType };
 }
@@ -2159,6 +2902,76 @@ function renderPendingItem(item) {
       <button type="button" data-pending-target="${escapeHtml(item.targetView)}" data-pending-type="${escapeHtml(item.targetType)}">前往處理</button>
     </article>
   `;
+}
+
+function renderSettlementCenter() {
+  if (!settlementList) return;
+
+  const rows = recordsCache
+    .filter((record) => isReceivableRecord(record) || isPayableRecord(record))
+    .sort((a, b) => String(a.dueDate || a.date).localeCompare(String(b.dueDate || b.date)));
+
+  if (!rows.length) {
+    settlementList.className = "pending-list empty-state";
+    settlementList.textContent = "目前沒有待核對的收付款。";
+    return;
+  }
+
+  settlementList.className = "pending-list";
+  settlementList.innerHTML = rows.map(renderSettlementItem).join("");
+}
+
+function renderSettlementItem(record) {
+  const isIncome = record.type === "income";
+  const title = isIncome ? "應收" : "應付";
+  const actionLabel = isIncome ? "標記已收" : "標記已付";
+  const dueLabel = record.dueDate ? `預計 ${record.dueDate}` : "未填預計日";
+  const basis = describeReceivablePayableBasis(record);
+
+  return `
+    <article class="pending-item">
+      <span class="pill ${isIncome ? "income" : "pending"}">${title}</span>
+      <div>
+        <strong>${escapeHtml(record.item)}</strong>
+        <span>${escapeHtml(record.counterparty)} · ${escapeHtml(dueLabel)} · NT$ ${formatNumber(record.amount)}</span>
+        <small>${escapeHtml(record.settlementStatus || basis)} · 後續可與銀行對帳單配對</small>
+      </div>
+      <button type="button" data-settlement-action="settle" data-record-id="${escapeHtml(record.id)}">${actionLabel}</button>
+    </article>
+  `;
+}
+
+async function settleLedgerRecord(record) {
+  const today = toDateValue(new Date());
+  const settlementStatus = record.type === "income" ? "已收款" : "已付款";
+  const confirmed = window.confirm(
+    `確定將這筆${record.type === "income" ? "收入" : "支出"}標記為${record.type === "income" ? "已收款" : "已付款"}嗎？\n\n${record.item}\nNT$ ${formatNumber(record.amount)}\n實際日期：${today}`,
+  );
+  if (!confirmed) return;
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), {
+      settlementStatus,
+      settledDate: today,
+      updatedAt: firebaseApi.serverTimestamp(),
+    });
+    await loadRecords();
+  } else {
+    recordsCache = recordsCache.map((item) =>
+      item.id === record.id
+        ? { ...item, settlementStatus, settledDate: today, updatedAt: new Date() }
+        : item,
+    );
+    saveLocalRecords();
+  }
+
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
+  renderSettlementCenter();
+  showToast(`${record.type === "income" ? "收款" : "付款"}狀態已更新。`);
 }
 
 function setDefaultInventoryDate() {
@@ -2249,6 +3062,7 @@ async function updateInventoryRecord(record) {
   renderCustomReport();
   renderCashflow();
   renderPendingCenter();
+  renderSettlementCenter();
 }
 
 async function loadInventoryRecords() {
@@ -2268,6 +3082,7 @@ async function loadInventoryRecords() {
   renderRecords(recordsCache);
   renderLedgerInventorySync();
   renderPendingCenter();
+  renderSettlementCenter();
 }
 
 async function handleInventoryMatch(record, button) {
@@ -2327,6 +3142,7 @@ async function handleInventoryMatch(record, button) {
   renderCustomReport();
   renderCashflow();
   renderPendingCenter();
+  renderSettlementCenter();
   showToast(`已配對 ${links.length} 筆庫存並建立出庫。`);
 }
 
@@ -2389,6 +3205,7 @@ async function handleDeleteInventoryRecord(record) {
   renderCustomReport();
   renderCashflow();
   renderPendingCenter();
+  renderSettlementCenter();
   showToast("庫存紀錄已刪除。");
 }
 
@@ -2580,7 +3397,7 @@ function buildTransactionDetailSheet() {
   return [
     ["交易明細與分類依據"],
     [],
-    ["日期", "類型", "交易對象", "摘要", "收入", "營業費用／成本", "商品成本", "金流／物流成本", "三級科目", "含稅／總額", "未稅金額", "金流方式", "帳戶", "發票狀態", "待處理原因", "備註", "來源"],
+    ["日期", "類型", "交易對象", "摘要", "收入", "營業費用／成本", "商品成本", "金流／物流成本", "三級科目", "含稅／總額", "未稅金額", "金流方式", "帳戶", "收付款狀態", "預計收付款日", "實際收付款日", "發票狀態", "待處理原因", "備註", "來源"],
     ...lastReportRows.map((record) => {
       const income = record.type === "income" ? Number(record.amount || 0) : 0;
       const expense = record.type === "expense" ? Number(record.amount || 0) : Number(record.logisticsCost || 0) + Number(record.extraExpense || 0);
@@ -2599,6 +3416,9 @@ function buildTransactionDetailSheet() {
         Number(record.amount || 0),
         record.cashflow,
         record.account,
+        record.settlementStatus || "",
+        record.dueDate || "",
+        record.settledDate || "",
         record.invoiceStatus || (record.hasVoucher ? "有" : "無"),
         record.pendingReason || "",
         record.note || "",
@@ -2619,7 +3439,7 @@ function buildJournalDraftSheet() {
         rows.push([no, record.date, "銷貨成本結轉", "5102 銷貨成本", "1201 存貨", Number(record.productCost || 0), record.importSource || "網頁輸入", "依匯入銷售報表商品成本，待存貨盤點確認"]);
       }
       if (Number(record.logisticsCost || 0) > 0) {
-        rows.push([no, record.date, "金流／物流成本", "6112 手續費", "2102 其他應付款", Number(record.logisticsCost || 0), record.importSource || "網頁輸入", "付款狀態待確認"]);
+        rows.push([no, record.date, "金流／物流／平台成本", "5102 銷貨成本", "2102 其他應付款", Number(record.logisticsCost || 0), record.importSource || "網頁輸入", "內帳視為銷售直接成本，待會計師確認正式科目"]);
       }
     } else {
       rows.push([no, record.date, record.item, inferAccountCode(record), inferCreditAccount(record), Number(record.amount || 0), record.importSource || "網頁輸入", record.pendingReason || ""]);
@@ -2661,7 +3481,7 @@ function buildIncomeStatementSheet() {
     ["項目", "金額", "說明"],
     ["銷售收入", salesIncome, "僅納入已售出商品相關收入；其他收入不列入毛利率分母"],
     ["已售商品成本", productCost, "依收入配對出庫成本或匯入銷售報表商品成本"],
-    ["已售金流／物流成本", logisticsCost, "依銷售收入對應的金流／物流成本"],
+    ["已售金流／物流／平台成本", logisticsCost, "依銷售收入對應的金流、物流、平台成本；銀行配帳差額若標記為銷貨成本也列入"],
     ["已售包材成本", packagingCost, "依收入配對出庫的包材成本或銷售報表包材成本"],
     ["毛利", { f: "B4-B5-B6-B7" }, "銷售收入減已售商品成本、金流物流成本與包材"],
     ["毛利率", { f: "IF(B4=0,0,B8/B4)" }, "毛利除以銷售收入"],
@@ -2787,12 +3607,20 @@ function buildReceivablePayableSummary(records) {
 
 function isReceivableRecord(record) {
   if (record.type !== "income") return false;
+  if (record.settledDate) return false;
+  if (record.dueDate) return true;
+  if (record.settlementStatus === "已收款") return false;
+  if (["待收款", "平台待撥", "月結未收"].includes(record.settlementStatus)) return true;
   const text = receivablePayableText(record);
   return classifyCashflowRecord(record) === "platformPending" || /應收|未收|帳期|月結|待撥|賒銷/.test(text);
 }
 
 function isPayableRecord(record) {
   if (record.type !== "expense") return false;
+  if (record.settledDate) return false;
+  if (record.dueDate) return true;
+  if (record.settlementStatus === "已付款") return false;
+  if (["待付款", "信用卡未請款", "月結未付"].includes(record.settlementStatus)) return true;
   if (classifyCashflowRecord(record) === "shareholderAdvance") return false;
   const text = receivablePayableText(record);
   return /應付|未付|帳期|月結|信用卡|刷卡/.test(text);
@@ -2805,6 +3633,7 @@ function receivablePayableText(record) {
 }
 
 function describeReceivablePayableBasis(record) {
+  if (record.settlementStatus) return record.settlementStatus;
   if (record.type === "income" && classifyCashflowRecord(record) === "platformPending") return "平台待撥款";
   if (/信用卡|刷卡/.test(receivablePayableText(record))) return "信用卡或刷卡付款";
   if (/股東代墊|代墊/.test(receivablePayableText(record))) return "股東代墊";
@@ -2830,7 +3659,7 @@ function buildDailySheet() {
   return [
     ["每日銷售收入、成本與支出"],
     [],
-    ["日期", "銷售收入", "銷貨成本", "營業費用", "金流／物流成本", "交易筆數"],
+    ["日期", "銷售收入", "商品銷貨成本", "營業費用", "金流／物流／平台成本", "交易筆數"],
     ...days.map((date) => {
       const records = lastReportRows.filter((record) => record.date === date);
       const soldCost = buildSoldCostSummary(records);
@@ -3051,6 +3880,13 @@ function sumField(records, field) {
   return records.reduce((total, record) => total + Number(record[field] || 0), 0);
 }
 
+function sumBankSalesDirectCosts(start, end) {
+  return bankTransactionsCache
+    .filter((transaction) => transaction.date >= start && transaction.date <= end)
+    .filter((transaction) => ["銷貨成本－金流／平台成本", "金流手續費／平台費"].includes(transaction.differenceHandling))
+    .reduce((total, transaction) => total + Math.abs(Number(transaction.matchDifference || 0)), 0);
+}
+
 function buildSoldCostSummary(records) {
   return records
     .filter(isSalesRevenueRecord)
@@ -3256,6 +4092,7 @@ function renderRecordItem(record) {
       <div class="record-meta">
         ${escapeHtml(record.date)}<br />
         ${escapeHtml(record.cashflow)} · ${escapeHtml(voucherLabel)}
+        ${renderSettlementMeta(record)}
         ${record.voucherBatchStatus ? `<br /><span class="pill pending">${escapeHtml(record.voucherBatchStatus)}</span>` : ""}
         ${record.pendingReason ? `<br /><span class="pill pending">${escapeHtml(record.pendingReason)}</span>` : ""}
       </div>
@@ -3268,7 +4105,17 @@ function renderRecordItem(record) {
   `;
 }
 
+function renderSettlementMeta(record) {
+  const parts = [];
+  if (record.settlementStatus) parts.push(record.settlementStatus);
+  if (record.dueDate) parts.push(`預計 ${record.dueDate}`);
+  if (record.settledDate) parts.push(`實際 ${record.settledDate}`);
+  return parts.length ? `<br />${escapeHtml(parts.join(" · "))}` : "";
+}
+
 function renderInventoryMatchPanel(record) {
+  if (record.inventoryLinks?.length) return "";
+
   const availableLots = getAvailableInventoryLots();
 
   if (!availableLots.length) {

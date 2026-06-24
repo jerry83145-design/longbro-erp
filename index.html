@@ -38,6 +38,11 @@
             <span class="nav-icon">↕</span>
             現金流
           </button>
+          <button class="nav-item" type="button" data-view="settlement">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">✓</span>
+            收付款核對
+          </button>
           <button class="nav-item" type="button" data-view="inventory">
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
             <span class="nav-icon">▣</span>
@@ -190,6 +195,16 @@
                 <button class="icon-button" type="button" data-add-option="accounts">+</button>
               </div>
 
+              <div class="field">
+                <label for="settlementStatusSelect"><span id="settlementStatusLabel">付款狀態</span> <b>*</b></label>
+                <select id="settlementStatusSelect" required></select>
+              </div>
+
+              <div class="field">
+                <label for="dueDateInput"><span id="dueDateLabel">預計付款日</span></label>
+                <input id="dueDateInput" type="date" min="2026-01-01" max="2035-12-31" />
+              </div>
+
               <div class="field with-add">
                 <label for="majorSelect">大類 <b>*</b></label>
                 <select id="majorSelect" required></select>
@@ -278,6 +293,15 @@
             <p class="muted-text">集中查看還沒補完的帳務、憑證、庫存與現金流事項。</p>
             <div id="pendingSummary" class="pending-summary"></div>
             <div id="pendingList" class="pending-list empty-state">目前沒有待處理事項。</div>
+          </div>
+        </section>
+
+        <section id="settlementView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">SETTLEMENT</p>
+            <h2>收付款核對</h2>
+            <p class="muted-text">集中處理應收、應付與帳期項目；實際收款或付款後在這裡標記，後續會接銀行對帳單核對。</p>
+            <div id="settlementList" class="pending-list empty-state">目前沒有待核對的收付款。</div>
           </div>
         </section>
 
