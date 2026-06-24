@@ -1782,6 +1782,31 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
     flowRows.push({ ...record, bucket, amount });
   });
 
+  bankTransactions.forEach((transaction) => {
+    if (isBankTransactionFormallyMatched(transaction)) return;
+    if (transaction.status !== "已配代墊還款") return;
+
+    const amount = Number(transaction.withdrawal || transaction.deposit || 0);
+    if (!amount) return;
+
+    const account = transaction.account || "未指定帳戶";
+    const current = accountTotals.get(account) || { account, cashIn: 0, cashOut: 0, pending: 0, advance: 0 };
+    cashOut += amount;
+    shareholderRepayment += amount;
+    shareholderAdvance -= amount;
+    current.cashOut += amount;
+    current.advance -= amount;
+    accountTotals.set(account, current);
+    flowRows.push({
+      date: transaction.date,
+      item: transaction.description || transaction.sourceFile || "代墊還款",
+      account,
+      type: "expense",
+      bucket: "shareholderRepayment",
+      amount,
+    });
+  });
+
   return {
     cashIn,
     cashOut,
@@ -1802,10 +1827,10 @@ function classifyCashflowRecord(record) {
   const text = `${record.cashflow || ""} ${record.account || ""} ${record.note || ""} ${record.item || ""}`;
   if (record.settlementStatus === "平台待撥") return "platformPending";
   if (record.settlementStatus === "股東代墊未沖") return "shareholderAdvance";
-  if (record.settlementStatus === "已收款") return "cashIn";
-  if (record.settlementStatus === "已付款") return "cashOut";
   if (record.type === "expense" && /張晟睿.*墊付|張晟睿.*代墊|墊付款|償還代墊|代墊款/.test(text)) return "shareholderRepayment";
   if (record.type === "expense" && /信用卡|刷卡|股東代墊|代墊/.test(text)) return "shareholderAdvance";
+  if (record.settlementStatus === "已收款") return "cashIn";
+  if (record.settlementStatus === "已付款") return "cashOut";
   if (record.type === "income" && /平台|待撥/.test(text)) return "platformPending";
   return record.type === "income" ? "cashIn" : "cashOut";
 }
@@ -1822,6 +1847,9 @@ function renderCashflowCard(title, value, tone, unit = "NT$") {
 
 function renderCashflowAccountRow(row) {
   const net = row.cashIn - row.cashOut;
+  const isAdvanceAccount = /股東|代墊/.test(row.account);
+  const endingLabel = isAdvanceAccount ? "待沖銷" : "淨額";
+  const endingAmount = isAdvanceAccount ? row.advance : net;
   return `
     <article class="cashflow-row">
       <strong>${escapeHtml(row.account)}</strong>
@@ -1829,7 +1857,7 @@ function renderCashflowAccountRow(row) {
       <span>流出 NT$ ${formatNumber(row.cashOut)}</span>
       <span>待撥 NT$ ${formatNumber(row.pending)}</span>
       <span>代墊 NT$ ${formatNumber(row.advance)}</span>
-      <strong>淨額 NT$ ${formatNumber(net)}</strong>
+      <strong>${endingLabel} NT$ ${formatNumber(endingAmount)}</strong>
     </article>
   `;
 }
@@ -2090,6 +2118,25 @@ function getBankTransactionAmount(transaction) {
   return Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
 }
 
+function getBankTransactionKey(transaction) {
+  if (transaction.importKey) return transaction.importKey;
+  return [
+    transaction.date || "",
+    normalizeKeyText(transaction.account || ""),
+    normalizeKeyText(transaction.description || ""),
+    Number(transaction.deposit || 0),
+    Number(transaction.withdrawal || 0),
+    Number(transaction.balance || 0),
+  ].join("|");
+}
+
+function normalizeKeyText(value) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/[，,。．.]/g, "")
+    .toLowerCase();
+}
+
 async function importBankFile(file) {
   if (!window.XLSX) {
     throw new Error("Excel 套件尚未載入，請確認網路可連線後重試。");
@@ -2110,7 +2157,19 @@ async function importBankFile(file) {
     return;
   }
 
-  for (const transaction of parsed) {
+  if (isConfigured) await loadBankTransactions();
+
+  const existingKeys = new Set(bankTransactionsCache.map(getBankTransactionKey));
+  const currentImportKeys = new Set();
+  const uniqueTransactions = parsed.filter((transaction) => {
+    const key = getBankTransactionKey(transaction);
+    if (existingKeys.has(key) || currentImportKeys.has(key)) return false;
+    currentImportKeys.add(key);
+    transaction.importKey = key;
+    return true;
+  });
+
+  for (const transaction of uniqueTransactions) {
     await saveBankTransaction(transaction);
   }
 
@@ -2121,8 +2180,9 @@ async function importBankFile(file) {
     renderPendingCenter();
   }
 
-  bankImportPreview.textContent = `已匯入 ${parsed.length} 筆銀行資料：${file.name}`;
-  showToast(`已匯入 ${parsed.length} 筆銀行資料。`);
+  const skippedCount = parsed.length - uniqueTransactions.length;
+  bankImportPreview.textContent = `已新增 ${uniqueTransactions.length} 筆銀行資料，略過 ${skippedCount} 筆已存在資料：${file.name}`;
+  showToast(`已新增 ${uniqueTransactions.length} 筆銀行資料，略過 ${skippedCount} 筆已存在資料。`);
 }
 
 async function registerBankPhotos(files) {
@@ -3277,7 +3337,7 @@ function renderInventory() {
   }
 
   inventoryList.className = "inventory-list";
-  inventoryList.innerHTML = inventoryCache.map(renderInventoryRecord).join("");
+  inventoryList.innerHTML = sortInventoryRecordsByTime(inventoryCache).map(renderInventoryRecord).join("");
 }
 
 function buildInventorySummary(records) {
@@ -3511,7 +3571,7 @@ function buildInventoryReportSheet() {
     [],
     ["庫存明細"],
     ["日期", "類型", "動作", "品名", "數量", "單位", "單位成本", "總成本", "來源", "關聯", "備註"],
-    ...inventoryCache
+    ...sortInventoryRecordsByTime(inventoryCache)
       .filter(inRange)
       .map((record) => [
         record.date,
@@ -4296,6 +4356,24 @@ function toDateValue(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function sortInventoryRecordsByTime(records) {
+  return [...records].sort((a, b) => {
+    const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
+    if (dateCompare) return dateCompare;
+
+    return getRecordTimeValue(b) - getRecordTimeValue(a);
+  });
+}
+
+function getRecordTimeValue(record) {
+  const value = record.updatedAt || record.createdAt || record.date;
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function formatNumber(value) {
