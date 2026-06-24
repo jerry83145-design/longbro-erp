@@ -426,6 +426,13 @@ h2 {
   padding: 30px;
 }
 
+.inventory-form {
+  margin-top: 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfd;
+}
+
 .field {
   display: grid;
   grid-column: span 3;
@@ -440,6 +447,44 @@ h2 {
 
 .file-field {
   grid-column: span 6;
+}
+
+.batch-upload-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfdfd;
+  padding: 16px;
+}
+
+.batch-upload-panel strong,
+.batch-upload-panel span {
+  display: block;
+}
+
+.batch-upload-panel span {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.batch-voucher-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.batch-voucher-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
 }
 
 label {
@@ -634,7 +679,23 @@ textarea:focus {
   background: #fbfdfd;
 }
 
+.cashflow-controls {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(140px, 1fr)) auto auto;
+  align-items: end;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfd;
+}
+
 .custom-report {
+  margin-top: 20px;
+}
+
+.cashflow-result {
   margin-top: 20px;
 }
 
@@ -644,7 +705,14 @@ textarea:focus {
   gap: 14px;
 }
 
+.cashflow-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
 .report-summary-card,
+.cashflow-card,
 .category-row {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -652,16 +720,191 @@ textarea:focus {
   padding: 16px;
 }
 
-.report-summary-card span {
+.report-summary-card span,
+.cashflow-card span {
   display: block;
   color: var(--muted);
   font-weight: 700;
 }
 
-.report-summary-card strong {
+.report-summary-card strong,
+.cashflow-card strong {
   display: block;
   margin-top: 8px;
   font-size: 24px;
+}
+
+.cashflow-card.income strong,
+.cashflow-card.balance strong {
+  color: var(--income);
+}
+
+.cashflow-card.expense strong {
+  color: var(--accent);
+}
+
+.cashflow-card.pending strong,
+.cashflow-card.advance strong {
+  color: var(--warn);
+}
+
+.cashflow-breakdown {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.cashflow-breakdown h3 {
+  margin: 0 0 10px;
+}
+
+.cashflow-row {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(5, minmax(110px, 1fr));
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 14px;
+  margin-top: 10px;
+}
+
+.cashflow-row.detail {
+  grid-template-columns: 110px 110px 1fr 150px 140px;
+}
+
+.cashflow-row span {
+  color: var(--muted);
+}
+
+.pending-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.pending-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.pending-card span {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.pending-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.pending-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.pending-item {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.pending-item div strong,
+.pending-item div span,
+.pending-item div small {
+  display: block;
+}
+
+.pending-item div span,
+.pending-item div small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.inventory-summary {
+  margin-top: 20px;
+}
+
+.opening-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfd;
+  padding: 18px;
+}
+
+.opening-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.opening-grid .field {
+  grid-column: auto;
+}
+
+.inventory-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.inventory-card,
+.inventory-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.inventory-card span {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.inventory-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.inventory-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.inventory-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 130px 140px 180px 120px;
+  gap: 14px;
+  align-items: center;
+}
+
+.inventory-row div strong,
+.inventory-row div span {
+  display: block;
+}
+
+.inventory-row div span,
+.inventory-row > span {
+  color: var(--muted);
 }
 
 .category-breakdown {
@@ -681,6 +924,48 @@ textarea:focus {
   color: var(--muted);
 }
 
+.record-list.grouped {
+  display: grid;
+  gap: 18px;
+}
+
+.record-group {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.record-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.record-group-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.record-group-heading span {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.record-group-heading strong {
+  display: block;
+  font-size: 20px;
+}
+
+.record-group-empty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 18px;
+  text-align: center;
+}
+
 .record-item {
   display: grid;
   grid-template-columns: 100px 1fr 140px 130px 120px;
@@ -691,6 +976,52 @@ textarea:focus {
   padding: 14px;
   margin-top: 12px;
   background: #fff;
+}
+
+.inventory-match-panel {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.inventory-match-panel > div:first-child strong,
+.inventory-match-panel > div:first-child span {
+  display: block;
+}
+
+.inventory-match-panel > div:first-child span {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.inventory-match-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.inventory-match-option {
+  display: grid;
+  grid-template-columns: auto 1fr 80px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfd;
+  padding: 10px;
+}
+
+.inventory-match-option span,
+.inventory-match-option small {
+  display: block;
+}
+
+.inventory-match-option small {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .record-item:first-child {
@@ -756,6 +1087,90 @@ textarea:focus {
 .pill.pending {
   background: var(--soft-warn);
   color: var(--warn);
+}
+
+.bank-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfd;
+  padding: 18px;
+}
+
+.section-heading.compact {
+  margin-bottom: 0;
+}
+
+.bank-import-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) repeat(2, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.bank-import-grid .field {
+  grid-column: auto;
+}
+
+.bank-transaction-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bank-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 150px 110px minmax(260px, auto);
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.bank-row div strong,
+.bank-row div span {
+  display: block;
+}
+
+.bank-row div span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.bank-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.bank-actions button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.bank-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bank-actions button.danger:hover:not(:disabled) {
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.bank-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .toast {
@@ -838,14 +1253,25 @@ textarea:focus {
   .summary-grid,
   .options-grid,
   .report-summary-grid,
+  .cashflow-summary-grid,
+  .inventory-summary-grid,
+  .pending-summary,
   .rule-list,
   .report-grid,
-  .record-item {
+  .record-item,
+  .inventory-row,
+  .pending-item,
+  .cashflow-row,
+  .cashflow-row.detail {
     grid-template-columns: 1fr;
   }
 
   .report-filter,
-  .category-row {
+  .cashflow-controls,
+  .category-row,
+  .opening-grid,
+  .bank-import-grid,
+  .bank-row {
     grid-template-columns: 1fr;
   }
 

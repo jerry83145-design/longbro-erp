@@ -31,5 +31,17 @@ service cloud.firestore {
       allow read, update: if isOwner();
       allow delete: if isOwner();
     }
+
+    match /inventoryRecords/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read, update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    match /bankTransactions/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read, update: if isOwner();
+      allow delete: if isOwner();
+    }
   }
 }

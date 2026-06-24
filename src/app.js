@@ -31,6 +31,30 @@ const optionLabels = {
   notes: "備註",
 };
 
+const inventorySources = {
+  box: ["進貨"],
+  card: ["團拆入卡", "拆盒入卡", "玩家收購"],
+  supply: ["包材採購", "進貨", "其他"],
+};
+
+const inventoryTypeLabels = {
+  box: "卡盒",
+  card: "卡片",
+  supply: "包材",
+};
+
+const inventoryActionLabels = {
+  in: "入庫",
+  out: "出庫",
+  adjust: "調整",
+};
+
+const inventoryUnitLabels = {
+  box: "盒",
+  card: "張",
+  supply: "件",
+};
+
 const setupNotice = document.querySelector("#setupNotice");
 const authStatus = document.querySelector("#authStatus");
 const signInButton = document.querySelector("#signInButton");
@@ -50,6 +74,7 @@ const recordsList = document.querySelector("#recordsList");
 const toast = document.querySelector("#toast");
 const voucherInput = document.querySelector("#voucherInput");
 const voucherPreview = document.querySelector("#voucherPreview");
+const batchVoucherList = document.querySelector("#batchVoucherList");
 const pageEyebrow = document.querySelector("#pageEyebrow");
 const pageTitle = document.querySelector("#pageTitle");
 const pageSubtitle = document.querySelector("#pageSubtitle");
@@ -59,12 +84,47 @@ const reportEndInput = document.querySelector("#reportEndInput");
 const generateReportButton = document.querySelector("#generateReportButton");
 const exportReportButton = document.querySelector("#exportReportButton");
 const customReportResult = document.querySelector("#customReportResult");
+const cashflowStartInput = document.querySelector("#cashflowStartInput");
+const cashflowEndInput = document.querySelector("#cashflowEndInput");
+const cashflowOpeningBankInput = document.querySelector("#cashflowOpeningBankInput");
+const cashflowOpeningCashInput = document.querySelector("#cashflowOpeningCashInput");
+const cashflowOpeningPlatformInput = document.querySelector("#cashflowOpeningPlatformInput");
+const cashflowOpeningAdvanceInput = document.querySelector("#cashflowOpeningAdvanceInput");
+const saveCashflowSettingsButton = document.querySelector("#saveCashflowSettingsButton");
+const generateCashflowButton = document.querySelector("#generateCashflowButton");
+const cashflowResult = document.querySelector("#cashflowResult");
+const bankAccountInput = document.querySelector("#bankAccountInput");
+const bankImportInput = document.querySelector("#bankImportInput");
+const bankPhotoInput = document.querySelector("#bankPhotoInput");
+const bankImportPreview = document.querySelector("#bankImportPreview");
+const bankTransactionList = document.querySelector("#bankTransactionList");
 const expenseSummaryLabel = document.querySelector("#expenseSummaryLabel");
 const incomeSummaryLabel = document.querySelector("#incomeSummaryLabel");
 const countSummaryLabel = document.querySelector("#countSummaryLabel");
 const pendingSummaryLabel = document.querySelector("#pendingSummaryLabel");
 const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
+const pendingSummary = document.querySelector("#pendingSummary");
+const pendingList = document.querySelector("#pendingList");
+const inventoryForm = document.querySelector("#inventoryForm");
+const inventoryDateInput = document.querySelector("#inventoryDateInput");
+const inventoryTypeSelect = document.querySelector("#inventoryTypeSelect");
+const inventoryActionSelect = document.querySelector("#inventoryActionSelect");
+const inventorySourceSelect = document.querySelector("#inventorySourceSelect");
+const inventoryNameInput = document.querySelector("#inventoryNameInput");
+const inventoryQtyInput = document.querySelector("#inventoryQtyInput");
+const inventoryUnitCostInput = document.querySelector("#inventoryUnitCostInput");
+const inventoryTotalCostInput = document.querySelector("#inventoryTotalCostInput");
+const inventoryReferenceInput = document.querySelector("#inventoryReferenceInput");
+const inventoryNoteInput = document.querySelector("#inventoryNoteInput");
+const clearInventoryButton = document.querySelector("#clearInventoryButton");
+const saveInventoryButton = document.querySelector("#saveInventoryButton");
+const inventorySummary = document.querySelector("#inventorySummary");
+const inventoryList = document.querySelector("#inventoryList");
+const inventoryOpeningBoxQtyInput = document.querySelector("#inventoryOpeningBoxQtyInput");
+const inventoryOpeningCardQtyInput = document.querySelector("#inventoryOpeningCardQtyInput");
+const inventoryOpeningCostInput = document.querySelector("#inventoryOpeningCostInput");
+const saveInventorySettingsButton = document.querySelector("#saveInventorySettingsButton");
 
 const fields = {
   date: document.querySelector("#dateInput"),
@@ -78,6 +138,9 @@ const fields = {
   minor: document.querySelector("#minorSelect"),
   note: document.querySelector("#noteSelect"),
   noteText: document.querySelector("#noteInput"),
+  inventorySync: document.querySelector("#inventorySyncSelect"),
+  inventorySyncHint: document.querySelector("#inventorySyncHint"),
+  inventoryPicker: document.querySelector("#ledgerInventoryPicker"),
 };
 
 let app;
@@ -89,10 +152,13 @@ let firebaseApi = {};
 let recordType = "expense";
 let currentView = "overview";
 let recordsCache = loadLocalRecords();
+let inventoryCache = loadLocalInventoryRecords();
+let bankTransactionsCache = loadLocalBankTransactions();
 let optionsByType = loadOptions();
 let lastReportRows = [];
 let lastReportSummary = null;
 let editingRecordId = null;
+let editingInventoryId = null;
 
 const isConfigured = !Object.values(firebaseConfig).some((value) =>
   String(value).includes("請填入"),
@@ -156,7 +222,11 @@ const pageMeta = {
 };
 
 setDefaultDate();
+setDefaultInventoryDate();
 setDefaultReportDates();
+setDefaultCashflowDates();
+loadCashflowSettings();
+loadInventorySettings();
 restoreOrder(".sidebar-nav", ".nav-item", "sidebarNavOrder", getNavKey);
 restoreOrder(".summary-grid", ".summary-card", "summaryCardOrder", (item) => item.dataset.cardId);
 enableDragSort(".sidebar-nav", ".nav-item", ".drag-handle", "sidebarNavOrder", getNavKey);
@@ -165,15 +235,26 @@ updatePageMeta("overview");
 renderAllOptions();
 renderOptionsEditor();
 updateFormLabels();
+renderBatchVoucherList([]);
+renderLedgerInventorySync();
+renderInventorySources();
+renderInventory();
+renderPendingCenter();
+renderBankTransactions();
 
 if (isConfigured) {
   initializeFirebase();
 } else {
   setupNotice.hidden = false;
   setReportDatesFromRecords(recordsCache);
+  setCashflowDatesFromRecords(recordsCache);
   renderRecords(recordsCache);
   updateSummary(recordsCache);
   renderCustomReport();
+  renderCashflow();
+  renderInventory();
+  renderPendingCenter();
+  renderBankTransactions();
 }
 
 async function initializeFirebase() {
@@ -246,6 +327,44 @@ topActionButton.addEventListener("click", () => {
 
 generateReportButton.addEventListener("click", renderCustomReport);
 exportReportButton.addEventListener("click", exportCurrentReport);
+generateCashflowButton.addEventListener("click", renderCashflow);
+saveCashflowSettingsButton.addEventListener("click", () => {
+  saveCashflowSettings();
+  renderCashflow();
+  showToast("現金流期初已儲存。");
+});
+
+saveInventorySettingsButton.addEventListener("click", () => {
+  saveInventorySettings();
+  renderInventory();
+  showToast("庫存期初已儲存。");
+});
+
+bankImportInput.addEventListener("change", async () => {
+  const file = bankImportInput.files?.[0];
+  if (!file) return;
+
+  try {
+    await importBankFile(file);
+  } catch (error) {
+    showToast(`銀行匯入失敗：${error.message}`);
+  } finally {
+    bankImportInput.value = "";
+  }
+});
+
+bankPhotoInput.addEventListener("change", async () => {
+  const files = Array.from(bankPhotoInput.files || []);
+  if (!files.length) return;
+
+  try {
+    await registerBankPhotos(files);
+  } catch (error) {
+    showToast(`存摺照片登記失敗：${error.message}`);
+  } finally {
+    bankPhotoInput.value = "";
+  }
+});
 
 importLedgerButton.addEventListener("click", () => {
   importLedgerInput.click();
@@ -264,6 +383,49 @@ importLedgerInput.addEventListener("change", async () => {
   }
 });
 
+inventoryTypeSelect.addEventListener("change", renderInventorySources);
+inventoryQtyInput.addEventListener("input", syncInventoryTotalCost);
+inventoryUnitCostInput.addEventListener("input", syncInventoryTotalCost);
+clearInventoryButton.addEventListener("click", clearInventoryForm);
+inventoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (!currentUser && isConfigured) {
+    showToast("請先登入。");
+    return;
+  }
+
+  const record = buildInventoryRecord();
+  if (!record) return;
+
+  try {
+    await saveInventoryRecord(record);
+    clearInventoryForm();
+    showToast("庫存已儲存。");
+  } catch (error) {
+    showToast(`庫存儲存失敗：${error.message}`);
+  }
+});
+
+pendingList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-pending-target]");
+  if (!button) return;
+
+  const target = button.dataset.pendingTarget;
+  const type = button.dataset.pendingType;
+
+  if (target === "ledger") {
+    setRecordType(type || "expense");
+    setActiveNavForType(type || "expense");
+  } else {
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.view === target);
+    });
+  }
+  showView(target);
+  updatePageMeta(target === "ledger" ? type : target);
+});
+
 document.querySelectorAll("[data-add-option]").forEach((button) => {
   button.addEventListener("click", () => {
     addOption(button.dataset.addOption);
@@ -274,11 +436,15 @@ fields.note.addEventListener("change", () => {
   fields.noteText.hidden = fields.note.value !== "自訂";
 });
 
+fields.inventorySync.addEventListener("change", renderLedgerInventorySync);
+fields.minor.addEventListener("change", renderLedgerInventorySync);
+
 voucherInput.addEventListener("change", () => {
-  const file = voucherInput.files?.[0];
-  voucherPreview.textContent = file
-    ? `已選擇：${file.name} (${formatBytes(file.size)})，發票狀態將自動標記為有`
+  const files = getVoucherFiles();
+  voucherPreview.textContent = files.length
+    ? `已選擇 ${files.length} 個檔案，發票狀態將自動標記為有`
     : "目前默認：無發票";
+  renderBatchVoucherList(files);
 });
 
 toggleOptionsButton.addEventListener("click", () => {
@@ -298,7 +464,9 @@ clearButton.addEventListener("click", () => {
   setDefaultDate();
   voucherInput.value = "";
   voucherPreview.textContent = "目前默認：無發票";
+  renderBatchVoucherList([]);
   fields.noteText.hidden = true;
+  renderLedgerInventorySync();
   resetEditingState();
 });
 
@@ -318,6 +486,54 @@ recordsList.addEventListener("click", async (event) => {
 
   if (button.dataset.recordAction === "delete") {
     await handleDeleteRecord(record);
+    return;
+  }
+
+  if (button.dataset.recordAction === "match-inventory") {
+    await handleInventoryMatch(record, button);
+  }
+});
+
+bankTransactionList.addEventListener("click", async (event) => {
+  const actionButton = event.target.closest("[data-bank-action]");
+  if (actionButton) {
+    const transaction = bankTransactionsCache.find((item) => item.id === actionButton.dataset.bankId);
+    if (!transaction) return;
+
+    if (actionButton.dataset.bankAction === "edit") {
+      await handleEditBankTransaction(transaction);
+      return;
+    }
+
+    if (actionButton.dataset.bankAction === "delete") {
+      await handleDeleteBankTransaction(transaction);
+      return;
+    }
+  }
+
+  const button = event.target.closest("[data-bank-status]");
+  if (!button) return;
+
+  const transaction = bankTransactionsCache.find((item) => item.id === button.dataset.bankId);
+  if (!transaction) return;
+
+  await updateBankTransactionStatus(transaction, button.dataset.bankStatus);
+});
+
+inventoryList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-inventory-action]");
+  if (!button) return;
+
+  const record = inventoryCache.find((item) => item.id === button.dataset.inventoryId);
+  if (!record) return;
+
+  if (button.dataset.inventoryAction === "edit") {
+    startEditingInventoryRecord(record);
+    return;
+  }
+
+  if (button.dataset.inventoryAction === "delete") {
+    await handleDeleteInventoryRecord(record);
   }
 });
 
@@ -346,20 +562,27 @@ ledgerForm.addEventListener("submit", async (event) => {
     }
 
     if (editingRecordId) {
-      if (previousRecord && !record.voucherFile && previousRecord.voucher) {
+      if (previousRecord && !record.voucherFiles.length && (previousRecord.voucher || previousRecord.vouchers?.length || previousRecord.voucherFileNames?.length)) {
         record.voucher = previousRecord.voucher;
+        record.vouchers = previousRecord.vouchers || [];
+        record.voucherFileNames = getVoucherNames(previousRecord);
         record.hasVoucher = true;
         record.pendingReason = "";
       }
       await updateRecord(record);
     } else if (isConfigured) {
-      await saveRecordToFirebase(record);
+      const savedId = await saveRecordToFirebase(record);
+      await handleLedgerInventorySync({ id: savedId, ...stripFile(record) });
       await loadRecords();
+      await loadInventoryRecords();
     } else {
-      recordsCache.unshift({ id: crypto.randomUUID(), ...stripFile(record), createdAt: new Date() });
+      const savedRecord = { id: crypto.randomUUID(), ...stripFile(record), createdAt: new Date() };
+      recordsCache.unshift(savedRecord);
       saveLocalRecords();
+      await handleLedgerInventorySync(savedRecord);
       renderRecords(recordsCache);
       updateSummary(recordsCache);
+      renderCashflow();
     }
 
     clearButton.click();
@@ -395,6 +618,8 @@ function handleAuthState(user) {
   }
 
   loadRecords();
+  loadInventoryRecords();
+  loadBankTransactions();
 }
 
 function setDefaultDate() {
@@ -410,6 +635,49 @@ function setDefaultReportDates() {
   const day = String(today.getDate()).padStart(2, "0");
   reportStartInput.value = `${year}-${month}-01`;
   reportEndInput.value = `${year}-${month}-${day}`;
+}
+
+function setDefaultCashflowDates() {
+  cashflowStartInput.value = reportStartInput.value;
+  cashflowEndInput.value = reportEndInput.value;
+}
+
+function loadCashflowSettings() {
+  const settings = JSON.parse(localStorage.getItem("cashflowSettings") || "{}");
+  cashflowOpeningBankInput.value = settings.openingBank ?? "";
+  cashflowOpeningCashInput.value = settings.openingCash ?? "";
+  cashflowOpeningPlatformInput.value = settings.openingPlatform ?? "";
+  cashflowOpeningAdvanceInput.value = settings.openingAdvance ?? "";
+}
+
+function saveCashflowSettings() {
+  localStorage.setItem(
+    "cashflowSettings",
+    JSON.stringify({
+      openingBank: Number(cashflowOpeningBankInput.value || 0),
+      openingCash: Number(cashflowOpeningCashInput.value || 0),
+      openingPlatform: Number(cashflowOpeningPlatformInput.value || 0),
+      openingAdvance: Number(cashflowOpeningAdvanceInput.value || 0),
+    }),
+  );
+}
+
+function loadInventorySettings() {
+  const settings = JSON.parse(localStorage.getItem("inventorySettings") || "{}");
+  inventoryOpeningBoxQtyInput.value = settings.openingBoxQty ?? "";
+  inventoryOpeningCardQtyInput.value = settings.openingCardQty ?? "";
+  inventoryOpeningCostInput.value = settings.openingCost ?? "";
+}
+
+function saveInventorySettings() {
+  localStorage.setItem(
+    "inventorySettings",
+    JSON.stringify({
+      openingBoxQty: Number(inventoryOpeningBoxQtyInput.value || 0),
+      openingCardQty: Number(inventoryOpeningCardQtyInput.value || 0),
+      openingCost: Number(inventoryOpeningCostInput.value || 0),
+    }),
+  );
 }
 
 function renderAllOptions() {
@@ -495,6 +763,7 @@ function setRecordType(type) {
   renderAllOptions();
   renderOptionsEditor();
   updateFormLabels();
+  renderLedgerInventorySync();
 }
 
 function setActiveNavForType(type) {
@@ -507,6 +776,9 @@ function showView(view) {
   currentView = view;
   document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`)?.classList.add("active");
+  if (view === "cashflow") renderCashflow();
+  if (view === "inventory") renderInventory();
+  if (view === "pending") renderPendingCenter();
 }
 
 function updatePageMeta(key) {
@@ -599,7 +871,8 @@ function buildRecord() {
   const date = fields.date.value;
   const amount = Number(fields.amount.value);
   const note = fields.note.value === "自訂" ? fields.noteText.value.trim() : fields.note.value;
-  const voucherFile = voucherInput.files?.[0] || null;
+  const voucherFiles = getVoucherFiles();
+  const voucherFileNames = voucherFiles.map((file) => file.name);
 
   if (!date || date < "2026-01-01" || date > "2035-12-31") {
     showToast("請選擇 2026-2035 之間的日期。");
@@ -623,17 +896,54 @@ function buildRecord() {
     counterparty: fields.counterparty.value,
     item: fields.item.value.trim(),
     amount,
-    invoiceStatus: voucherFile ? "有" : "無",
+    invoiceStatus: voucherFiles.length ? "有" : "無",
     cashflow: fields.cashflow.value,
     account: fields.account.value,
     major: fields.major.value,
     middle: fields.middle.value,
     minor: fields.minor.value,
     note,
-    hasVoucher: Boolean(voucherFile),
-    pendingReason: voucherFile ? "" : "待補憑證",
-    voucherFile,
+    hasVoucher: Boolean(voucherFiles.length),
+    pendingReason: voucherFiles.length ? "" : "待補憑證",
+    voucherFiles,
+    voucherFileNames,
+    voucherBatchStatus: voucherFiles.length > 1 ? "待配對" : "",
   };
+}
+
+function getVoucherFiles() {
+  return Array.from(voucherInput.files || []);
+}
+
+function buildVoucherMetadata(files = []) {
+  return Array.from(files).map((file) => ({
+    name: file.name,
+    size: file.size,
+    type: file.type || "application/octet-stream",
+    status: "待配對",
+    storage: "pending-google-drive",
+  }));
+}
+
+function renderBatchVoucherList(files) {
+  if (!batchVoucherList) return;
+
+  if (!files.length) {
+    batchVoucherList.innerHTML = `<li>尚未選擇批次檔案</li>`;
+    return;
+  }
+
+  batchVoucherList.innerHTML = files
+    .map((file) => `<li><strong>${escapeHtml(file.name)}</strong><span>${formatBytes(file.size)}</span></li>`)
+    .join("");
+}
+
+function getVoucherNames(record) {
+  if (record.voucherFileNames?.length) return record.voucherFileNames;
+  if (record.vouchers?.length) return record.vouchers.map((file) => file.name).filter(Boolean);
+  if (record.voucher?.name) return [record.voucher.name];
+  if (record.voucherFileName) return [record.voucherFileName];
+  return [];
 }
 
 function findPossibleDuplicate(record) {
@@ -698,13 +1008,19 @@ async function handleDeleteRecord(record) {
   renderRecords(recordsCache);
   updateSummary(recordsCache);
   renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
   showToast("紀錄已刪除。");
 }
 
 async function updateRecord(record) {
+  const newVoucherMetadata = buildVoucherMetadata(record.voucherFiles);
+  const existingVoucherNames = getVoucherNames(record);
   const cleanedRecord = {
     ...stripFile(record),
-    voucher: record.voucher || null,
+    voucher: record.voucher || newVoucherMetadata[0] || null,
+    vouchers: newVoucherMetadata.length ? newVoucherMetadata : record.vouchers || [],
+    voucherFileNames: newVoucherMetadata.length ? newVoucherMetadata.map((file) => file.name) : existingVoucherNames,
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
 
@@ -721,6 +1037,8 @@ async function updateRecord(record) {
   renderRecords(recordsCache);
   updateSummary(recordsCache);
   renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
 }
 
 function startEditingRecord(record) {
@@ -740,8 +1058,9 @@ function startEditingRecord(record) {
   ensureSelectValue(fields.minor, record.minor);
   setNoteValue(record.note);
   voucherInput.value = "";
-  voucherPreview.textContent = record.voucher?.name
-    ? `目前憑證：${record.voucher.name}`
+  renderBatchVoucherList([]);
+  voucherPreview.textContent = getVoucherNames(record).length
+    ? `目前憑證：${getVoucherNames(record).join("、")}`
     : "未上傳時默認無發票；有上傳會自動標記為有";
   saveButton.textContent = "更新紀錄";
   ledgerForm.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -782,24 +1101,9 @@ function setNoteValue(note) {
 }
 
 async function saveRecordToFirebase(record) {
-  let voucher = null;
+  const voucher = buildVoucherMetadata(record.voucherFiles);
 
-  if (record.voucherFile) {
-    const safeName = `${Date.now()}_${record.voucherFile.name}`;
-    const storagePath = `vouchers/${record.month}/${record.type}/${safeName}`;
-    const fileRef = firebaseApi.ref(storage, storagePath);
-    await firebaseApi.uploadBytes(fileRef, record.voucherFile, {
-      contentType: record.voucherFile.type || "application/octet-stream",
-    });
-    voucher = {
-      name: record.voucherFile.name,
-      storagePath,
-      downloadURL: await firebaseApi.getDownloadURL(fileRef),
-      size: record.voucherFile.size,
-    };
-  }
-
-  await firebaseApi.addDoc(firebaseApi.collection(db, "ledgerRecords"), {
+  const docRef = await firebaseApi.addDoc(firebaseApi.collection(db, "ledgerRecords"), {
     ...stripFile(record),
     voucher,
     createdAt: firebaseApi.serverTimestamp(),
@@ -807,6 +1111,7 @@ async function saveRecordToFirebase(record) {
     updatedAt: firebaseApi.serverTimestamp(),
     userId: currentUser.uid,
   });
+  return docRef.id;
 }
 
 async function saveCleanRecord(record) {
@@ -822,6 +1127,107 @@ async function saveCleanRecord(record) {
   } else {
     recordsCache.unshift({ id: crypto.randomUUID(), ...record, createdAt: new Date() });
   }
+}
+
+async function handleLedgerInventorySync(record) {
+  if (fields.inventorySync.value !== "yes") return;
+
+  if (record.type === "expense") {
+    await createInventoryInFromExpense(record);
+    return;
+  }
+
+  if (record.type === "income") {
+    await createInventoryOutFromIncome(record);
+  }
+}
+
+async function createInventoryInFromExpense(record) {
+  const quantityText = window.prompt(`請輸入「${record.minor || record.item}」入庫數量`, "1");
+  if (quantityText === null) return;
+  const quantity = Number(quantityText || 0);
+  if (!quantity || quantity <= 0) {
+    showToast("入庫數量必須大於 0。");
+    return;
+  }
+
+  const inventoryRecord = {
+    date: record.date,
+    month: record.month,
+    type: inferInventoryTypeFromText(`${record.minor} ${record.item}`),
+    action: "in",
+    source: "支出同步入庫",
+    name: record.minor || record.item,
+    quantity,
+    unitCost: Number(record.amount || 0) / quantity,
+    totalCost: Number(record.amount || 0),
+    reference: `支出：${record.item}`,
+    note: `由支出紀錄同步入庫；交易對象：${record.counterparty}`,
+    linkedLedgerId: record.id,
+  };
+
+  await addInventoryRecord(inventoryRecord);
+}
+
+async function createInventoryOutFromIncome(record) {
+  const selected = getSelectedLedgerInventoryLots();
+  if (!selected.length) {
+    showToast("已選擇同步出庫，但尚未選取庫存。");
+    return;
+  }
+
+  if (selected.some((item) => item.quantity <= 0 || item.quantity > item.lot.remainingQuantity)) {
+    showToast("出庫數量必須大於 0，且不可超過可用庫存。");
+    return;
+  }
+
+  const links = [];
+  for (const item of selected) {
+    const unitCost = Number(item.lot.unitCost || item.lot.totalCost / item.lot.quantity || 0);
+    const outRecord = {
+      date: record.date,
+      month: record.month,
+      type: item.lot.type,
+      action: "out",
+      source: "銷售出庫",
+      name: item.lot.name,
+      quantity: item.quantity,
+      unitCost,
+      totalCost: unitCost * item.quantity,
+      reference: `收入：${record.item}`,
+      note: `由收入紀錄同步出庫；來源庫存：${item.lot.source}`,
+      linkedLedgerId: record.id,
+      sourceInventoryId: item.lot.id,
+    };
+    const savedId = await addInventoryRecord(outRecord);
+    links.push({
+      inventoryRecordId: savedId,
+      sourceInventoryId: item.lot.id,
+      name: item.lot.name,
+      type: item.lot.type,
+      quantity: item.quantity,
+      unitCost,
+      totalCost: unitCost * item.quantity,
+    });
+  }
+
+  await updateLedgerInventoryLinks(record, links);
+}
+
+function inferInventoryTypeFromText(text) {
+  if (/包材|紙箱|氣泡|膠帶|耗材|信封|保護殼|卡磚|卡夾/.test(text)) return "supply";
+  if (/卡片|單卡|球員卡/.test(text)) return "card";
+  return "box";
+}
+
+function getSelectedLedgerInventoryLots() {
+  if (fields.inventorySync.value !== "yes" || recordType !== "income") return [];
+  const availableLots = getAvailableInventoryLots();
+  return Array.from(fields.inventoryPicker.querySelectorAll("[data-ledger-inventory-id]:checked")).map((checkbox) => {
+    const lot = availableLots.find((item) => item.id === checkbox.dataset.ledgerInventoryId);
+    const qtyInput = fields.inventoryPicker.querySelector(`[data-ledger-inventory-qty="${CSS.escape(checkbox.dataset.ledgerInventoryId)}"]`);
+    return { lot, quantity: Number(qtyInput?.value || 0) };
+  }).filter((item) => item.lot);
 }
 
 async function importLedgerFile(file) {
@@ -857,9 +1263,11 @@ async function importLedgerFile(file) {
   } else {
     saveLocalRecords();
     setReportDatesFromRecords(recordsCache);
+    setCashflowDatesFromRecords(recordsCache);
     renderRecords(recordsCache);
     updateSummary(recordsCache);
     renderCustomReport();
+    renderCashflow();
   }
 
   showToast(`已匯入 ${parsed.length} 筆資料。`);
@@ -1023,6 +1431,15 @@ function parseAmount(value) {
   return Number.isFinite(amount) ? Math.abs(amount) : 0;
 }
 
+function parseSignedAmount(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const isParenthesesNegative = /^\(.*\)$/.test(text);
+  const amount = Number(text.replace(/[^\d.-]/g, ""));
+  if (!Number.isFinite(amount)) return 0;
+  return isParenthesesNegative ? -Math.abs(amount) : amount;
+}
+
 function normalizeInvoiceStatus(value) {
   const text = String(value || "").trim();
   if (["是", "有", "yes", "y", "true"].includes(text.toLowerCase())) return "有";
@@ -1043,11 +1460,16 @@ async function loadRecords() {
     .map((doc) => ({ id: doc.id, ...doc.data() }))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   setReportDatesFromRecords(recordsCache);
+  setCashflowDatesFromRecords(recordsCache);
   renderRecords(recordsCache);
   updateSummary(recordsCache);
   if (document.querySelector("#reportsView")?.classList.contains("active")) {
     renderCustomReport();
   }
+  if (document.querySelector("#cashflowView")?.classList.contains("active")) {
+    renderCashflow();
+  }
+  renderPendingCenter();
 }
 
 function renderCustomReport() {
@@ -1069,28 +1491,32 @@ function renderCustomReport() {
   const records = recordsCache.filter((record) => record.date >= start && record.date <= end);
   const expense = sumByType(records, "expense");
   const income = sumByType(records, "income");
-  const productCost = sumField(records, "productCost");
-  const logisticsCost = sumField(records, "logisticsCost");
-  const packagingCost = sumPackagingCost(records);
+  const soldCost = buildSoldCostSummary(records);
+  const salesIncome = soldCost.salesIncome;
+  const productCost = soldCost.productCost;
+  const logisticsCost = soldCost.logisticsCost;
+  const packagingCost = soldCost.packagingCost;
   const pending = records.filter((record) => record.pendingReason).length;
-  const grossProfit = income - productCost - logisticsCost - packagingCost;
-  const otherExpense = Math.max(expense - packagingCost, 0);
-  const net = grossProfit - otherExpense;
-  const grossMargin = income ? grossProfit / income : null;
-  const netMargin = income ? net / income : null;
+  const grossProfit = salesIncome - productCost - logisticsCost - packagingCost;
+  const operatingExpense = sumOperatingExpense(records);
+  const net = grossProfit - operatingExpense;
+  const grossMargin = salesIncome ? grossProfit / salesIncome : null;
+  const netMargin = salesIncome ? net / salesIncome : null;
   const breakdown = buildCategoryBreakdown(records);
   lastReportRows = records;
   lastReportSummary = {
     start,
     end,
     income,
+    salesIncome,
     expense,
     productCost,
     logisticsCost,
     packagingCost,
     grossProfit,
     grossMargin,
-    otherExpense,
+    otherExpense: operatingExpense,
+    operatingExpense,
     net,
     netMargin,
     pending,
@@ -1102,12 +1528,12 @@ function renderCustomReport() {
   customReportResult.innerHTML = `
     <div class="report-summary-grid">
       <article class="report-summary-card">
-        <span>區間收入</span>
-        <strong>NT$ ${formatNumber(income)}</strong>
+        <span>銷售收入</span>
+        <strong>NT$ ${formatNumber(salesIncome)}</strong>
       </article>
       <article class="report-summary-card">
-        <span>區間支出</span>
-        <strong>NT$ ${formatNumber(expense)}</strong>
+        <span>營業費用</span>
+        <strong>NT$ ${formatNumber(operatingExpense)}</strong>
       </article>
       <article class="report-summary-card">
         <span>毛利率</span>
@@ -1118,7 +1544,7 @@ function renderCustomReport() {
         <strong>${formatPercent(netMargin)}</strong>
       </article>
       <article class="report-summary-card">
-        <span>收支淨額</span>
+        <span>營業損益</span>
         <strong>${net >= 0 ? "" : "-"}NT$ ${formatNumber(Math.abs(net))}</strong>
       </article>
       <article class="report-summary-card">
@@ -1129,6 +1555,986 @@ function renderCustomReport() {
     <div class="category-breakdown">
       ${breakdown.length ? breakdown.map(renderCategoryRow).join("") : `<div class="empty-state">此區間沒有紀錄。</div>`}
     </div>
+  `;
+}
+
+function renderCashflow() {
+  const start = cashflowStartInput.value;
+  const end = cashflowEndInput.value;
+
+  if (!start || !end) {
+    cashflowResult.innerHTML = `<div class="empty-state">請先選擇起始日期與結束日期。</div>`;
+    return;
+  }
+
+  if (start > end) {
+    cashflowResult.innerHTML = `<div class="empty-state">起始日期不可晚於結束日期。</div>`;
+    return;
+  }
+
+  const records = recordsCache.filter((record) => record.date >= start && record.date <= end);
+  const bankTransactions = bankTransactionsCache.filter((transaction) => transaction.date >= start && transaction.date <= end);
+  const summary = buildCashflowSummary(records, {
+    openingBank: Number(cashflowOpeningBankInput.value || 0),
+    openingCash: Number(cashflowOpeningCashInput.value || 0),
+    openingPlatform: Number(cashflowOpeningPlatformInput.value || 0),
+    openingAdvance: Number(cashflowOpeningAdvanceInput.value || 0),
+  }, bankTransactions);
+
+  cashflowResult.innerHTML = `
+    <div class="cashflow-summary-grid">
+      ${renderCashflowCard("公司現金流入", summary.cashIn, "income")}
+      ${renderCashflowCard("公司現金流出", summary.cashOut, "expense")}
+      ${renderCashflowCard("期末可用現金", summary.endingCash, "balance")}
+      ${renderCashflowCard("平台待撥款", summary.platformPending, "pending")}
+      ${renderCashflowCard("股東代墊餘額", summary.shareholderAdvance, "advance")}
+      ${renderCashflowCard("已還代墊", summary.shareholderRepayment, "expense")}
+      ${renderCashflowCard("銀行未配對", summary.bankUnmatchedCount, "count", "筆")}
+    </div>
+
+    <div class="cashflow-breakdown">
+      <section>
+        <h3>帳戶小計</h3>
+        ${summary.accountRows.length ? summary.accountRows.map(renderCashflowAccountRow).join("") : `<div class="record-group-empty">尚無帳戶資料</div>`}
+      </section>
+      <section>
+        <h3>現金流明細</h3>
+        ${summary.flowRows.length ? summary.flowRows.map(renderCashflowFlowRow).join("") : `<div class="record-group-empty">此區間尚無現金流資料</div>`}
+      </section>
+    </div>
+  `;
+}
+
+function buildCashflowSummary(records, opening, bankTransactions = []) {
+  const accountTotals = new Map();
+  const flowRows = [];
+  let cashIn = 0;
+  let cashOut = 0;
+  let platformPending = Number(opening.openingPlatform || 0);
+  let shareholderAdvance = Number(opening.openingAdvance || 0);
+  let shareholderRepayment = 0;
+  let reconcileCount = 0;
+
+  records.forEach((record) => {
+    const amount = Number(record.amount || 0);
+    const bucket = classifyCashflowRecord(record);
+    const account = record.account || "未指定帳戶";
+    const current = accountTotals.get(account) || { account, cashIn: 0, cashOut: 0, pending: 0, advance: 0 };
+
+    if (bucket === "cashIn") {
+      cashIn += amount;
+      current.cashIn += amount;
+    } else if (bucket === "cashOut") {
+      cashOut += amount;
+      current.cashOut += amount;
+    } else if (bucket === "platformPending") {
+      platformPending += amount;
+      current.pending += amount;
+    } else if (bucket === "shareholderAdvance") {
+      shareholderAdvance += amount;
+      current.advance += amount;
+    } else if (bucket === "shareholderRepayment") {
+      cashOut += amount;
+      shareholderRepayment += amount;
+      shareholderAdvance -= amount;
+      current.cashOut += amount;
+      current.advance -= amount;
+    }
+
+    if (bucket === "cashIn" || bucket === "cashOut" || bucket === "shareholderRepayment") reconcileCount += 1;
+    accountTotals.set(account, current);
+    flowRows.push({ ...record, bucket, amount });
+  });
+
+  return {
+    cashIn,
+    cashOut,
+    platformPending,
+    shareholderAdvance,
+    shareholderRepayment,
+    endingCash: Number(opening.openingBank || 0) + Number(opening.openingCash || 0) + cashIn - cashOut,
+    reconcileCount,
+    bankUnmatchedCount: bankTransactions.filter((transaction) =>
+      !["已配收入", "已配支出", "已配平台撥款", "已配代墊還款", "不入帳"].includes(transaction.status),
+    ).length,
+    accountRows: Array.from(accountTotals.values()).sort((a, b) => a.account.localeCompare(b.account, "zh-Hant")),
+    flowRows,
+  };
+}
+
+function classifyCashflowRecord(record) {
+  const text = `${record.cashflow || ""} ${record.account || ""} ${record.note || ""} ${record.item || ""}`;
+  if (record.type === "expense" && /張晟睿.*墊付|張晟睿.*代墊|墊付款|償還代墊|代墊款/.test(text)) return "shareholderRepayment";
+  if (record.type === "expense" && /信用卡|刷卡|股東代墊|代墊/.test(text)) return "shareholderAdvance";
+  if (record.type === "income" && /平台|待撥/.test(text)) return "platformPending";
+  return record.type === "income" ? "cashIn" : "cashOut";
+}
+
+function renderCashflowCard(title, value, tone, unit = "NT$") {
+  const display = unit === "NT$" ? `NT$ ${formatNumber(value)}` : `${formatNumber(value)} ${unit}`;
+  return `
+    <article class="cashflow-card ${tone}">
+      <span>${escapeHtml(title)}</span>
+      <strong>${display}</strong>
+    </article>
+  `;
+}
+
+function renderCashflowAccountRow(row) {
+  const net = row.cashIn - row.cashOut;
+  return `
+    <article class="cashflow-row">
+      <strong>${escapeHtml(row.account)}</strong>
+      <span>流入 NT$ ${formatNumber(row.cashIn)}</span>
+      <span>流出 NT$ ${formatNumber(row.cashOut)}</span>
+      <span>待撥 NT$ ${formatNumber(row.pending)}</span>
+      <span>代墊 NT$ ${formatNumber(row.advance)}</span>
+      <strong>淨額 NT$ ${formatNumber(net)}</strong>
+    </article>
+  `;
+}
+
+function renderCashflowFlowRow(record) {
+  const bucketLabel = {
+    cashIn: "公司流入",
+    cashOut: "公司流出",
+    platformPending: "平台待撥",
+    shareholderAdvance: "股東代墊",
+    shareholderRepayment: "償還代墊",
+  }[record.bucket];
+  const sign = record.type === "income" ? "+" : "-";
+
+  return `
+    <article class="cashflow-row detail">
+      <strong>${escapeHtml(record.date)}</strong>
+      <span>${escapeHtml(bucketLabel)}</span>
+      <span>${escapeHtml(record.item || "")}</span>
+      <span>${escapeHtml(record.account || "")}</span>
+      <strong>${sign} NT$ ${formatNumber(record.amount)}</strong>
+    </article>
+  `;
+}
+
+async function importBankFile(file) {
+  if (!window.XLSX) {
+    throw new Error("Excel 套件尚未載入，請確認網路可連線後重試。");
+  }
+
+  if (!currentUser && isConfigured) {
+    showToast("請先登入。");
+    return;
+  }
+
+  const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = readBankRows(sheet);
+  const parsed = rows.map((row) => parseBankRow(row.values, row.sourceRow, file.name)).filter(Boolean);
+
+  if (!parsed.length) {
+    showToast("沒有可匯入的銀行資料。");
+    return;
+  }
+
+  for (const transaction of parsed) {
+    await saveBankTransaction(transaction);
+  }
+
+  if (isConfigured) await loadBankTransactions();
+  else {
+    saveLocalBankTransactions();
+    renderBankTransactions();
+    renderPendingCenter();
+  }
+
+  bankImportPreview.textContent = `已匯入 ${parsed.length} 筆銀行資料：${file.name}`;
+  showToast(`已匯入 ${parsed.length} 筆銀行資料。`);
+}
+
+async function registerBankPhotos(files) {
+  if (!currentUser && isConfigured) {
+    showToast("請先登入。");
+    return;
+  }
+
+  const account = bankAccountInput.value.trim() || "未指定帳戶";
+  const today = toDateValue(new Date());
+  const records = files.map((file) => ({
+    date: today,
+    account,
+    description: `存摺照片待辨識：${file.name}`,
+    deposit: 0,
+    withdrawal: 0,
+    balance: 0,
+    sourceType: "photo",
+    sourceFile: file.name,
+    status: "待辨識",
+    pendingReason: "存摺照片尚未人工辨識或 OCR。",
+    fileMeta: {
+      name: file.name,
+      size: file.size,
+      type: file.type || "application/octet-stream",
+      storage: "pending-google-drive",
+    },
+  }));
+
+  for (const record of records) {
+    await saveBankTransaction(record);
+  }
+
+  if (isConfigured) await loadBankTransactions();
+  else {
+    saveLocalBankTransactions();
+    renderBankTransactions();
+    renderPendingCenter();
+  }
+
+  bankImportPreview.textContent = `已登記 ${records.length} 張存摺照片待辨識。`;
+  showToast(`已登記 ${records.length} 張存摺照片。`);
+}
+
+function readBankRows(sheet) {
+  const matrix = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const headerIndex = matrix.findIndex((row) => {
+    const headers = row.map((cell) => normalizeHeader(cell));
+    const hasDate = headers.some((header) =>
+      ["日期", "交易日期", "入帳日", "交易日", "帳務日", "date"].map(normalizeHeader).includes(header),
+    );
+    const hasMoneyColumn = headers.some((header) =>
+      [
+        "存入",
+        "收入",
+        "貸方",
+        "入金",
+        "轉入",
+        "存款金額",
+        "收入金額",
+        "提出",
+        "支出",
+        "借方",
+        "扣款",
+        "轉出",
+        "提款金額",
+        "支出金額",
+        "金額",
+        "交易金額",
+        "收支金額",
+        "餘額",
+        "結餘",
+        "存款餘額",
+      ].map(normalizeHeader).includes(header),
+    );
+    return hasDate && hasMoneyColumn;
+  });
+  if (headerIndex === -1) return [];
+
+  const headers = matrix[headerIndex].map((cell) => String(cell).trim());
+  return matrix.slice(headerIndex + 1).map((row, index) => ({
+    sourceRow: headerIndex + index + 2,
+    values: Object.fromEntries(headers.map((header, col) => [header, row[col]])),
+  }));
+}
+
+function parseBankRow(row, sourceRow, sourceFile) {
+  const date = normalizeImportDate(pickValue(row, ["日期", "交易日期", "入帳日", "交易日", "帳務日", "date"]));
+  const description = String(pickValue(row, ["摘要", "說明", "交易明細", "交易內容", "備註", "description"]) || "").trim();
+  let deposit = parseAmount(pickValue(row, ["存入", "收入", "貸方", "貸", "入金", "轉入", "存款金額", "收入金額", "收方", "右方", "deposit", "credit"]));
+  let withdrawal = parseAmount(pickValue(row, ["提出", "支出", "借方", "借", "扣款", "轉出", "提款金額", "支出金額", "付方", "左方", "withdrawal", "debit"]));
+  const signedAmount = parseSignedAmount(pickValue(row, ["金額", "交易金額", "收支金額", "amount"]));
+  const balance = parseAmount(pickValue(row, ["餘額", "結餘", "存款餘額", "balance"]));
+
+  if (!deposit && !withdrawal) {
+    const sideAmounts = inferBankSideAmounts(row);
+    deposit = sideAmounts.deposit;
+    withdrawal = sideAmounts.withdrawal;
+  }
+
+  if (!deposit && !withdrawal && signedAmount) {
+    if (signedAmount > 0) deposit = signedAmount;
+    if (signedAmount < 0) withdrawal = Math.abs(signedAmount);
+  }
+
+  if (!date || (!description && !deposit && !withdrawal && !balance)) return null;
+
+  return {
+    date,
+    account: bankAccountInput.value.trim() || "公司帳戶",
+    description,
+    deposit,
+    withdrawal,
+    balance,
+    sourceType: "excel",
+    sourceFile,
+    sourceRow,
+    status: "待核對",
+    matchedType: "",
+    pendingReason: "尚未與收入、支出、平台撥款或代墊還款配對。",
+  };
+}
+
+function inferBankSideAmounts(row) {
+  let deposit = 0;
+  let withdrawal = 0;
+
+  Object.entries(row).forEach(([key, value]) => {
+    const header = normalizeHeader(key);
+    const amount = parseAmount(value);
+    if (!amount) return;
+
+    if (/存入|收入|貸方|入金|轉入|收方|存款/.test(header)) {
+      deposit += amount;
+    } else if (/提出|支出|借方|扣款|轉出|付方|提款/.test(header)) {
+      withdrawal += amount;
+    }
+  });
+
+  return { deposit, withdrawal };
+}
+
+async function saveBankTransaction(transaction) {
+  if (isConfigured) {
+    await firebaseApi.addDoc(firebaseApi.collection(db, "bankTransactions"), {
+      ...transaction,
+      createdAt: firebaseApi.serverTimestamp(),
+      createdBy: currentUser.email,
+      userId: currentUser.uid,
+    });
+    return;
+  }
+
+  bankTransactionsCache.unshift({ id: crypto.randomUUID(), ...transaction, createdAt: new Date() });
+}
+
+async function loadBankTransactions() {
+  if (!currentUser || !db) return;
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "bankTransactions"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(200),
+    ),
+  );
+  bankTransactionsCache = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  renderBankTransactions();
+  renderPendingCenter();
+}
+
+function renderBankTransactions() {
+  if (!bankTransactionsCache.length) {
+    bankTransactionList.className = "bank-transaction-list empty-state";
+    bankTransactionList.textContent = "尚無銀行交易。";
+    return;
+  }
+
+  bankTransactionList.className = "bank-transaction-list";
+  bankTransactionList.innerHTML = bankTransactionsCache.slice(0, 30).map(renderBankTransactionRow).join("");
+}
+
+function renderBankTransactionRow(transaction) {
+  const amountText = transaction.deposit
+    ? `+ NT$ ${formatNumber(transaction.deposit)}`
+    : transaction.withdrawal
+      ? `- NT$ ${formatNumber(transaction.withdrawal)}`
+      : "待辨識";
+  const status = transaction.status || "待核對";
+  const statusButtons = [
+    ["已配收入", "配收入"],
+    ["已配支出", "配支出"],
+    ["已配平台撥款", "平台撥款"],
+    ["已配代墊還款", "代墊還款"],
+    ["不入帳", "不入帳"],
+  ];
+  return `
+    <article class="bank-row">
+      <strong>${escapeHtml(transaction.date)}</strong>
+      <div>
+        <strong>${escapeHtml(transaction.description || transaction.sourceFile || "銀行資料")}</strong>
+        <span>${escapeHtml(transaction.account)} · ${escapeHtml(transaction.sourceFile || "")}</span>
+      </div>
+      <strong>${amountText}</strong>
+      <span>${escapeHtml(status)}</span>
+      <div class="bank-actions">
+        ${statusButtons
+          .map(([nextStatus, label]) => `
+            <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-status="${escapeHtml(nextStatus)}" ${status === nextStatus ? "disabled" : ""}>${label}</button>
+          `)
+          .join("")}
+        <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="edit">修改</button>
+        <button type="button" class="danger" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="delete">刪除</button>
+      </div>
+    </article>
+  `;
+}
+
+async function updateBankTransactionStatus(transaction, status) {
+  const pendingReason = ["待核對", "待辨識"].includes(status)
+    ? transaction.pendingReason || "尚未配對帳務"
+    : "";
+  const updates = {
+    status,
+    pendingReason,
+    matchedType: status,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), updates);
+    await loadBankTransactions();
+  } else {
+    bankTransactionsCache = bankTransactionsCache.map((item) =>
+      item.id === transaction.id ? { ...item, ...updates } : item,
+    );
+    saveLocalBankTransactions();
+    renderBankTransactions();
+    renderPendingCenter();
+  }
+
+  renderCashflow();
+  showToast(`銀行交易已標記為：${status}`);
+}
+
+async function handleEditBankTransaction(transaction) {
+  const date = window.prompt("交易日期", transaction.date || "");
+  if (date === null) return;
+  const description = window.prompt("摘要", transaction.description || "");
+  if (description === null) return;
+  const deposit = window.prompt("存入金額，沒有請填 0", transaction.deposit || 0);
+  if (deposit === null) return;
+  const withdrawal = window.prompt("提出金額，沒有請填 0", transaction.withdrawal || 0);
+  if (withdrawal === null) return;
+  const balance = window.prompt("餘額，沒有請填 0", transaction.balance || 0);
+  if (balance === null) return;
+
+  const updates = {
+    date: normalizeImportDate(date) || transaction.date,
+    description: description.trim(),
+    deposit: parseAmount(deposit),
+    withdrawal: parseAmount(withdrawal),
+    balance: parseAmount(balance),
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), updates);
+    await loadBankTransactions();
+  } else {
+    bankTransactionsCache = bankTransactionsCache.map((item) =>
+      item.id === transaction.id ? { ...item, ...updates } : item,
+    );
+    saveLocalBankTransactions();
+    renderBankTransactions();
+    renderPendingCenter();
+  }
+
+  renderCashflow();
+  showToast("銀行交易已更新。");
+}
+
+async function handleDeleteBankTransaction(transaction) {
+  const confirmed = window.confirm(
+    `確定要刪除這筆銀行資料嗎？\n\n日期：${transaction.date}\n摘要：${transaction.description || transaction.sourceFile}\n金額：NT$ ${formatNumber(transaction.deposit || transaction.withdrawal || 0)}`,
+  );
+  if (!confirmed) return;
+
+  if (isConfigured) {
+    await firebaseApi.deleteDoc(firebaseApi.doc(db, "bankTransactions", transaction.id));
+    await loadBankTransactions();
+  } else {
+    bankTransactionsCache = bankTransactionsCache.filter((item) => item.id !== transaction.id);
+    saveLocalBankTransactions();
+    renderBankTransactions();
+    renderPendingCenter();
+  }
+
+  renderCashflow();
+  showToast("銀行資料已刪除。");
+}
+
+function renderPendingCenter() {
+  const items = buildPendingItems();
+  const counts = items.reduce((map, item) => {
+    map[item.group] = (map[item.group] || 0) + 1;
+    return map;
+  }, {});
+
+  pendingSummary.innerHTML = [
+    ["待配庫存", counts.inventory || 0],
+    ["待補憑證", counts.voucher || 0],
+    ["待補成本", counts.cost || 0],
+    ["待核對金流", counts.cashflow || 0],
+    ["待確認", counts.review || 0],
+  ]
+    .map(([label, count]) => `
+      <article class="pending-card">
+        <span>${label}</span>
+        <strong>${formatNumber(count)} 筆</strong>
+      </article>
+    `)
+    .join("");
+
+  if (!items.length) {
+    pendingList.className = "pending-list empty-state";
+    pendingList.textContent = "目前沒有待處理事項。";
+    return;
+  }
+
+  pendingList.className = "pending-list";
+  pendingList.innerHTML = items.map(renderPendingItem).join("");
+}
+
+function buildPendingItems() {
+  const items = [];
+
+  recordsCache.forEach((record) => {
+    if (record.pendingReason) {
+      items.push(createPendingItem("voucher", "待補憑證", record.date, record.item, record.pendingReason, "回收入／支出紀錄補上發票或收據。", "ledger", record.type));
+    }
+
+    if (record.voucherBatchStatus) {
+      items.push(createPendingItem("voucher", "批次憑證待配對", record.date, record.item, "多張憑證尚未逐筆配對", "確認這批憑證分別對應哪些交易。", "ledger", record.type));
+    }
+
+    if (record.type === "income" && !record.inventoryLinks?.length) {
+      items.push(createPendingItem("inventory", "收入待配庫存", record.date, record.item, "尚未選取售出庫存", "在收入紀錄下方勾選一筆或多筆庫存來源。", "ledger", "income"));
+    }
+
+    const bucket = classifyCashflowRecord(record);
+    if (bucket === "platformPending") {
+      items.push(createPendingItem("cashflow", "平台待撥款", record.date, record.item, "尚未與銀行入帳核對", "銀行對帳單匯入後確認實際撥款日期與金額。", "cashflow"));
+    }
+
+    if (bucket === "shareholderAdvance") {
+      items.push(createPendingItem("cashflow", "股東代墊未沖", record.date, record.item, "已刷卡代墊，尚待公司轉出沖銷", "公司存摺出現張晟睿墊付款後再核對。", "cashflow"));
+    }
+  });
+
+  inventoryCache.forEach((record) => {
+    if (!Number(record.totalCost || 0)) {
+      items.push(createPendingItem("cost", "庫存待補成本", record.date, record.name, "成本為 0 或尚未輸入", "補上單位成本或總成本，毛利才會準。", "inventory"));
+    }
+  });
+
+  bankTransactionsCache.forEach((transaction) => {
+    if (transaction.status === "待辨識") {
+      items.push(createPendingItem(
+        "cashflow",
+        "存摺照片待辨識",
+        transaction.date,
+        transaction.sourceFile || transaction.description || "存摺照片",
+        transaction.pendingReason || "照片尚未辨識",
+        "先人工確認日期、摘要、存入、提出與餘額，再進行銀行核對。",
+        "cashflow",
+      ));
+    } else if (transaction.status === "待核對" || transaction.pendingReason) {
+      items.push(createPendingItem(
+        "cashflow",
+        "銀行交易待核對",
+        transaction.date,
+        transaction.description || transaction.sourceFile || "銀行交易",
+        transaction.pendingReason || "尚未配對帳務",
+        "與收入、支出、平台撥款或代墊還款配對。",
+        "cashflow",
+      ));
+    }
+  });
+
+  return items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function createPendingItem(group, title, date, subject, reason, action, targetView, targetType = "") {
+  return { group, title, date, subject, reason, action, targetView, targetType };
+}
+
+function renderPendingItem(item) {
+  return `
+    <article class="pending-item">
+      <span class="pill ${item.group === "inventory" ? "income" : item.group === "cashflow" ? "pending" : ""}">${escapeHtml(item.title)}</span>
+      <div>
+        <strong>${escapeHtml(item.subject)}</strong>
+        <span>${escapeHtml(item.date)} · ${escapeHtml(item.reason)}</span>
+        <small>${escapeHtml(item.action)}</small>
+      </div>
+      <button type="button" data-pending-target="${escapeHtml(item.targetView)}" data-pending-type="${escapeHtml(item.targetType)}">前往處理</button>
+    </article>
+  `;
+}
+
+function setDefaultInventoryDate() {
+  const today = new Date();
+  const year = Math.min(Math.max(today.getFullYear(), 2026), 2035);
+  inventoryDateInput.value = `${year}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function renderInventorySources() {
+  const sources = inventorySources[inventoryTypeSelect.value] || inventorySources.box;
+  inventorySourceSelect.innerHTML = sources.map((source) => `<option value="${source}">${source}</option>`).join("");
+}
+
+function syncInventoryTotalCost() {
+  const qty = Number(inventoryQtyInput.value || 0);
+  const unitCost = Number(inventoryUnitCostInput.value || 0);
+  if (qty > 0 && unitCost >= 0) {
+    inventoryTotalCostInput.value = qty * unitCost || "";
+  }
+}
+
+function buildInventoryRecord() {
+  const date = inventoryDateInput.value;
+  const quantity = Number(inventoryQtyInput.value || 0);
+  const unitCost = Number(inventoryUnitCostInput.value || 0);
+  const totalCost = Number(inventoryTotalCostInput.value || quantity * unitCost || 0);
+
+  if (!date || date < "2026-01-01" || date > "2035-12-31") {
+    showToast("請選擇 2026-2035 之間的庫存日期。");
+    return null;
+  }
+
+  if (!inventoryNameInput.value.trim()) {
+    showToast("請輸入品名／卡名。");
+    return null;
+  }
+
+  if (!quantity || quantity <= 0) {
+    showToast("請輸入大於 0 的庫存數量。");
+    return null;
+  }
+
+  return {
+    date,
+    month: date.slice(0, 7).replace("-", ""),
+    type: inventoryTypeSelect.value,
+    action: inventoryActionSelect.value,
+    source: inventorySourceSelect.value,
+    name: inventoryNameInput.value.trim(),
+    quantity,
+    unitCost,
+    totalCost,
+    reference: inventoryReferenceInput.value.trim(),
+    note: inventoryNoteInput.value.trim(),
+  };
+}
+
+async function saveInventoryRecord(record) {
+  if (editingInventoryId) {
+    await updateInventoryRecord(record);
+    return;
+  }
+
+  await addInventoryRecord(record);
+  if (isConfigured) await loadInventoryRecords();
+}
+
+async function updateInventoryRecord(record) {
+  const payload = {
+    ...record,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "inventoryRecords", editingInventoryId), payload);
+    await loadInventoryRecords();
+  } else {
+    inventoryCache = inventoryCache.map((item) =>
+      item.id === editingInventoryId ? { ...item, ...payload } : item,
+    );
+    saveLocalInventoryRecords();
+    renderInventory();
+  }
+
+  editingInventoryId = null;
+  saveInventoryButton.textContent = "儲存庫存";
+  renderRecords(recordsCache);
+  renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
+}
+
+async function loadInventoryRecords() {
+  if (!currentUser || !db) return;
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "inventoryRecords"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(200),
+    ),
+  );
+  inventoryCache = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  renderInventory();
+  renderRecords(recordsCache);
+  renderLedgerInventorySync();
+  renderPendingCenter();
+}
+
+async function handleInventoryMatch(record, button) {
+  const panel = button.closest(".inventory-match-panel");
+  const availableLots = getAvailableInventoryLots();
+  const selected = Array.from(panel.querySelectorAll("[data-inventory-match-id]:checked")).map((checkbox) => {
+    const lot = availableLots.find((item) => item.id === checkbox.dataset.inventoryMatchId);
+    const qtyInput = panel.querySelector(`[data-inventory-match-qty="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
+    return { lot, quantity: Number(qtyInput?.value || 0) };
+  });
+
+  if (!selected.length) {
+    showToast("請先勾選要出庫的庫存。");
+    return;
+  }
+
+  if (selected.some((item) => !item.lot || item.quantity <= 0 || item.quantity > item.lot.remainingQuantity)) {
+    showToast("請確認出庫數量不可超過可用庫存。");
+    return;
+  }
+
+  const links = [];
+  for (const item of selected) {
+    const unitCost = Number(item.lot.unitCost || item.lot.totalCost / item.lot.quantity || 0);
+    const outRecord = {
+      date: record.date,
+      month: record.date.slice(0, 7).replace("-", ""),
+      type: item.lot.type,
+      action: "out",
+      source: "銷售出庫",
+      name: item.lot.name,
+      quantity: item.quantity,
+      unitCost,
+      totalCost: unitCost * item.quantity,
+      reference: `收入：${record.item}`,
+      note: `由收入紀錄配對出庫；原庫存來源：${item.lot.source}`,
+      linkedLedgerId: record.id,
+      sourceInventoryId: item.lot.id,
+    };
+    const savedId = await addInventoryRecord(outRecord);
+    links.push({
+      inventoryRecordId: savedId,
+      sourceInventoryId: item.lot.id,
+      name: item.lot.name,
+      type: item.lot.type,
+      quantity: item.quantity,
+      unitCost,
+      totalCost: unitCost * item.quantity,
+    });
+  }
+
+  await updateLedgerInventoryLinks(record, links);
+  await loadInventoryRecords();
+  if (isConfigured) await loadRecords();
+  else renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
+  showToast(`已配對 ${links.length} 筆庫存並建立出庫。`);
+}
+
+async function addInventoryRecord(record) {
+  if (isConfigured) {
+    const docRef = await firebaseApi.addDoc(firebaseApi.collection(db, "inventoryRecords"), {
+      ...record,
+      createdAt: firebaseApi.serverTimestamp(),
+      createdBy: currentUser.email,
+      userId: currentUser.uid,
+    });
+    return docRef.id;
+  }
+
+  const id = crypto.randomUUID();
+  inventoryCache.unshift({ id, ...record, createdAt: new Date() });
+  saveLocalInventoryRecords();
+  renderInventory();
+  renderRecords(recordsCache);
+  renderLedgerInventorySync();
+  return id;
+}
+
+function startEditingInventoryRecord(record) {
+  editingInventoryId = record.id;
+  inventoryDateInput.value = record.date || "";
+  inventoryTypeSelect.value = record.type || "box";
+  renderInventorySources();
+  inventoryActionSelect.value = record.action || "in";
+  inventorySourceSelect.value = record.source || inventorySourceSelect.value;
+  inventoryNameInput.value = record.name || "";
+  inventoryQtyInput.value = record.quantity || "";
+  inventoryUnitCostInput.value = record.unitCost || "";
+  inventoryTotalCostInput.value = record.totalCost || "";
+  inventoryReferenceInput.value = record.reference || "";
+  inventoryNoteInput.value = record.note || "";
+  saveInventoryButton.textContent = "更新庫存";
+  inventoryForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function handleDeleteInventoryRecord(record) {
+  const linkedOutCount = inventoryCache.filter((item) => item.sourceInventoryId === record.id).length;
+  const confirmed = window.confirm(
+    `確定要刪除這筆庫存紀錄嗎？\n\n品名：${record.name}\n數量：${formatNumber(record.quantity)}\n成本：NT$ ${formatNumber(record.totalCost)}${
+      linkedOutCount ? `\n\n提醒：已有 ${linkedOutCount} 筆出庫紀錄連到這筆資料，刪除後請重新檢查收入配庫存。` : ""
+    }`,
+  );
+  if (!confirmed) return;
+
+  if (isConfigured) {
+    await firebaseApi.deleteDoc(firebaseApi.doc(db, "inventoryRecords", record.id));
+    await loadInventoryRecords();
+  } else {
+    inventoryCache = inventoryCache.filter((item) => item.id !== record.id);
+    saveLocalInventoryRecords();
+    renderInventory();
+    renderRecords(recordsCache);
+  }
+
+  renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
+  showToast("庫存紀錄已刪除。");
+}
+
+async function updateLedgerInventoryLinks(record, links) {
+  const nextLinks = [...(record.inventoryLinks || []), ...links];
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), {
+      inventoryLinks: nextLinks,
+      inventoryStatus: "已配庫存",
+      productCost: nextLinks.reduce((total, link) => total + Number(link.totalCost || 0), 0),
+      updatedAt: firebaseApi.serverTimestamp(),
+    });
+    return;
+  }
+
+  recordsCache = recordsCache.map((item) =>
+    item.id === record.id
+      ? {
+          ...item,
+          inventoryLinks: nextLinks,
+          inventoryStatus: "已配庫存",
+          productCost: nextLinks.reduce((total, link) => total + Number(link.totalCost || 0), 0),
+        }
+      : item,
+  );
+  saveLocalRecords();
+}
+
+function clearInventoryForm() {
+  inventoryForm.reset();
+  editingInventoryId = null;
+  saveInventoryButton.textContent = "儲存庫存";
+  setDefaultInventoryDate();
+  renderInventorySources();
+}
+
+function renderInventory() {
+  const summary = buildInventorySummary(inventoryCache);
+  inventorySummary.innerHTML = `
+    <div class="inventory-summary-grid">
+      <article class="inventory-card">
+        <span>卡盒庫存</span>
+        <strong>${formatNumber(summary.boxQty)} 盒</strong>
+      </article>
+      <article class="inventory-card">
+        <span>卡片庫存</span>
+        <strong>${formatNumber(summary.cardQty)} 張</strong>
+      </article>
+      <article class="inventory-card">
+        <span>包材庫存</span>
+        <strong>${formatNumber(summary.supplyQty)} 件</strong>
+      </article>
+      <article class="inventory-card">
+        <span>庫存成本</span>
+        <strong>NT$ ${formatNumber(summary.totalCost)}</strong>
+      </article>
+      <article class="inventory-card">
+        <span>待成本確認</span>
+        <strong>${formatNumber(summary.pendingCost)} 筆</strong>
+      </article>
+    </div>
+  `;
+
+  if (!inventoryCache.length) {
+    inventoryList.className = "inventory-list empty-state";
+    inventoryList.textContent = "尚無庫存紀錄";
+    return;
+  }
+
+  inventoryList.className = "inventory-list";
+  inventoryList.innerHTML = inventoryCache.map(renderInventoryRecord).join("");
+}
+
+function buildInventorySummary(records) {
+  return records.reduce(
+    (summary, record) => {
+      const direction = record.action === "out" ? -1 : 1;
+      const qty = Number(record.quantity || 0) * direction;
+      const cost = Number(record.totalCost || 0) * direction;
+      if (record.type === "box") summary.boxQty += qty;
+      if (record.type === "card") summary.cardQty += qty;
+      if (record.type === "supply") summary.supplyQty += qty;
+      summary.totalCost += cost;
+      if (!Number(record.totalCost || 0)) summary.pendingCost += 1;
+      return summary;
+    },
+    { ...getInventoryOpening(), pendingCost: 0 },
+  );
+}
+
+function getInventoryOpening() {
+  return {
+    boxQty: Number(inventoryOpeningBoxQtyInput.value || 0),
+    cardQty: Number(inventoryOpeningCardQtyInput.value || 0),
+    supplyQty: 0,
+    totalCost: Number(inventoryOpeningCostInput.value || 0),
+  };
+}
+
+function getAvailableInventoryLots() {
+  const outboundBySource = new Map();
+  inventoryCache
+    .filter((record) => record.action === "out" && record.sourceInventoryId && isSalesInventoryOut(record))
+    .forEach((record) => {
+      outboundBySource.set(
+        record.sourceInventoryId,
+        Number(outboundBySource.get(record.sourceInventoryId) || 0) + Number(record.quantity || 0),
+      );
+    });
+
+  return inventoryCache
+    .filter((record) => record.action !== "out")
+    .map((record) => {
+      const remainingQuantity = Number(record.quantity || 0) - Number(outboundBySource.get(record.id) || 0);
+      return { ...record, remainingQuantity };
+    })
+    .filter((record) => record.remainingQuantity > 0)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function isSalesInventoryOut(record) {
+  if (!record.linkedLedgerId) return false;
+  const linkedRecord = recordsCache.find((item) => item.id === record.linkedLedgerId);
+  if (linkedRecord) return linkedRecord.type === "income";
+  return /銷售出庫|售出|收入/.test(`${record.source || ""} ${record.reference || ""} ${record.note || ""}`);
+}
+
+function renderInventoryRecord(record) {
+  const direction = record.action === "out" ? "-" : "+";
+  const unit = inventoryUnitLabels[record.type] || "件";
+  return `
+    <article class="inventory-row">
+      <span class="pill ${record.type === "card" ? "income" : ""}">${inventoryTypeLabels[record.type]}</span>
+      <div>
+        <strong>${escapeHtml(record.name)}</strong>
+        <span>${escapeHtml(record.source)} · ${escapeHtml(record.reference || "無關聯來源")}</span>
+      </div>
+      <strong>${direction}${formatNumber(record.quantity)} ${unit}</strong>
+      <span>NT$ ${formatNumber(record.totalCost)}</span>
+      <span>${escapeHtml(record.date)} · ${inventoryActionLabels[record.action]}</span>
+      <div class="record-actions">
+        <button type="button" data-inventory-action="edit" data-inventory-id="${escapeHtml(record.id)}">修改</button>
+        <button type="button" class="danger" data-inventory-action="delete" data-inventory-id="${escapeHtml(record.id)}">刪除</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1144,18 +2550,10 @@ function exportCurrentReport() {
   }
 
   const workbook = window.XLSX.utils.book_new();
-  appendSheet(workbook, "交易明細", buildTransactionDetailSheet());
-  appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
-  appendSheet(workbook, "待確認", buildPendingSheet());
-  appendSheet(workbook, "損益表", buildIncomeStatementSheet());
-  appendSheet(workbook, "每日收支", buildDailySheet());
-  appendSheet(workbook, "三級科目明細", buildAccountDetailSheet());
-  appendSheet(workbook, "稅額彙總", buildTaxSheet());
-  appendSheet(workbook, "現金流摘要", buildCashflowSheet());
-  appendSheet(workbook, "檢查與來源", buildCheckSheet());
-  appendSheet(workbook, "來源索引", buildSourceIndexSheet());
-  appendSheet(workbook, "區間總覽", buildOverviewSheet());
-  window.XLSX.writeFile(workbook, `${lastReportSummary.start}_${lastReportSummary.end}_會計報表草稿.xlsx`);
+  appendSheet(workbook, "損益", buildIncomeStatementSheet());
+  appendSheet(workbook, "庫存表", buildInventoryReportSheet());
+  appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
+  window.XLSX.writeFile(workbook, `${lastReportSummary.start}_${lastReportSummary.end}_內帳報表.xlsx`);
 }
 
 function appendSheet(workbook, name, rows) {
@@ -1252,42 +2650,196 @@ function buildPendingSheet() {
 }
 
 function buildIncomeStatementSheet() {
-  const income = lastReportSummary.income;
+  const salesIncome = lastReportSummary.salesIncome;
   const productCost = lastReportSummary.productCost;
   const logisticsCost = lastReportSummary.logisticsCost;
   const packagingCost = lastReportSummary.packagingCost;
-  const otherExpense = lastReportSummary.otherExpense;
+  const operatingExpense = lastReportSummary.operatingExpense;
   return [
     [`${lastReportSummary.start} 至 ${lastReportSummary.end} 損益表草稿`],
     [],
     ["項目", "金額", "說明"],
-    ["商品直接收入", income, "依匯入收入與銷售報表；銷項稅待確認"],
-    ["商品成本", productCost, "依銷售報表商品成本；若未匯入則為 0"],
-    ["金流／物流成本", logisticsCost, "依銷售報表金流／物流成本"],
-    ["包材", packagingCost, "依支出中包材、包裝、紙箱、氣泡、膠帶等關鍵字彙總"],
-    ["毛利", { f: "B4-B5-B6-B7" }, "商品直接收入減商品成本、金流物流成本與包材"],
-    ["毛利率", { f: "IF(B4=0,0,B8/B4)" }, "毛利除以商品直接收入"],
-    ["其他營業費用", otherExpense, "支出扣除已列入毛利的包材"],
-    ["營業損益", { f: "B8-B10" }, "毛利減其他營業費用"],
-    ["淨利率", { f: "IF(B4=0,0,B11/B4)" }, "營業損益除以商品直接收入"],
+    ["銷售收入", salesIncome, "僅納入已售出商品相關收入；其他收入不列入毛利率分母"],
+    ["已售商品成本", productCost, "依收入配對出庫成本或匯入銷售報表商品成本"],
+    ["已售金流／物流成本", logisticsCost, "依銷售收入對應的金流／物流成本"],
+    ["已售包材成本", packagingCost, "依收入配對出庫的包材成本或銷售報表包材成本"],
+    ["毛利", { f: "B4-B5-B6-B7" }, "銷售收入減已售商品成本、金流物流成本與包材"],
+    ["毛利率", { f: "IF(B4=0,0,B8/B4)" }, "毛利除以銷售收入"],
+    ["營業費用", operatingExpense, "僅納入區間內支出大類為營業費用的紀錄"],
+    ["營業損益", { f: "B8-B10" }, "毛利減營業費用"],
+    ["淨利率", { f: "IF(B4=0,0,B11/B4)" }, "營業損益除以銷售收入"],
     ["本期損益", { f: "B11" }, "未含折舊、期末調整及所得稅"],
   ];
+}
+
+function buildInventoryReportSheet() {
+  const start = lastReportSummary.start;
+  const end = lastReportSummary.end;
+  const summary = buildInventorySummary(inventoryCache);
+  const inRange = (record) => record.date >= start && record.date <= end;
+
+  return [
+    [`${start} 至 ${end} 庫存表`],
+    [],
+    ["庫存摘要"],
+    ["項目", "數量／金額", "單位", "說明"],
+    ["卡盒庫存", summary.boxQty, "盒", "期初加入庫減出庫"],
+    ["卡片庫存", summary.cardQty, "張", "期初加入庫減出庫"],
+    ["包材庫存", summary.supplyQty, "件", "入庫減出庫"],
+    ["庫存成本", summary.totalCost, "TWD", "期初成本加庫存異動成本"],
+    ["待成本確認", summary.pendingCost, "筆", "成本為 0 或未輸入的庫存紀錄"],
+    [],
+    ["庫存明細"],
+    ["日期", "類型", "動作", "品名", "數量", "單位", "單位成本", "總成本", "來源", "關聯", "備註"],
+    ...inventoryCache
+      .filter(inRange)
+      .map((record) => [
+        record.date,
+        inventoryTypeLabels[record.type] || record.type,
+        inventoryActionLabels[record.action] || record.action,
+        record.name,
+        Number(record.quantity || 0),
+        inventoryUnitLabels[record.type] || "件",
+        Number(record.unitCost || 0),
+        Number(record.totalCost || 0),
+        record.source || "",
+        record.reference || "",
+        record.note || "",
+      ]),
+  ];
+}
+
+function buildAssetsLiabilitiesSheet() {
+  const cashflowSummary = getReportCashflowSummary();
+  const inventorySummary = buildInventorySummary(inventoryCache);
+  const arAp = buildReceivablePayableSummary(lastReportRows);
+  const assets = {
+    cash: cashflowSummary.endingCash,
+    receivable: arAp.receivableTotal,
+    inventory: inventorySummary.totalCost,
+  };
+  const liabilities = {
+    payable: arAp.payableTotal,
+    shareholderAdvance: Math.max(cashflowSummary.shareholderAdvance, 0),
+  };
+  const totalAssets = assets.cash + assets.receivable + assets.inventory;
+  const totalLiabilities = liabilities.payable + liabilities.shareholderAdvance;
+  const netAssets = totalAssets - totalLiabilities;
+
+  return [
+    [`${lastReportSummary.start} 至 ${lastReportSummary.end} 公司資產及負債`],
+    [],
+    ["資產"],
+    ["項目", "金額", "說明"],
+    ["期末可用現金", assets.cash, "公司銀行與現金期初，加區間現金流入，減區間現金流出"],
+    ["應收帳款", assets.receivable, "已發生收入但尚未實際入帳，包含平台待撥款與帳期款"],
+    ["　其中：平台待撥款", arAp.platformReceivableTotal, "平台收入尚未實際入帳的待撥款"],
+    ["庫存成本", assets.inventory, "目前庫存表計算之庫存成本"],
+    ["資產合計", totalAssets, ""],
+    [],
+    ["負債"],
+    ["項目", "金額", "說明"],
+    ["應付帳款／費用", liabilities.payable, "已發生支出但尚未實際付款，包含信用卡、月結與帳期款"],
+    ["股東代墊餘額", liabilities.shareholderAdvance, "股東代墊尚未沖銷的餘額"],
+    ["負債合計", totalLiabilities, ""],
+    [],
+    ["淨資產", netAssets, "資產合計減負債合計"],
+    [],
+    ["應收明細"],
+    ["日期", "對象", "摘要", "金額", "帳期／到期日", "判斷依據"],
+    ...arAp.receivableRows.map((record) => [
+      record.date,
+      record.counterparty,
+      record.item,
+      Number(record.amount || 0),
+      record.dueDate || record.paymentDueDate || "",
+      describeReceivablePayableBasis(record),
+    ]),
+    [],
+    ["應付明細"],
+    ["日期", "對象", "摘要", "金額", "帳期／到期日", "判斷依據"],
+    ...arAp.payableRows.map((record) => [
+      record.date,
+      record.counterparty,
+      record.item,
+      Number(record.amount || 0),
+      record.dueDate || record.paymentDueDate || "",
+      describeReceivablePayableBasis(record),
+    ]),
+    [],
+    ["提醒", "此表為內帳管理草稿；帳期到期日、稅額、折舊與月底調整仍待後續規則補齊。"],
+  ];
+}
+
+function buildReceivablePayableSummary(records) {
+  const receivableRows = records.filter(isReceivableRecord);
+  const payableRows = records.filter(isPayableRecord);
+  const platformReceivableRows = receivableRows.filter((record) => classifyCashflowRecord(record) === "platformPending");
+
+  return {
+    receivableRows,
+    payableRows,
+    receivableTotal: receivableRows.reduce((total, record) => total + Number(record.amount || 0), 0),
+    payableTotal: payableRows.reduce((total, record) => total + Number(record.amount || 0), 0),
+    platformReceivableTotal: platformReceivableRows.reduce((total, record) => total + Number(record.amount || 0), 0),
+  };
+}
+
+function isReceivableRecord(record) {
+  if (record.type !== "income") return false;
+  const text = receivablePayableText(record);
+  return classifyCashflowRecord(record) === "platformPending" || /應收|未收|帳期|月結|待撥|賒銷/.test(text);
+}
+
+function isPayableRecord(record) {
+  if (record.type !== "expense") return false;
+  if (classifyCashflowRecord(record) === "shareholderAdvance") return false;
+  const text = receivablePayableText(record);
+  return /應付|未付|帳期|月結|信用卡|刷卡/.test(text);
+}
+
+function receivablePayableText(record) {
+  return [record.cashflow, record.account, record.counterparty, record.item, record.major, record.middle, record.minor, record.note]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function describeReceivablePayableBasis(record) {
+  if (record.type === "income" && classifyCashflowRecord(record) === "platformPending") return "平台待撥款";
+  if (/信用卡|刷卡/.test(receivablePayableText(record))) return "信用卡或刷卡付款";
+  if (/股東代墊|代墊/.test(receivablePayableText(record))) return "股東代墊";
+  if (/帳期|月結/.test(receivablePayableText(record))) return "帳期或月結";
+  if (/應收|未收/.test(receivablePayableText(record))) return "應收或未收";
+  if (/應付|未付/.test(receivablePayableText(record))) return "應付或未付";
+  return "依目前金流與備註判斷";
+}
+
+function getReportCashflowSummary() {
+  const records = recordsCache.filter((record) => record.date >= lastReportSummary.start && record.date <= lastReportSummary.end);
+  const bankTransactions = bankTransactionsCache.filter((transaction) => transaction.date >= lastReportSummary.start && transaction.date <= lastReportSummary.end);
+  return buildCashflowSummary(records, {
+    openingBank: Number(cashflowOpeningBankInput.value || 0),
+    openingCash: Number(cashflowOpeningCashInput.value || 0),
+    openingPlatform: Number(cashflowOpeningPlatformInput.value || 0),
+    openingAdvance: Number(cashflowOpeningAdvanceInput.value || 0),
+  }, bankTransactions);
 }
 
 function buildDailySheet() {
   const days = getDateRange(lastReportSummary.start, lastReportSummary.end);
   return [
-    ["每日收入、成本與支出"],
+    ["每日銷售收入、成本與支出"],
     [],
-    ["日期", "收入", "銷貨成本", "營業費用", "金流／物流成本", "交易筆數"],
+    ["日期", "銷售收入", "銷貨成本", "營業費用", "金流／物流成本", "交易筆數"],
     ...days.map((date) => {
       const records = lastReportRows.filter((record) => record.date === date);
+      const soldCost = buildSoldCostSummary(records);
       return [
         date,
-        sumByType(records, "income"),
-        sumField(records, "productCost"),
-        sumByType(records, "expense"),
-        sumField(records, "logisticsCost"),
+        soldCost.salesIncome,
+        soldCost.productCost,
+        sumOperatingExpense(records),
+        soldCost.logisticsCost,
         records.length,
       ];
     }),
@@ -1345,15 +2897,106 @@ function buildCashflowSheet() {
 }
 
 function buildCheckSheet() {
+  const issues = buildReportIssues();
+  const issueCounts = issues.reduce((map, issue) => {
+    map[issue.type] = (map[issue.type] || 0) + 1;
+    return map;
+  }, {});
+
   return [
     ["檢查、限制與來源"],
     [],
     ["檢查項目", "實際值", "預期值", "差異", "狀態", "說明", "來源"],
     ["交易筆數", lastReportSummary.count, lastReportSummary.count, 0, "OK", "依目前區間流水帳納入。", "ledgerRecords"],
     ["待確認筆數", lastReportSummary.pending, 0, lastReportSummary.pending, lastReportSummary.pending ? "待確認" : "OK", "未附憑證或收入稅務資訊待確認。", "ledgerRecords"],
+    ["未配銀行交易", issueCounts["銀行未配對"] || 0, 0, issueCounts["銀行未配對"] || 0, issueCounts["銀行未配對"] ? "待核對" : "OK", "銀行匯入資料尚未標記配對收入、支出、平台撥款或代墊還款。", "bankTransactions"],
+    ["收入未配庫存", issueCounts["收入未配庫存"] || 0, 0, issueCounts["收入未配庫存"] || 0, issueCounts["收入未配庫存"] ? "待核對" : "OK", "收入尚未選擇售出的卡盒或卡片，毛利可能失真。", "ledgerRecords + inventoryRecords"],
+    ["庫存成本為 0", issueCounts["庫存成本為 0"] || 0, 0, issueCounts["庫存成本為 0"] || 0, issueCounts["庫存成本為 0"] ? "待確認" : "OK", "入庫或調整資料缺成本，庫存金額與毛利需確認。", "inventoryRecords"],
     ["期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`, `${lastReportSummary.start} 至 ${lastReportSummary.end}`, "", "OK", "使用者自訂區間。", "報表期間"],
     ["稅額完整性", 0, "待憑證確認", "", "待確認", "目前尚未拆分進項稅額與銷項稅額。", "網頁流水帳"],
   ];
+}
+
+function buildReportCheckDetailSheet() {
+  const issues = buildReportIssues();
+  return [
+    ["報表檢查明細"],
+    [],
+    ["類型", "日期", "對象／來源", "摘要", "金額", "原因", "建議處理"],
+    ...issues.map((issue) => [
+      issue.type,
+      issue.date,
+      issue.party,
+      issue.summary,
+      issue.amount,
+      issue.reason,
+      issue.action,
+    ]),
+  ];
+}
+
+function buildReportIssues() {
+  const issues = [];
+  const start = lastReportSummary?.start || "";
+  const end = lastReportSummary?.end || "";
+  const inRange = (date) => date && (!start || !end || (date >= start && date <= end));
+
+  lastReportRows.forEach((record) => {
+    if (record.pendingReason) {
+      issues.push({
+        type: "待補憑證",
+        date: record.date,
+        party: record.counterparty,
+        summary: record.item,
+        amount: Number(record.amount || 0),
+        reason: record.pendingReason,
+        action: "補上發票、收據或確認可無憑證。",
+      });
+    }
+
+    if (isSalesRevenueRecord(record) && !record.inventoryLinks?.length) {
+      issues.push({
+        type: "收入未配庫存",
+        date: record.date,
+        party: record.counterparty,
+        summary: record.item,
+        amount: Number(record.amount || 0),
+        reason: "尚未選擇售出的庫存批次。",
+        action: "在最近紀錄中對收入執行多選庫存配對。",
+      });
+    }
+  });
+
+  inventoryCache
+    .filter((record) => inRange(record.date) && !Number(record.totalCost || 0))
+    .forEach((record) => {
+      issues.push({
+        type: "庫存成本為 0",
+        date: record.date,
+        party: record.source,
+        summary: record.name,
+        amount: 0,
+        reason: "庫存成本尚未填入。",
+        action: "補入單位成本或總成本，避免毛利率失真。",
+      });
+    });
+
+  bankTransactionsCache
+    .filter((transaction) => inRange(transaction.date))
+    .filter((transaction) => !["已配收入", "已配支出", "已配平台撥款", "已配代墊還款", "不入帳"].includes(transaction.status))
+    .forEach((transaction) => {
+      issues.push({
+        type: transaction.status === "待辨識" ? "存摺照片待辨識" : "銀行未配對",
+        date: transaction.date,
+        party: transaction.account,
+        summary: transaction.description || transaction.sourceFile || "銀行資料",
+        amount: Number(transaction.deposit || transaction.withdrawal || 0),
+        reason: transaction.pendingReason || "尚未標記配對狀態。",
+        action: "在現金流頁將銀行交易標記為收入、支出、平台撥款、代墊還款或不入帳。",
+      });
+    });
+
+  return issues.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
 function buildSourceIndexSheet() {
@@ -1372,12 +3015,16 @@ function buildSourceIndexSheet() {
 }
 
 function buildOverviewSheet() {
-  const totalCost = lastReportSummary.productCost + lastReportSummary.logisticsCost + lastReportSummary.expense;
+  const totalCost =
+    lastReportSummary.productCost +
+    lastReportSummary.logisticsCost +
+    lastReportSummary.packagingCost +
+    lastReportSummary.operatingExpense;
   return [
     [`${lastReportSummary.start} 至 ${lastReportSummary.end} 會計報表`],
     [],
-    ["期間開始", lastReportSummary.start, "", "收入", "成本與費用", "毛利率", "淨利率", "待補憑證", "交易筆數"],
-    ["期間結束", lastReportSummary.end, "", lastReportSummary.income, totalCost, formatPercent(lastReportSummary.grossMargin), formatPercent(lastReportSummary.netMargin), lastReportSummary.pending, lastReportSummary.count],
+    ["期間開始", lastReportSummary.start, "", "銷售收入", "已售成本與營業費用", "毛利率", "淨利率", "待補憑證", "交易筆數"],
+    ["期間結束", lastReportSummary.end, "", lastReportSummary.salesIncome, totalCost, formatPercent(lastReportSummary.grossMargin), formatPercent(lastReportSummary.netMargin), lastReportSummary.pending, lastReportSummary.count],
     ["幣別", "TWD"],
     ["會計基礎", "權責發生基礎草稿"],
     ["報表狀態", lastReportSummary.pending ? "草稿／有待確認" : "草稿"],
@@ -1402,6 +3049,50 @@ function inferCreditAccount(record) {
 
 function sumField(records, field) {
   return records.reduce((total, record) => total + Number(record[field] || 0), 0);
+}
+
+function buildSoldCostSummary(records) {
+  return records
+    .filter(isSalesRevenueRecord)
+    .reduce(
+      (summary, record) => {
+        summary.salesIncome += Number(record.amount || 0);
+        summary.logisticsCost += Number(record.logisticsCost || 0);
+
+        const links = record.inventoryLinks || [];
+        if (links.length) {
+          links.forEach((link) => {
+            if (link.type === "supply") {
+              summary.packagingCost += Number(link.totalCost || 0);
+            } else {
+              summary.productCost += Number(link.totalCost || 0);
+            }
+          });
+        } else {
+          summary.productCost += Number(record.productCost || 0);
+          summary.packagingCost += Number(record.packagingCost || 0);
+        }
+
+        return summary;
+      },
+      { salesIncome: 0, productCost: 0, logisticsCost: 0, packagingCost: 0 },
+    );
+}
+
+function isSalesRevenueRecord(record) {
+  if (record.type !== "income") return false;
+  return (
+    record.major === "銷貨收入" ||
+    Boolean(record.inventoryLinks?.length) ||
+    Number(record.productCost || 0) > 0 ||
+    Number(record.logisticsCost || 0) > 0
+  );
+}
+
+function sumOperatingExpense(records) {
+  return records
+    .filter((record) => record.type === "expense" && record.major === "營業費用")
+    .reduce((total, record) => total + Number(record.amount || 0), 0);
 }
 
 function sumPackagingCost(records) {
@@ -1462,33 +3153,159 @@ function renderRecords(records) {
     return;
   }
 
-  recordsList.className = "record-list";
-  recordsList.innerHTML = records
-    .map((record) => {
-      const label = typeLabel(record.type);
-      const amountPrefix = record.type === "income" ? "+" : "-";
-      const hasVoucher = Boolean(record.hasVoucher || record.voucher);
-      return `
-        <article class="record-item">
-          <span class="pill ${record.type === "income" ? "income" : ""}">${label}</span>
-          <div class="record-main">
-            <strong>${escapeHtml(record.item)}</strong>
-            <span>${escapeHtml(record.counterparty)} · ${escapeHtml(record.major)} / ${escapeHtml(record.middle)} / ${escapeHtml(record.minor)}</span>
-          </div>
-          <strong class="record-amount">${amountPrefix} NT$ ${formatNumber(record.amount)}</strong>
-          <div class="record-meta">
-            ${escapeHtml(record.date)}<br />
-            ${escapeHtml(record.cashflow)} · ${hasVoucher ? "有發票" : "無發票"}
-            ${record.pendingReason ? `<br /><span class="pill pending">${escapeHtml(record.pendingReason)}</span>` : ""}
-          </div>
-          <div class="record-actions">
-            <button type="button" data-record-action="edit" data-record-id="${escapeHtml(record.id)}">修改</button>
-            <button type="button" class="danger" data-record-action="delete" data-record-id="${escapeHtml(record.id)}">刪除</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+  const incomeRecords = records.filter((record) => record.type === "income");
+  const expenseRecords = records.filter((record) => record.type === "expense");
+
+  recordsList.className = "record-list grouped";
+  recordsList.innerHTML = [
+    renderRecordGroup("收入紀錄", incomeRecords, "income"),
+    renderRecordGroup("支出紀錄", expenseRecords, "expense"),
+  ].join("");
+}
+
+function renderRecordGroup(title, records, type) {
+  const total = sumByType(records, type);
+  const count = records.length;
+
+  return `
+    <section class="record-group">
+      <div class="record-group-heading">
+        <div>
+          <span>${escapeHtml(title)}</span>
+          <strong>${count} 筆</strong>
+        </div>
+        <strong>NT$ ${formatNumber(total)}</strong>
+      </div>
+      ${
+        records.length
+          ? records.map(renderRecordItem).join("")
+          : `<div class="record-group-empty">尚無${escapeHtml(title.replace("紀錄", ""))}</div>`
+      }
+    </section>
+  `;
+}
+
+function renderLedgerInventorySync() {
+  if (!fields.inventorySync || !fields.inventoryPicker) return;
+
+  const isEnabled = fields.inventorySync.value === "yes";
+  fields.inventoryPicker.hidden = !isEnabled || recordType !== "income";
+
+  if (!isEnabled) {
+    fields.inventorySyncHint.textContent = recordType === "expense"
+      ? "支出可同步入庫，入庫名稱會使用細項。"
+      : "收入可同步出庫，選擇後會列出可用庫存。";
+    fields.inventoryPicker.innerHTML = "";
+    return;
+  }
+
+  if (recordType === "expense") {
+    const name = fields.minor.value || fields.item.value.trim() || "未命名貨品";
+    const type = inventoryTypeLabels[inferInventoryTypeFromText(name)] || "卡盒";
+    fields.inventorySyncHint.textContent = `儲存後會詢問數量，並以「${name}」新增 ${type} 入庫；金額會作為庫存成本。`;
+    fields.inventoryPicker.innerHTML = "";
+    return;
+  }
+
+  const availableLots = getAvailableInventoryLots();
+  fields.inventorySyncHint.textContent = "請勾選要出庫的庫存，並填寫本次出庫數量。";
+
+  if (!availableLots.length) {
+    fields.inventoryPicker.hidden = false;
+    fields.inventoryPicker.innerHTML = `<div class="record-group-empty">目前沒有可出庫的倉庫貨品。</div>`;
+    return;
+  }
+
+  fields.inventoryPicker.hidden = false;
+  fields.inventoryPicker.innerHTML = `
+    <div class="inventory-match-list">
+      ${availableLots.map(renderLedgerInventoryOption).join("")}
+    </div>
+  `;
+}
+
+function renderLedgerInventoryOption(lot) {
+  return `
+    <label class="inventory-match-option">
+      <input type="checkbox" data-ledger-inventory-id="${escapeHtml(lot.id)}" />
+      <span>
+        <strong>${escapeHtml(lot.name)}</strong>
+        <small>${escapeHtml(inventoryTypeLabels[lot.type] || lot.type)} · 可用 ${formatNumber(lot.remainingQuantity)} · 成本 NT$ ${formatNumber(lot.totalCost)}</small>
+      </span>
+      <input type="number" min="1" max="${escapeHtml(lot.remainingQuantity)}" step="1" value="1" data-ledger-inventory-qty="${escapeHtml(lot.id)}" />
+    </label>
+  `;
+}
+
+function renderRecordItem(record) {
+  const label = typeLabel(record.type);
+  const amountPrefix = record.type === "income" ? "+" : "-";
+  const hasVoucher = Boolean(record.hasVoucher || record.voucher);
+  const voucherNames = getVoucherNames(record);
+  const voucherLabel = voucherNames.length ? `有發票 ${voucherNames.length} 張` : hasVoucher ? "有發票" : "無發票";
+
+  return `
+    <article class="record-item" data-record-id="${escapeHtml(record.id)}">
+      <span class="pill ${record.type === "income" ? "income" : ""}">${label}</span>
+      <div class="record-main">
+        <strong>${escapeHtml(record.item)}</strong>
+        <span>${escapeHtml(record.counterparty)} · ${escapeHtml(record.major)} / ${escapeHtml(record.middle)} / ${escapeHtml(record.minor)}</span>
+        ${record.inventoryLinks?.length ? `<span>已配庫存 ${record.inventoryLinks.length} 筆</span>` : ""}
+      </div>
+      <strong class="record-amount">${amountPrefix} NT$ ${formatNumber(record.amount)}</strong>
+      <div class="record-meta">
+        ${escapeHtml(record.date)}<br />
+        ${escapeHtml(record.cashflow)} · ${escapeHtml(voucherLabel)}
+        ${record.voucherBatchStatus ? `<br /><span class="pill pending">${escapeHtml(record.voucherBatchStatus)}</span>` : ""}
+        ${record.pendingReason ? `<br /><span class="pill pending">${escapeHtml(record.pendingReason)}</span>` : ""}
+      </div>
+      <div class="record-actions">
+        <button type="button" data-record-action="edit" data-record-id="${escapeHtml(record.id)}">修改</button>
+        <button type="button" class="danger" data-record-action="delete" data-record-id="${escapeHtml(record.id)}">刪除</button>
+      </div>
+      ${record.type === "income" ? renderInventoryMatchPanel(record) : ""}
+    </article>
+  `;
+}
+
+function renderInventoryMatchPanel(record) {
+  const availableLots = getAvailableInventoryLots();
+
+  if (!availableLots.length) {
+    return `
+      <div class="inventory-match-panel">
+        <strong>庫存配對</strong>
+        <span>目前沒有可出庫的卡盒或卡片。</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="inventory-match-panel">
+      <div>
+        <strong>庫存配對</strong>
+        <span>可多選庫存來源；適合一天賣多盒或同一筆收入包含多個商品。</span>
+      </div>
+      <div class="inventory-match-list">
+        ${availableLots.map(renderInventoryMatchOption).join("")}
+      </div>
+      <button type="button" data-record-action="match-inventory" data-record-id="${escapeHtml(record.id)}">配對選取庫存</button>
+    </div>
+  `;
+}
+
+function renderInventoryMatchOption(lot) {
+  const unit = inventoryUnitLabels[lot.type] || "件";
+  return `
+    <label class="inventory-match-option">
+      <input type="checkbox" data-inventory-match-id="${escapeHtml(lot.id)}" />
+      <span>
+        <strong>${escapeHtml(lot.name)}</strong>
+        <small>${escapeHtml(inventoryTypeLabels[lot.type])} · ${escapeHtml(lot.source)} · 剩 ${formatNumber(lot.remainingQuantity)} ${unit}</small>
+      </span>
+      <input type="number" min="1" max="${lot.remainingQuantity}" step="1" value="1" data-inventory-match-qty="${escapeHtml(lot.id)}" aria-label="出庫數量" />
+    </label>
+  `;
 }
 
 function updateSummary(records) {
@@ -1541,6 +3358,25 @@ function setReportDatesFromRecords(records) {
   reportEndInput.value = latestDate;
 }
 
+function setCashflowDatesFromRecords(records) {
+  if (!records.length) return;
+
+  const currentRangeHasData = records.some((record) => {
+    return cashflowStartInput.value && cashflowEndInput.value && record.date >= cashflowStartInput.value && record.date <= cashflowEndInput.value;
+  });
+  if (currentRangeHasData) return;
+
+  const latestDate = records
+    .map((record) => record.date)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  if (!latestDate) return;
+
+  cashflowStartInput.value = `${latestDate.slice(0, 7)}-01`;
+  cashflowEndInput.value = latestDate;
+}
+
 function sumByType(records, type) {
   return records
     .filter((record) => record.type === type)
@@ -1575,8 +3411,32 @@ function saveLocalRecords() {
   localStorage.setItem("ledgerRecordsPreview", JSON.stringify(recordsCache));
 }
 
+function loadLocalInventoryRecords() {
+  try {
+    return JSON.parse(localStorage.getItem("inventoryRecordsPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalInventoryRecords() {
+  localStorage.setItem("inventoryRecordsPreview", JSON.stringify(inventoryCache));
+}
+
+function loadLocalBankTransactions() {
+  try {
+    return JSON.parse(localStorage.getItem("bankTransactionsPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalBankTransactions() {
+  localStorage.setItem("bankTransactionsPreview", JSON.stringify(bankTransactionsCache));
+}
+
 function stripFile(record) {
-  const { voucherFile, ...cleanRecord } = record;
+  const { voucherFile, voucherFiles, ...cleanRecord } = record;
   return cleanRecord;
 }
 

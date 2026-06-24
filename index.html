@@ -214,14 +214,34 @@
                 <textarea id="noteInput" rows="2" placeholder="選擇自訂後可輸入備註" hidden></textarea>
               </div>
 
+              <div class="field wide inventory-sync-field">
+                <label for="inventorySyncSelect">庫存連動</label>
+                <select id="inventorySyncSelect">
+                  <option value="no">否，不連動庫存</option>
+                  <option value="yes">是，同步處理庫存</option>
+                </select>
+                <p id="inventorySyncHint" class="muted-text">支出可同步入庫；收入可同步出庫。</p>
+                <div id="ledgerInventoryPicker" class="ledger-inventory-picker" hidden></div>
+              </div>
+
               <div class="field file-field">
                 <label for="voucherInput">發票／收據檔案</label>
                 <label class="drop-zone" for="voucherInput">
-                  <span>拖曳檔案至此，或點擊選擇</span>
-                  <small>未上傳時默認無發票；有上傳會自動標記為有</small>
-                  <input id="voucherInput" type="file" accept=".jpg,.jpeg,.png,.pdf" />
+                  <span>拖曳檔案至此，或點擊選擇多個檔案</span>
+                  <small>可一次選多張發票／收據；目前先記錄檔名，之後可配對交易</small>
+                  <input id="voucherInput" type="file" accept=".jpg,.jpeg,.png,.pdf" multiple />
                 </label>
                 <div id="voucherPreview" class="muted-text">目前默認：無發票</div>
+              </div>
+
+              <div class="field file-field">
+                <div class="batch-upload-panel">
+                  <div>
+                    <strong>批次憑證暫存</strong>
+                    <span>同一天一次整理多張發票時，可先批次選檔；儲存紀錄後會保留檔名與待配對狀態。</span>
+                  </div>
+                  <ul id="batchVoucherList" class="batch-voucher-list"></ul>
+                </div>
               </div>
 
               <div class="form-footer">
@@ -255,20 +275,9 @@
           <div class="placeholder-panel">
             <p class="eyebrow">ACTION CENTER</p>
             <h2>待處理事項</h2>
-            <div class="rule-list">
-              <article>
-                <strong>待補憑證</strong>
-                <span>未上傳發票或收據的流水帳會集中在這裡。</span>
-              </article>
-              <article>
-                <strong>待確認交易</strong>
-                <span>分類不明、金流方式不明、可能重複入帳的項目會列入確認。</span>
-              </article>
-              <article>
-                <strong>待會計師確認</strong>
-                <span>營業稅、折舊、攤銷、月底調整等專業判斷先集中保留。</span>
-              </article>
-            </div>
+            <p class="muted-text">集中查看還沒補完的帳務、憑證、庫存與現金流事項。</p>
+            <div id="pendingSummary" class="pending-summary"></div>
+            <div id="pendingList" class="pending-list empty-state">目前沒有待處理事項。</div>
           </div>
         </section>
 
@@ -276,20 +285,65 @@
           <div class="placeholder-panel">
             <p class="eyebrow">CASHFLOW</p>
             <h2>現金流</h2>
-            <div class="rule-list">
-              <article>
-                <strong>銀行對帳單匯入</strong>
-                <span>規劃匯入銀行明細，核對實際收款、付款與手續費。</span>
-              </article>
-              <article>
-                <strong>平台待撥款</strong>
-                <span>銷售發生與平台撥款時間不同時，先列為應收或待撥款。</span>
-              </article>
-              <article>
-                <strong>股東代墊</strong>
-                <span>股東先付款的支出獨立追蹤，不直接混入公司銀行現金流。</span>
-              </article>
+            <p class="muted-text">追蹤公司實際現金進出、平台待撥款與股東代墊，之後可接銀行對帳單核對。</p>
+
+            <div class="cashflow-controls">
+              <div class="field">
+                <label for="cashflowStartInput">起始日期</label>
+                <input id="cashflowStartInput" type="date" min="2026-01-01" max="2035-12-31" />
+              </div>
+              <div class="field">
+                <label for="cashflowEndInput">結束日期</label>
+                <input id="cashflowEndInput" type="date" min="2026-01-01" max="2035-12-31" />
+              </div>
+              <div class="field">
+                <label for="cashflowOpeningBankInput">公司帳戶期初</label>
+                <input id="cashflowOpeningBankInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field">
+                <label for="cashflowOpeningCashInput">現金期初</label>
+                <input id="cashflowOpeningCashInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field">
+                <label for="cashflowOpeningPlatformInput">平台待撥期初</label>
+                <input id="cashflowOpeningPlatformInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field">
+                <label for="cashflowOpeningAdvanceInput">股東代墊期初</label>
+                <input id="cashflowOpeningAdvanceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <button id="saveCashflowSettingsButton" class="secondary-button" type="button">儲存期初</button>
+              <button id="generateCashflowButton" type="button">更新現金流</button>
             </div>
+
+            <div id="cashflowResult" class="cashflow-result">
+              <div class="empty-state">請選擇日期區間並更新現金流。</div>
+            </div>
+
+            <section class="bank-panel">
+              <div class="section-heading compact">
+                <div>
+                  <h3>銀行對帳單／存摺照片</h3>
+                  <p class="muted-text">可匯入 Excel / CSV，或先登記存摺照片為待辨識資料。</p>
+                </div>
+              </div>
+              <div class="bank-import-grid">
+                <div class="field">
+                  <label for="bankAccountInput">帳戶名稱</label>
+                  <input id="bankAccountInput" type="text" placeholder="例如：公司帳戶、郵局、玉山" />
+                </div>
+                <div class="field">
+                  <label for="bankImportInput">匯入銀行 Excel / CSV</label>
+                  <input id="bankImportInput" type="file" accept=".xlsx,.xls,.csv" />
+                </div>
+                <div class="field">
+                  <label for="bankPhotoInput">拍照上傳存摺</label>
+                  <input id="bankPhotoInput" type="file" accept=".jpg,.jpeg,.png,.pdf" multiple />
+                </div>
+              </div>
+              <div id="bankImportPreview" class="muted-text">尚未匯入銀行資料。</div>
+              <div id="bankTransactionList" class="bank-transaction-list empty-state">尚無銀行交易。</div>
+            </section>
           </div>
         </section>
 
@@ -297,20 +351,92 @@
           <div class="placeholder-panel">
             <p class="eyebrow">INVENTORY</p>
             <h2>進銷存</h2>
-            <div class="rule-list">
-              <article>
-                <strong>進貨</strong>
-                <span>匯入進貨資料，記錄商品、數量、單位成本與供應來源。</span>
-              </article>
-              <article>
-                <strong>銷貨成本</strong>
-                <span>未來毛利率會優先使用進銷存計算出的實際銷貨成本。</span>
-              </article>
-              <article>
-                <strong>庫存</strong>
-                <span>追蹤期初、進貨、銷貨、退貨與期末庫存。</span>
-              </article>
+            <p class="muted-text">卡盒以進貨入庫；卡片可由團拆入卡、拆盒入卡或玩家收購入庫。這裡先做內部庫存草稿，未來再串到銷貨成本。</p>
+
+            <section class="opening-panel">
+              <div class="section-heading compact">
+                <div>
+                  <h3>庫存期初</h3>
+                  <p class="muted-text">承接系統啟用前已存在的卡盒、卡片與庫存成本。</p>
+                </div>
+              </div>
+              <div class="opening-grid">
+                <div class="field">
+                  <label for="inventoryOpeningBoxQtyInput">卡盒期初數量</label>
+                  <input id="inventoryOpeningBoxQtyInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+                </div>
+                <div class="field">
+                  <label for="inventoryOpeningCardQtyInput">卡片期初數量</label>
+                  <input id="inventoryOpeningCardQtyInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+                </div>
+                <div class="field">
+                  <label for="inventoryOpeningCostInput">庫存期初成本</label>
+                  <input id="inventoryOpeningCostInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+                </div>
+                <button id="saveInventorySettingsButton" class="secondary-button" type="button">儲存期初</button>
+              </div>
+            </section>
+
+            <form id="inventoryForm" class="ledger-form inventory-form">
+              <div class="field">
+                <label for="inventoryDateInput">日期 <b>*</b></label>
+                <input id="inventoryDateInput" type="date" min="2026-01-01" max="2035-12-31" required />
+              </div>
+              <div class="field">
+                <label for="inventoryTypeSelect">庫存類型 <b>*</b></label>
+                <select id="inventoryTypeSelect" required>
+                  <option value="box">卡盒</option>
+                  <option value="card">卡片</option>
+                  <option value="supply">包材</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="inventoryActionSelect">動作 <b>*</b></label>
+                <select id="inventoryActionSelect" required>
+                  <option value="in">入庫</option>
+                  <option value="out">出庫</option>
+                  <option value="adjust">調整</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="inventorySourceSelect">來源 <b>*</b></label>
+                <select id="inventorySourceSelect" required></select>
+              </div>
+              <div class="field wide">
+                <label for="inventoryNameInput">品名／卡名 <b>*</b></label>
+                <input id="inventoryNameInput" type="text" placeholder="例如：2026 Topps Chrome Hobby / Shohei Ohtani #17" required />
+              </div>
+              <div class="field">
+                <label for="inventoryQtyInput">數量 <b>*</b></label>
+                <input id="inventoryQtyInput" type="number" min="1" step="1" inputmode="numeric" placeholder="1" required />
+              </div>
+              <div class="field">
+                <label for="inventoryUnitCostInput">單位成本</label>
+                <input id="inventoryUnitCostInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field">
+                <label for="inventoryTotalCostInput">總成本</label>
+                <input id="inventoryTotalCostInput" type="number" min="0" step="1" inputmode="numeric" placeholder="自動計算" />
+              </div>
+              <div class="field wide">
+                <label for="inventoryReferenceInput">關聯團／影片／來源</label>
+                <input id="inventoryReferenceInput" type="text" placeholder="例如：6/23 國民團拆、影片第 12 集、玩家名稱" />
+              </div>
+              <div class="field wide">
+                <label for="inventoryNoteInput">備註</label>
+                <textarea id="inventoryNoteInput" rows="2" placeholder="例如：團拆帳上賣卡盒，但此處入庫抽到的卡片"></textarea>
+              </div>
+              <div class="form-footer">
+                <button id="clearInventoryButton" class="secondary-button" type="button">清除庫存</button>
+                <button id="saveInventoryButton" type="submit">儲存庫存</button>
+              </div>
+            </form>
+
+            <div id="inventorySummary" class="inventory-summary">
+              <div class="empty-state">尚無庫存資料。</div>
             </div>
+
+            <div id="inventoryList" class="inventory-list empty-state">尚無庫存紀錄</div>
           </div>
         </section>
 
