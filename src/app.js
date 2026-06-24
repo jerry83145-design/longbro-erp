@@ -1770,11 +1770,14 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
       shareholderAdvance += amount;
       current.advance += amount;
     } else if (bucket === "shareholderRepayment") {
+      const advanceAccount = "股東代墊";
+      const advanceCurrent = accountTotals.get(advanceAccount) || { account: advanceAccount, cashIn: 0, cashOut: 0, pending: 0, advance: 0 };
       cashOut += amount;
       shareholderRepayment += amount;
       shareholderAdvance -= amount;
       current.cashOut += amount;
-      current.advance -= amount;
+      advanceCurrent.advance -= amount;
+      accountTotals.set(advanceAccount, advanceCurrent);
     }
 
     if (bucket === "cashIn" || bucket === "cashOut" || bucket === "shareholderRepayment") reconcileCount += 1;
@@ -1791,12 +1794,15 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
 
     const account = transaction.account || "未指定帳戶";
     const current = accountTotals.get(account) || { account, cashIn: 0, cashOut: 0, pending: 0, advance: 0 };
+    const advanceAccount = "股東代墊";
+    const advanceCurrent = accountTotals.get(advanceAccount) || { account: advanceAccount, cashIn: 0, cashOut: 0, pending: 0, advance: 0 };
     cashOut += amount;
     shareholderRepayment += amount;
     shareholderAdvance -= amount;
     current.cashOut += amount;
-    current.advance -= amount;
+    advanceCurrent.advance -= amount;
     accountTotals.set(account, current);
+    accountTotals.set(advanceAccount, advanceCurrent);
     flowRows.push({
       date: transaction.date,
       item: transaction.description || transaction.sourceFile || "代墊還款",
@@ -2832,13 +2838,16 @@ function renderPendingCenter() {
     map[item.group] = (map[item.group] || 0) + 1;
     return map;
   }, {});
+  const urgentCount = items.filter((item) => item.priority >= 80).length;
+  const today = toDateValue(new Date());
+  const dueCount = items.filter((item) => item.date && item.date <= today).length;
 
   pendingSummary.innerHTML = [
-    ["待配庫存", counts.inventory || 0],
-    ["待補憑證", counts.voucher || 0],
-    ["待補成本", counts.cost || 0],
+    ["全部待辦", items.length],
+    ["優先處理", urgentCount],
+    ["今日以前", dueCount],
     ["待核對金流", counts.cashflow || 0],
-    ["待確認", counts.review || 0],
+    ["待配庫存", counts.inventory || 0],
   ]
     .map(([label, count]) => `
       <article class="pending-card">
@@ -2917,7 +2926,9 @@ function buildPendingItems() {
     }
   });
 
-  return items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return items
+    .map(enrichPendingItem)
+    .sort((a, b) => b.priority - a.priority || String(a.date).localeCompare(String(b.date)));
 }
 
 function buildSettlementPendingItem(record) {
@@ -2950,12 +2961,45 @@ function createPendingItem(group, title, date, subject, reason, action, targetVi
   return { group, title, date, subject, reason, action, targetView, targetType };
 }
 
+function enrichPendingItem(item) {
+  const reason = item.reason || "";
+  const today = toDateValue(new Date());
+  let priority = 20;
+  let status = "待處理";
+
+  if (/逾期/.test(reason)) {
+    priority = 100;
+    status = "逾期";
+  } else if (/7 天內|到期/.test(reason)) {
+    priority = 85;
+    status = "近期到期";
+  } else if (item.group === "cashflow") {
+    priority = 75;
+    status = "待核對";
+  } else if (item.group === "inventory") {
+    priority = 70;
+    status = "待配庫存";
+  } else if (item.group === "voucher") {
+    priority = 55;
+    status = "待補憑證";
+  } else if (item.group === "cost") {
+    priority = 50;
+    status = "待補成本";
+  } else if (item.group === "settlement") {
+    priority = 65;
+    status = item.date && item.date <= today ? "今日以前" : "待收付";
+  }
+
+  return { ...item, priority, status };
+}
+
 function renderPendingItem(item) {
+  const toneClass = item.priority >= 80 ? "urgent" : item.group === "inventory" ? "income" : item.group === "cashflow" ? "pending" : "";
   return `
-    <article class="pending-item">
-      <span class="pill ${item.group === "inventory" ? "income" : item.group === "cashflow" ? "pending" : ""}">${escapeHtml(item.title)}</span>
+    <article class="pending-item ${item.priority >= 80 ? "urgent" : ""}">
+      <span class="pill ${toneClass}">${escapeHtml(item.status)}</span>
       <div>
-        <strong>${escapeHtml(item.subject)}</strong>
+        <strong>${escapeHtml(item.title)}｜${escapeHtml(item.subject)}</strong>
         <span>${escapeHtml(item.date)} · ${escapeHtml(item.reason)}</span>
         <small>${escapeHtml(item.action)}</small>
       </div>
@@ -3430,6 +3474,7 @@ function exportCurrentReport() {
   appendSheet(workbook, "損益", buildIncomeStatementSheet());
   appendSheet(workbook, "庫存表", buildInventoryReportSheet());
   appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
+  appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
   window.XLSX.writeFile(workbook, `${lastReportSummary.start}_${lastReportSummary.end}_內帳報表.xlsx`);
 }
 
@@ -3504,6 +3549,20 @@ function buildJournalDraftSheet() {
     } else {
       rows.push([no, record.date, record.item, inferAccountCode(record), inferCreditAccount(record), Number(record.amount || 0), record.importSource || "網頁輸入", record.pendingReason || ""]);
     }
+    index += 1;
+  });
+  getShareholderRepaymentTransactions(lastReportSummary.start, lastReportSummary.end).forEach((transaction) => {
+    const no = `B${String(index).padStart(4, "0")}`;
+    rows.push([
+      no,
+      transaction.date,
+      transaction.description || "股東代墊還款",
+      "3102 業主往來／股東代墊",
+      "1102 銀行存款",
+      Number(transaction.withdrawal || transaction.deposit || 0),
+      transaction.sourceFile || "銀行對帳單",
+      "依銀行交易標記為代墊還款，沖銷股東代墊餘額；待會計師確認正式科目。",
+    ]);
     index += 1;
   });
   return rows;
@@ -3593,6 +3652,7 @@ function buildAssetsLiabilitiesSheet() {
   const cashflowSummary = getReportCashflowSummary();
   const inventorySummary = buildInventorySummary(inventoryCache);
   const arAp = buildReceivablePayableSummary(lastReportRows);
+  const shareholderRepayments = getShareholderRepaymentTransactions(lastReportSummary.start, lastReportSummary.end);
   const assets = {
     cash: cashflowSummary.endingCash,
     receivable: arAp.receivableTotal,
@@ -3622,6 +3682,16 @@ function buildAssetsLiabilitiesSheet() {
     ["應付帳款／費用", liabilities.payable, "已發生支出但尚未實際付款，包含信用卡、月結與帳期款"],
     ["股東代墊餘額", liabilities.shareholderAdvance, "股東代墊尚未沖銷的餘額"],
     ["負債合計", totalLiabilities, ""],
+    [],
+    ["股東代墊沖銷明細"],
+    ["日期", "帳戶", "摘要", "沖銷金額", "會計分錄"],
+    ...shareholderRepayments.map((transaction) => [
+      transaction.date,
+      transaction.account || "",
+      transaction.description || transaction.sourceFile || "代墊還款",
+      Number(transaction.withdrawal || transaction.deposit || 0),
+      "借：股東代墊／業主往來；貸：銀行存款",
+    ]),
     [],
     ["淨資產", netAssets, "資產合計減負債合計"],
     [],
@@ -3886,6 +3956,13 @@ function buildReportIssues() {
     });
 
   return issues.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+function getShareholderRepaymentTransactions(start, end) {
+  return bankTransactionsCache
+    .filter((transaction) => transaction.status === "已配代墊還款")
+    .filter((transaction) => transaction.date >= start && transaction.date <= end)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
 function buildSourceIndexSheet() {

@@ -980,6 +980,11 @@ textarea:focus {
   padding: 16px;
 }
 
+.pending-item.urgent {
+  border-color: #f2c46f;
+  background: #fffaf0;
+}
+
 .pending-item div strong,
 .pending-item div span,
 .pending-item div small {
