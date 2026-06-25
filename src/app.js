@@ -681,7 +681,7 @@ ledgerForm.addEventListener("submit", async (event) => {
   }
 });
 
-function handleAuthState(user) {
+async function handleAuthState(user) {
   currentUser = user;
 
   if (!user) {
@@ -703,6 +703,7 @@ function handleAuthState(user) {
     return;
   }
 
+  await loadSharedOptions();
   loadRecords();
   loadInventoryRecords();
   loadBankTransactions();
@@ -4733,10 +4734,7 @@ function sumByType(records, type) {
 function loadOptions() {
   try {
     const saved = JSON.parse(localStorage.getItem("ledgerOptionsByType") || "{}");
-    return {
-      expense: { ...structuredClone(defaultOptionsByType.expense), ...(saved.expense || {}) },
-      income: { ...structuredClone(defaultOptionsByType.income), ...(saved.income || {}) },
-    };
+    return normalizeOptionsByType(saved);
   } catch {
     return structuredClone(defaultOptionsByType);
   }
@@ -4744,6 +4742,69 @@ function loadOptions() {
 
 function saveOptions() {
   localStorage.setItem("ledgerOptionsByType", JSON.stringify(optionsByType));
+  saveSharedOptions().catch(() => {
+    showToast("雲端選項暫時無法同步，已先保存在本機。");
+  });
+}
+
+async function loadSharedOptions() {
+  if (!isConfigured || !currentUser || !db) return;
+
+  try {
+    const reference = firebaseApi.doc(db, "systemSettings", "options");
+    const snapshot = await firebaseApi.getDoc(reference);
+
+    if (snapshot.exists()) {
+      optionsByType = normalizeOptionsByType(snapshot.data()?.options || {});
+      saveOptionsLocalOnly();
+      renderAllOptions();
+      renderOptionsEditor();
+      return;
+    }
+
+    await saveSharedOptions(true);
+  } catch {
+    showToast("雲端選項讀取失敗，先使用本機選項。");
+  }
+}
+
+async function saveSharedOptions(isInitial = false) {
+  if (!isConfigured || !currentUser || !db) return;
+
+  const reference = firebaseApi.doc(db, "systemSettings", "options");
+  const payload = {
+    options: normalizeOptionsByType(optionsByType),
+    updatedAt: firebaseApi.serverTimestamp(),
+    updatedBy: currentUser.email,
+    userId: currentUser.uid,
+  };
+
+  if (isInitial) {
+    payload.createdAt = firebaseApi.serverTimestamp();
+    payload.createdBy = currentUser.email;
+  }
+
+  await firebaseApi.setDoc(reference, payload, { merge: true });
+}
+
+function saveOptionsLocalOnly() {
+  localStorage.setItem("ledgerOptionsByType", JSON.stringify(optionsByType));
+}
+
+function normalizeOptionsByType(saved = {}) {
+  return {
+    expense: normalizeOptionGroup(saved.expense, defaultOptionsByType.expense),
+    income: normalizeOptionGroup(saved.income, defaultOptionsByType.income),
+  };
+}
+
+function normalizeOptionGroup(savedGroup = {}, fallbackGroup = {}) {
+  return Object.fromEntries(
+    Object.keys(fallbackGroup).map((key) => [
+      key,
+      normalizeOptions(Array.isArray(savedGroup[key]) ? savedGroup[key] : fallbackGroup[key], fallbackGroup[key]),
+    ]),
+  );
 }
 
 function loadLocalRecords() {
