@@ -426,21 +426,20 @@ async function submitLineDraft() {
       files: await Promise.all(selectedFiles.map(readFileForEndpoint)),
     };
 
-    const response = await fetch(lineEndpointConfig.endpointUrl, {
+    await fetch(lineEndpointConfig.endpointUrl, {
       method: "POST",
+      mode: "no-cors",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
       body: JSON.stringify(payload),
     });
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.error || "後端未回傳成功狀態");
 
     draftForm.reset();
     setDefaultDate();
     renderOptions();
     fields.voucherFilesHint.textContent = getVoucherHintText();
-    showToast("已建立 LINE 草稿，請回 ERP 待處理事項確認。");
+    showToast("已送出 LINE 草稿，請回 ERP 待處理事項確認。");
   } catch (error) {
     showToast(`建立草稿失敗：${error.message}`);
   } finally {

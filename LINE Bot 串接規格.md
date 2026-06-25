@@ -91,6 +91,8 @@ Google 會阻擋 LINE 內建瀏覽器直接登入，因此 LINE 手機版改走 
 6. Apps Script 將草稿寫入 Firestore `lineDrafts`。
 7. ERP 待處理事項再由 Google 登入的管理者確認入帳。
 
+手機 LIFF 送出時使用 `no-cors` 呼叫 Apps Script，原因是 Google Apps Script Web App 不一定允許前端跨網域讀取回應。前端會以「已送出，請回 ERP 確認」作為提示，真正是否入帳以 Firestore `lineDrafts` 和 ERP 待處理事項為準。
+
 相關檔案：
 
 - `apps-script/Code.gs`：貼到 Google Apps Script 的後端程式。
