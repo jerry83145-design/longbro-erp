@@ -16,7 +16,7 @@ function doGet() {
 
 function doPost(event) {
   try {
-    const payload = JSON.parse(event.postData.contents || "{}");
+    const payload = parsePayload(event);
     if (payload.secret !== CONFIG.sharedSecret) {
       return jsonOutput({ ok: false, error: "secret is invalid" });
     }
@@ -24,7 +24,13 @@ function doPost(event) {
     const draft = payload.draft || {};
     const files = Array.isArray(payload.files) ? payload.files : [];
     const lineProfile = payload.lineProfile || {};
-    const uploadedFiles = uploadVoucherFiles(files, draft);
+    let uploadedFiles = [];
+    let uploadError = "";
+    try {
+      uploadedFiles = uploadVoucherFiles(files, draft);
+    } catch (error) {
+      uploadError = String(error && error.message ? error.message : error);
+    }
     const voucherLinks = []
       .concat(Array.isArray(draft.voucherLinks) ? draft.voucherLinks : [])
       .concat(uploadedFiles.map(function (file) { return file.webViewLink; }).filter(Boolean));
@@ -44,6 +50,8 @@ function doPost(event) {
       note: draft.note || "",
       voucherLinks: voucherLinks,
       voucherFiles: uploadedFiles,
+      voucherUploadStatus: uploadError ? "failed" : (files.length ? "uploaded" : "none"),
+      voucherUploadError: uploadError,
       status: "draft",
       needsReview: true,
       source: "line-liff",
@@ -54,10 +62,21 @@ function doPost(event) {
       updatedAt: new Date().toISOString(),
     });
 
-    return jsonOutput({ ok: true, documentName: documentName, uploadedCount: uploadedFiles.length });
+    return jsonOutput({
+      ok: true,
+      documentName: documentName,
+      uploadedCount: uploadedFiles.length,
+      expectedUploadCount: files.length,
+      uploadError: uploadError,
+    });
   } catch (error) {
     return jsonOutput({ ok: false, error: String(error && error.message ? error.message : error) });
   }
+}
+
+function parsePayload(event) {
+  const raw = String(event && event.postData && event.postData.contents ? event.postData.contents : "{}");
+  return JSON.parse(raw.replace(/^\uFEFF/, ""));
 }
 
 function uploadVoucherFiles(files, draft) {

@@ -55,6 +55,8 @@ let recordType = getInitialRecordType();
 let optionsByType = cloneDefaultOptions();
 let driveAccessToken = "";
 const driveFolderCache = new Map();
+const LINE_FILE_SIZE_LIMIT = 8 * 1024 * 1024;
+const LINE_TOTAL_FILE_SIZE_LIMIT = 12 * 1024 * 1024;
 
 setDefaultDate();
 syncTypeTabs();
@@ -395,6 +397,17 @@ async function submitLineDraft() {
   }
 
   const selectedFiles = Array.from(fields.voucherFiles.files || []);
+  const oversizedFile = selectedFiles.find((file) => file.size > LINE_FILE_SIZE_LIMIT);
+  const totalFileSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  if (oversizedFile) {
+    showToast(`檔案太大：${oversizedFile.name}。手機記帳單檔請先控制在 8MB 內。`);
+    return;
+  }
+  if (totalFileSize > LINE_TOTAL_FILE_SIZE_LIMIT) {
+    showToast("一次上傳的憑證太大，請先減少照片數量或改用 ERP 網頁批次上傳。");
+    return;
+  }
+
   const originalButtonText = submitButton.textContent;
   submitButton.disabled = true;
   submitButton.textContent = selectedFiles.length ? "上傳憑證中..." : "建立草稿中...";
