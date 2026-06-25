@@ -1067,6 +1067,15 @@ function getVoucherNames(record) {
   return [];
 }
 
+function getVoucherLinks(record) {
+  const links = [];
+  if (Array.isArray(record.voucherLinks)) links.push(...record.voucherLinks);
+  if (Array.isArray(record.vouchers)) links.push(...record.vouchers.map((file) => file.url || file.webViewLink));
+  if (record.voucher?.url) links.push(record.voucher.url);
+  if (record.voucher?.webViewLink) links.push(record.voucher.webViewLink);
+  return links.filter(Boolean);
+}
+
 function findPossibleDuplicate(record) {
   if (!record.hasVoucher) return null;
 
@@ -3482,6 +3491,9 @@ function buildPendingItems() {
         targetView: "pending",
         targetType: "",
         draftId: draft.id,
+        voucherLinks: getVoucherLinks(draft),
+        voucherUploadStatus: draft.voucherUploadStatus || "",
+        voucherUploadError: draft.voucherUploadError || "",
       });
     });
 
@@ -3617,6 +3629,7 @@ function renderPendingItem(item) {
           <strong>${escapeHtml(item.title)}：${escapeHtml(item.subject)}</strong>
           <span>${escapeHtml(item.date)} · ${escapeHtml(item.reason)}</span>
           <small>${escapeHtml(item.action)}</small>
+          ${renderVoucherLinkList(item)}
         </div>
         <div class="record-actions">
           <button type="button" data-line-draft-action="confirm" data-draft-id="${escapeHtml(item.draftId)}">確認入帳</button>
@@ -4866,6 +4879,7 @@ function renderRecordItem(record) {
       <div class="record-meta">
         ${escapeHtml(record.date)}<br />
         ${escapeHtml(record.cashflow)} · ${escapeHtml(voucherLabel)}
+        ${renderVoucherLinkList(record)}
         ${renderSettlementMeta(record)}
         ${record.voucherBatchStatus ? `<br /><span class="pill pending">${escapeHtml(record.voucherBatchStatus)}</span>` : ""}
         ${record.pendingReason ? `<br /><span class="pill pending">${escapeHtml(record.pendingReason)}</span>` : ""}
@@ -4885,6 +4899,24 @@ function renderSettlementMeta(record) {
   if (record.dueDate) parts.push(`預計 ${record.dueDate}`);
   if (record.settledDate) parts.push(`實際 ${record.settledDate}`);
   return parts.length ? `<br />${escapeHtml(parts.join(" · "))}` : "";
+}
+
+function renderVoucherLinkList(record) {
+  const links = getVoucherLinks(record);
+  const uploadFailed = record.voucherUploadStatus === "failed";
+
+  if (!links.length && !uploadFailed) return "";
+
+  const linkHtml = links
+    .map((url, index) => `
+      <a class="voucher-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">查看憑證 ${index + 1}</a>
+    `)
+    .join("");
+  const errorHtml = uploadFailed
+    ? `<span class="voucher-error">憑證上傳失敗：${escapeHtml(record.voucherUploadError || "請重新上傳")}</span>`
+    : "";
+
+  return `<div class="voucher-links">${linkHtml}${errorHtml}</div>`;
 }
 
 function renderInventoryMatchPanel(record) {

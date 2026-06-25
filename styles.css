@@ -1259,6 +1259,38 @@ textarea:focus {
   color: #b91c1c;
 }
 
+.voucher-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.voucher-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 10px;
+  text-decoration: none;
+}
+
+.voucher-link:hover {
+  border-color: var(--accent);
+  background: var(--soft);
+}
+
+.voucher-error {
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
