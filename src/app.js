@@ -168,6 +168,7 @@ let currentView = "overview";
 let recordsCache = loadLocalRecords();
 let inventoryCache = loadLocalInventoryRecords();
 let bankTransactionsCache = loadLocalBankTransactions();
+let lineDraftsCache = loadLocalLineDrafts();
 let optionsByType = loadOptions();
 let lastReportRows = [];
 let lastReportSummary = null;
@@ -463,7 +464,13 @@ inventoryForm.addEventListener("submit", async (event) => {
   }
 });
 
-pendingList.addEventListener("click", (event) => {
+pendingList.addEventListener("click", async (event) => {
+  const lineDraftButton = event.target.closest("[data-line-draft-action]");
+  if (lineDraftButton) {
+    await handleLineDraftAction(lineDraftButton.dataset.lineDraftAction, lineDraftButton.dataset.draftId);
+    return;
+  }
+
   const button = event.target.closest("[data-pending-target]");
   if (!button) return;
 
@@ -707,6 +714,7 @@ async function handleAuthState(user) {
   loadRecords();
   loadInventoryRecords();
   loadBankTransactions();
+  loadLineDrafts();
 }
 
 function setDefaultDate() {
@@ -1245,6 +1253,233 @@ async function saveCleanRecord(record) {
   } else {
     recordsCache.unshift({ id: crypto.randomUUID(), ...record, createdAt: new Date() });
   }
+}
+
+async function loadLineDrafts() {
+  if (!isConfigured || !currentUser || !db) {
+    renderPendingCenter();
+    return;
+  }
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "lineDrafts"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(100),
+    ),
+  );
+
+  lineDraftsCache = snapshot.docs
+    .map((doc) => normalizeLineDraft({ id: doc.id, ...doc.data() }))
+    .filter((draft) => !draft.deletedAt && !["confirmed", "ignored"].includes(draft.status))
+    .sort((a, b) => getRecordTimeValue(b) - getRecordTimeValue(a));
+  renderPendingCenter();
+}
+
+function normalizeLineDraft(draft) {
+  const normalized = {};
+
+  Object.entries(draft || {}).forEach(([key, value]) => {
+    const cleanKey = String(key).replace(/\u00a0/g, " ").trim();
+    normalized[cleanKey] = value;
+  });
+
+  return {
+    ...normalized,
+    amount: Number(normalized.amount || 0),
+    type: normalized.type === "income" ? "income" : "expense",
+    item: normalized.item || normalized.product || normalized.description || "",
+    counterparty: normalized.counterparty || normalized.vendor || normalized.customer || "",
+    cashflow: normalized.cashflow || normalized.paymentMethod || "",
+    account: normalized.account || normalized.bankAccount || "",
+    major: normalized.major || normalized.category || "",
+    middle: normalized.middle || normalized.subcategory || "",
+    minor: normalized.minor || normalized.detail || "",
+    needsReview: normalized.needsReview === true || normalized.needsReview === "true",
+  };
+}
+
+async function handleLineDraftAction(action, draftId) {
+  const draft = lineDraftsCache.find((item) => item.id === draftId);
+  if (!draft) {
+    showToast("找不到 LINE 草稿。");
+    return;
+  }
+
+  if (action === "confirm") {
+    await confirmLineDraft(draft);
+    return;
+  }
+
+  if (action === "ignore") {
+    await updateLineDraftStatus(draft, "ignored");
+    showToast("LINE 草稿已略過。");
+  }
+}
+
+async function confirmLineDraft(draft) {
+  syncLineDraftOptions(draft);
+  const record = buildRecordFromLineDraft(draft);
+  if (!record) return;
+
+  const cleanRecord = stripFile(record);
+
+  if (isConfigured) {
+    await firebaseApi.addDoc(firebaseApi.collection(db, "ledgerRecords"), {
+      ...cleanRecord,
+      voucher: buildLineDraftVoucherMetadata(draft),
+      createdAt: firebaseApi.serverTimestamp(),
+      createdBy: currentUser.email,
+      updatedAt: firebaseApi.serverTimestamp(),
+      userId: currentUser.uid,
+    });
+    await updateLineDraftStatus(draft, "confirmed");
+    await loadRecords();
+    await loadLineDrafts();
+    showToast("LINE 草稿已確認入帳。");
+    return;
+  }
+
+  recordsCache.unshift({ id: crypto.randomUUID(), ...cleanRecord, createdAt: new Date() });
+  saveLocalRecords();
+  await updateLineDraftStatus(draft, "confirmed");
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  renderPendingCenter();
+  showToast("LINE 草稿已確認入帳。");
+}
+
+function syncLineDraftOptions(draft) {
+  const type = draft.type === "income" ? "income" : "expense";
+  const optionMap = {
+    counterparty: "counterparties",
+    cashflow: "cashflows",
+    account: "accounts",
+    major: "majors",
+    middle: "middles",
+    minor: "minors",
+  };
+
+  let changed = false;
+  Object.entries(optionMap).forEach(([draftKey, optionKey]) => {
+    const value = String(draft[draftKey] || "").trim();
+    if (!value) return;
+    const current = optionsByType[type][optionKey] || [];
+    if (current.includes(value)) return;
+    optionsByType[type][optionKey] = normalizeOptions([...current, value], defaultOptionsByType[type][optionKey]);
+    changed = true;
+  });
+
+  if (draft.note) {
+    const note = String(draft.note).trim();
+    const currentNotes = optionsByType[type].notes || [];
+    if (note && !currentNotes.includes(note)) {
+      optionsByType[type].notes = normalizeOptions([...currentNotes, note], defaultOptionsByType[type].notes);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveOptions();
+    renderAllOptions();
+    renderOptionsEditor();
+  }
+}
+
+function buildRecordFromLineDraft(draft) {
+  const type = draft.type === "income" ? "income" : "expense";
+  const options = optionsByType[type] || defaultOptionsByType[type];
+  const date = draft.date || toDateValue(new Date());
+  const amount = Number(draft.amount || 0);
+  const item = getLineDraftItem(draft);
+
+  if (!amount || amount <= 0) {
+    showToast("LINE 草稿缺少金額，請先回 LINE 或之後 ERP 編輯草稿。");
+    return null;
+  }
+
+  if (!item) {
+    showToast("LINE 草稿缺少項目，請先補上項目。");
+    return null;
+  }
+
+  const dueDate = draft.dueDate || "";
+  const settlementStatus = resolveSettlementStatus(
+    draft.settlementStatus || (type === "income" ? "已收款" : "已付款"),
+    dueDate,
+    "",
+    type,
+  );
+
+  const voucherLinks = Array.isArray(draft.voucherLinks) ? draft.voucherLinks.filter(Boolean) : [];
+
+  return {
+    type,
+    date,
+    month: date.slice(0, 7).replace("-", ""),
+    counterparty: draft.counterparty || options.counterparties?.[0] || "LINE",
+    item,
+    amount,
+    invoiceStatus: voucherLinks.length ? "有" : "無",
+    cashflow: draft.cashflow || options.cashflows?.[0] || "",
+    account: draft.account || options.accounts?.[0] || "",
+    settlementStatus,
+    dueDate,
+    settledDate: "",
+    major: draft.major || options.majors?.[0] || "",
+    middle: draft.middle || options.middles?.[0] || "",
+    minor: draft.minor || options.minors?.[0] || "",
+    note: draft.note || "LINE 草稿匯入",
+    hasVoucher: Boolean(voucherLinks.length),
+    pendingReason: draft.needsReview === false ? "" : "LINE 草稿確認入帳，請複核分類與憑證。",
+    voucherLinks,
+    voucherFileNames: voucherLinks.map((_, index) => `LINE 憑證 ${index + 1}`),
+    voucherBatchStatus: voucherLinks.length > 1 ? "LINE 多筆憑證" : "",
+    source: "line",
+    importSource: "LINE Bot 草稿",
+    lineDraftId: draft.id,
+    lineDraftRaw: draft,
+  };
+}
+
+function getLineDraftItem(draft) {
+  return String(
+    draft.item ||
+      draft.description ||
+      draft.minor ||
+      draft.middle ||
+      draft.major ||
+      (draft.type === "income" ? "LINE收入草稿" : "LINE支出草稿"),
+  ).trim();
+}
+
+function buildLineDraftVoucherMetadata(draft) {
+  const links = Array.isArray(draft.voucherLinks) ? draft.voucherLinks.filter(Boolean) : [];
+  return links.map((url, index) => ({
+    name: draft.voucherFileNames?.[index] || `LINE 憑證 ${index + 1}`,
+    url,
+    status: "google-drive-link",
+    storage: "google-drive",
+  }));
+}
+
+async function updateLineDraftStatus(draft, status) {
+  const updates = {
+    status,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    reviewedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    reviewedBy: currentUser?.email || "local-preview",
+  };
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "lineDrafts", draft.id), updates);
+    await loadLineDrafts();
+    return;
+  }
+
+  lineDraftsCache = lineDraftsCache.map((item) => (item.id === draft.id ? { ...item, ...updates } : item));
+  saveLocalLineDrafts();
+  renderPendingCenter();
 }
 
 async function handleLedgerInventorySync(record) {
@@ -3230,6 +3465,24 @@ function renderPendingCenter() {
 function buildPendingItems() {
   const items = [];
 
+  lineDraftsCache
+    .filter((draft) => !["confirmed", "ignored"].includes(draft.status))
+    .forEach((draft) => {
+      const typeText = draft.type === "income" ? "收入" : "支出";
+      const draftItem = getLineDraftItem(draft);
+      items.push({
+        group: "lineDraft",
+        title: "LINE 草稿",
+        date: draft.date || toDateValue(new Date()),
+        subject: draftItem || `${typeText}草稿`,
+        reason: `${typeText} NT$ ${formatNumber(draft.amount)}，等待確認入帳。`,
+        action: "確認後會轉成正式收入／支出；略過後不再提醒。",
+        targetView: "pending",
+        targetType: "",
+        draftId: draft.id,
+      });
+    });
+
   recordsCache.forEach((record) => {
     if (record.pendingReason) {
       items.push(createPendingItem("voucher", "待補憑證", record.date, record.item, record.pendingReason, "回收入／支出紀錄補上發票或收據。", "ledger", record.type));
@@ -3287,7 +3540,7 @@ function buildPendingItems() {
   });
 
   return items
-    .map(enrichPendingItem)
+    .map((item) => (item.group === "lineDraft" ? { ...item, priority: 90, status: "LINE 草稿" } : enrichPendingItem(item)))
     .sort((a, b) => b.priority - a.priority || String(a.date).localeCompare(String(b.date)));
 }
 
@@ -3354,6 +3607,23 @@ function enrichPendingItem(item) {
 }
 
 function renderPendingItem(item) {
+  if (item.group === "lineDraft") {
+    return `
+      <article class="pending-item urgent">
+        <span class="pill urgent">LINE 草稿</span>
+        <div>
+          <strong>${escapeHtml(item.title)}：${escapeHtml(item.subject)}</strong>
+          <span>${escapeHtml(item.date)} · ${escapeHtml(item.reason)}</span>
+          <small>${escapeHtml(item.action)}</small>
+        </div>
+        <div class="record-actions">
+          <button type="button" data-line-draft-action="confirm" data-draft-id="${escapeHtml(item.draftId)}">確認入帳</button>
+          <button type="button" class="danger" data-line-draft-action="ignore" data-draft-id="${escapeHtml(item.draftId)}">略過</button>
+        </div>
+      </article>
+    `;
+  }
+
   const toneClass = item.priority >= 80 ? "urgent" : item.group === "inventory" ? "income" : item.group === "cashflow" ? "pending" : "";
   return `
     <article class="pending-item ${item.priority >= 80 ? "urgent" : ""}">
@@ -4841,6 +5111,18 @@ function loadLocalBankTransactions() {
 
 function saveLocalBankTransactions() {
   localStorage.setItem("bankTransactionsPreview", JSON.stringify(bankTransactionsCache));
+}
+
+function loadLocalLineDrafts() {
+  try {
+    return JSON.parse(localStorage.getItem("lineDraftsPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLineDrafts() {
+  localStorage.setItem("lineDraftsPreview", JSON.stringify(lineDraftsCache));
 }
 
 function loadLocalDeletedRecords() {
