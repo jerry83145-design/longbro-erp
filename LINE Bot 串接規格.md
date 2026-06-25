@@ -77,6 +77,38 @@ LINE Bot 只做隆博ERP的手機前端，不直接產生正式帳。
 
 如果出現 `Google Drive API 尚未啟用`，需要到 Google Cloud 專案啟用 Google Drive API。
 
+## LINE 手機免 Google 登入流程
+
+Google 會阻擋 LINE 內建瀏覽器直接登入，因此 LINE 手機版改走 Apps Script 後端。
+
+流程：
+
+1. 使用者在 LINE 圖文選單點「新增收入」或「新增支出」。
+2. LIFF 手機頁顯示表單，不要求 Google 登入。
+3. 使用者可拍照或多選憑證檔案。
+4. 表單送到 Apps Script Web App。
+5. Apps Script 將憑證存入 Google Drive。
+6. Apps Script 將草稿寫入 Firestore `lineDrafts`。
+7. ERP 待處理事項再由 Google 登入的管理者確認入帳。
+
+相關檔案：
+
+- `apps-script/Code.gs`：貼到 Google Apps Script 的後端程式。
+- `apps-script/appsscript.json`：Apps Script 權限設定。
+- `src/line-endpoint-config.js`：填入 Apps Script 部署網址與 shared secret。
+
+設定步驟：
+
+1. 到 Google Apps Script 新增專案。
+2. 貼上 `apps-script/Code.gs`。
+3. 在專案設定顯示 `appsscript.json`，貼上 `apps-script/appsscript.json`。
+4. 修改 `Code.gs` 裡的 `sharedSecret`。
+5. 部署成 Web App。
+6. 執行身分選「我」。
+7. 存取權限選「任何人」。
+8. 複製 Web App 網址。
+9. 回到 `src/line-endpoint-config.js` 填入 `endpointUrl` 與相同的 `sharedSecret`。
+
 ## 下拉選單同步規則
 
 手機版表單會讀取 Firestore：

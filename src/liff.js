@@ -1,4 +1,5 @@
 import { allowedEmails, firebaseConfig } from "./firebase-config.js";
+import { lineEndpointConfig } from "./line-endpoint-config.js";
 
 const defaultOptionsByType = {
   expense: {
@@ -49,6 +50,7 @@ let app;
 let auth;
 let db;
 let currentUser = null;
+let lineProfile = null;
 let recordType = getInitialRecordType();
 let optionsByType = cloneDefaultOptions();
 let driveAccessToken = "";
@@ -58,6 +60,9 @@ setDefaultDate();
 syncTypeTabs();
 renderOptions();
 syncLineBrowserState();
+initializeLiffProfile().catch(() => {
+  lineProfile = null;
+});
 initializeFirebase().catch((error) => {
   authStatus.textContent = "Firebase 載入失敗";
   signInButton.disabled = true;
@@ -113,11 +118,27 @@ signInButton.addEventListener("click", async () => {
 function syncLineBrowserState() {
   if (!isLineInAppBrowser()) return;
   if (externalBrowserNotice) externalBrowserNotice.hidden = false;
-  signInButton.textContent = "用外部瀏覽器開啟";
+  signInButton.hidden = true;
+  signOutButton.hidden = true;
+  authStatus.textContent = lineEndpointConfig.endpointUrl ? "LINE 手機模式" : "LINE 後端尚未設定";
+  submitButton.disabled = !lineEndpointConfig.endpointUrl;
 }
 
 function isLineInAppBrowser() {
   return /Line/i.test(navigator.userAgent);
+}
+
+function shouldUseLineEndpoint() {
+  return isLineInAppBrowser() && Boolean(lineEndpointConfig.endpointUrl);
+}
+
+async function initializeLiffProfile() {
+  if (!window.liff || !lineEndpointConfig.liffId) return;
+  await window.liff.init({ liffId: lineEndpointConfig.liffId });
+  if (window.liff.isLoggedIn()) {
+    lineProfile = await window.liff.getProfile();
+    if (shouldUseLineEndpoint()) authStatus.textContent = `${lineProfile.displayName}（LINE 手機模式）`;
+  }
 }
 
 function openInExternalBrowser() {
@@ -176,6 +197,12 @@ async function handleAuthState(user) {
   currentUser = user;
 
   if (!user) {
+    if (isLineInAppBrowser()) {
+      syncLineBrowserState();
+      renderOptions();
+      return;
+    }
+
     authStatus.textContent = "尚未登入";
     signInButton.hidden = false;
     signOutButton.hidden = true;
@@ -256,6 +283,11 @@ async function addOption(key) {
 }
 
 async function submitDraft() {
+  if (shouldUseLineEndpoint()) {
+    await submitLineDraft();
+    return;
+  }
+
   if (!currentUser) {
     showToast("請先登入。");
     return;
@@ -341,6 +373,97 @@ async function submitDraft() {
     submitButton.disabled = false;
     submitButton.textContent = originalButtonText;
   }
+}
+
+async function submitLineDraft() {
+  const amount = Number(fields.amount.value || 0);
+  const item = fields.item.value.trim();
+
+  if (!amount || amount <= 0) {
+    showToast("請輸入正確金額。");
+    return;
+  }
+
+  if (!item) {
+    showToast("請輸入項目或摘要。");
+    return;
+  }
+
+  if (!lineEndpointConfig.endpointUrl) {
+    showToast("LINE 後端尚未設定，請先部署 Apps Script。");
+    return;
+  }
+
+  const selectedFiles = Array.from(fields.voucherFiles.files || []);
+  const originalButtonText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.textContent = selectedFiles.length ? "上傳憑證中..." : "建立草稿中...";
+
+  try {
+    const voucherLinks = fields.voucherLinks.value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const payload = {
+      secret: lineEndpointConfig.sharedSecret,
+      lineProfile,
+      draft: {
+        type: recordType,
+        date: fields.date.value,
+        amount,
+        counterparty: fields.counterparty.value,
+        item,
+        cashflow: fields.cashflow.value,
+        account: fields.account.value,
+        major: fields.major.value,
+        middle: fields.middle.value,
+        minor: fields.minor.value,
+        dueDate: fields.dueDate.value,
+        note: fields.note.value.trim(),
+        voucherLinks,
+      },
+      files: await Promise.all(selectedFiles.map(readFileForEndpoint)),
+    };
+
+    const response = await fetch(lineEndpointConfig.endpointUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || "後端未回傳成功狀態");
+
+    draftForm.reset();
+    setDefaultDate();
+    renderOptions();
+    fields.voucherFilesHint.textContent = getVoucherHintText();
+    showToast("已建立 LINE 草稿，請回 ERP 待處理事項確認。");
+  } catch (error) {
+    showToast(`建立草稿失敗：${error.message}`);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = originalButtonText;
+  }
+}
+
+function readFileForEndpoint(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        base64: result.includes(",") ? result.split(",").pop() : result,
+      });
+    };
+    reader.onerror = () => reject(new Error(`無法讀取檔案：${file.name}`));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function uploadVoucherFiles(files, context) {

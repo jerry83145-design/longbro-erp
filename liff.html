@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP 手機記帳</title>
     <link rel="stylesheet" href="./liff.css" />
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   </head>
   <body>
     <main class="mobile-shell">
@@ -16,7 +17,7 @@
 
       <section class="auth-card">
         <p id="externalBrowserNotice" class="external-browser-notice" hidden>
-          Google 會擋 LINE 內建瀏覽器登入，請改用外部瀏覽器開啟後再登入。
+          LINE 手機模式會直接建立草稿，不需要 Google 登入。正式入帳仍會回到 ERP 待處理事項確認。
         </p>
         <button id="signInButton" type="button">Google 登入</button>
         <button id="signOutButton" class="secondary" type="button" hidden>登出</button>
