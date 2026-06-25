@@ -1842,7 +1842,7 @@ async function loadRecords() {
   recordsCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
     .filter((record) => !record.deletedAt)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    .sort(compareRecordsByDateAndCreatedTime);
   setReportDatesFromRecords(recordsCache);
   setCashflowDatesFromRecords(recordsCache);
   renderRecords(recordsCache);
@@ -4762,8 +4762,9 @@ function renderRecords(records) {
     return;
   }
 
-  const incomeRecords = records.filter((record) => record.type === "income");
-  const expenseRecords = records.filter((record) => record.type === "expense");
+  const sortedRecords = sortLedgerRecordsByTime(records);
+  const incomeRecords = sortedRecords.filter((record) => record.type === "income");
+  const expenseRecords = sortedRecords.filter((record) => record.type === "expense");
 
   recordsList.className = "record-list grouped";
   recordsList.innerHTML = [
@@ -5166,6 +5167,17 @@ function sortInventoryRecordsByTime(records) {
 
     return getRecordTimeValue(b) - getRecordTimeValue(a);
   });
+}
+
+function sortLedgerRecordsByTime(records) {
+  return [...records].sort(compareRecordsByDateAndCreatedTime);
+}
+
+function compareRecordsByDateAndCreatedTime(a, b) {
+  const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
+  if (dateCompare) return dateCompare;
+
+  return getRecordTimeValue(b) - getRecordTimeValue(a);
 }
 
 function getRecordTimeValue(record) {
