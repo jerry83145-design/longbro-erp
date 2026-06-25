@@ -15,6 +15,9 @@
       </header>
 
       <section class="auth-card">
+        <p id="externalBrowserNotice" class="external-browser-notice" hidden>
+          Google 會擋 LINE 內建瀏覽器登入，請改用外部瀏覽器開啟後再登入。
+        </p>
         <button id="signInButton" type="button">Google 登入</button>
         <button id="signOutButton" class="secondary" type="button" hidden>登出</button>
       </section>
@@ -94,8 +97,14 @@
         </label>
 
         <label>
-          Google Drive 憑證連結
-          <textarea id="voucherLinksInput" rows="3" placeholder="一行一個連結，可先空著"></textarea>
+          收據 / 發票檔案
+          <input id="voucherFilesInput" type="file" multiple accept="image/*,.pdf,application/pdf" />
+          <span id="voucherFilesHint" class="field-hint">同一份憑證可拍多張或多選檔案，會跟這一筆草稿一起上傳到 Google Drive。</span>
+        </label>
+
+        <label>
+          已有 Google Drive 憑證連結
+          <textarea id="voucherLinksInput" rows="3" placeholder="已有連結才貼，一行一個；沒有可空白"></textarea>
         </label>
 
         <label>

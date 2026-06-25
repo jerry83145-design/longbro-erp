@@ -31,7 +31,8 @@ LINE Bot 只做隆博ERP的手機前端，不直接產生正式帳。
 - 中類
 - 細項
 - 預計付款日
-- Google Drive 憑證連結
+- 收據 / 發票檔案
+- 已有 Google Drive 憑證連結
 - 備註
 
 ### 收入
@@ -46,8 +47,35 @@ LINE Bot 只做隆博ERP的手機前端，不直接產生正式帳。
 - 中類
 - 細項
 - 預計收款日
-- Google Drive 憑證連結
+- 收據 / 發票檔案
+- 已有 Google Drive 憑證連結
 - 備註
+
+## 收據與發票上傳
+
+手機版表單支援直接拍照或一次選多個檔案。
+
+同一份憑證若有多張照片、掃描頁或 PDF，可以在同一筆收入 / 支出草稿中一起上傳，不需要拆成多筆。
+
+送出草稿時，流程如下：
+
+1. 使用者選擇收據、發票、PDF 或照片。
+2. 表單先在使用者的 Google Drive 建立或使用 `隆博ERP憑證 / YYYY-MM` 資料夾。
+3. 表單把檔案上傳到當月資料夾。
+4. Google Drive 回傳檔案連結。
+5. 表單把連結寫入 `lineDrafts.voucherLinks`。
+6. 同時把檔案資訊寫入 `lineDrafts.voucherFiles`。
+7. ERP 待處理事項確認後，正式收入 / 支出會保留這些憑證連結。
+
+這樣做的原因：
+
+- 不使用 Firebase Storage，避免升級付費方案。
+- 憑證保存在 Google Drive，並依月份自動整理。
+- ERP 只保存連結與檔案資訊，避免資料庫變太大。
+
+第一次使用檔案上傳時，Google 可能會要求同意 Drive 權限。只需要允許「管理由隆博ERP建立的檔案」即可。
+
+如果出現 `Google Drive API 尚未啟用`，需要到 Google Cloud 專案啟用 Google Drive API。
 
 ## 下拉選單同步規則
 
@@ -83,6 +111,7 @@ lineDrafts
 - `minor`：細項
 - `dueDate`：預計收付款日
 - `voucherLinks`：Google Drive 憑證連結
+- `voucherFiles`：Google Drive 檔案資訊
 - `note`：備註
 - `status`：預設 `draft`
 - `needsReview`：預設 `true`

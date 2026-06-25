@@ -60,10 +60,22 @@ body {
 }
 
 .auth-card {
-  display: flex;
+  display: grid;
   gap: 10px;
   padding: 12px;
   margin-bottom: 12px;
+}
+
+.external-browser-notice {
+  margin: 0;
+  border: 1px solid #f0c36a;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #7a4d00;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
 }
 
 .mobile-form {
@@ -113,6 +125,13 @@ button {
   padding: 0 14px;
 }
 
+input[type="file"] {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  line-height: 1.5;
+}
+
 textarea {
   min-height: 88px;
   padding-top: 12px;
@@ -153,6 +172,13 @@ button:disabled {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .toast {
