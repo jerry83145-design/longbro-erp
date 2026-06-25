@@ -1264,14 +1264,16 @@ async function loadLineDrafts() {
   const snapshot = await firebaseApi.getDocs(
     firebaseApi.query(
       firebaseApi.collection(db, "lineDrafts"),
-      firebaseApi.where("userId", "==", currentUser.uid),
       firebaseApi.limit(100),
     ),
   );
 
   lineDraftsCache = snapshot.docs
     .map((doc) => normalizeLineDraft({ id: doc.id, ...doc.data() }))
-    .filter((draft) => !draft.deletedAt && !["confirmed", "ignored"].includes(draft.status))
+    .filter((draft) => {
+      const belongsToCurrentUser = !draft.userId || draft.userId === currentUser.uid;
+      return belongsToCurrentUser && !draft.deletedAt && !["confirmed", "ignored"].includes(draft.status);
+    })
     .sort((a, b) => getRecordTimeValue(b) - getRecordTimeValue(a));
   renderPendingCenter();
 }
