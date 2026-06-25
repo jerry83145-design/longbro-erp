@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>隆博ERP 手機記帳</title>
+    <link rel="stylesheet" href="./liff.css" />
+  </head>
+  <body>
+    <main class="mobile-shell">
+      <header class="mobile-header">
+        <p>LONGBO ERP</p>
+        <h1>手機記帳</h1>
+        <span id="authStatus">尚未登入</span>
+      </header>
+
+      <section class="auth-card">
+        <button id="signInButton" type="button">Google 登入</button>
+        <button id="signOutButton" class="secondary" type="button" hidden>登出</button>
+      </section>
+
+      <form id="draftForm" class="mobile-form">
+        <div class="type-tabs" aria-label="收入或支出">
+          <button class="active" type="button" data-type="expense">支出</button>
+          <button type="button" data-type="income">收入</button>
+        </div>
+
+        <label>
+          日期
+          <input id="dateInput" type="date" min="2026-01-01" max="2035-12-31" required />
+        </label>
+
+        <label>
+          金額
+          <input id="amountInput" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 1200" required />
+        </label>
+
+        <label>
+          交易對象
+          <div class="select-row">
+            <select id="counterpartySelect"></select>
+            <button type="button" data-add-option="counterparties">＋</button>
+          </div>
+        </label>
+
+        <label>
+          項目 / 摘要
+          <input id="itemInput" type="text" placeholder="例如 卡盒進貨、團拆收入" required />
+        </label>
+
+        <label>
+          金流方式
+          <div class="select-row">
+            <select id="cashflowSelect"></select>
+            <button type="button" data-add-option="cashflows">＋</button>
+          </div>
+        </label>
+
+        <label>
+          收付款帳戶
+          <div class="select-row">
+            <select id="accountSelect"></select>
+            <button type="button" data-add-option="accounts">＋</button>
+          </div>
+        </label>
+
+        <label>
+          大類
+          <div class="select-row">
+            <select id="majorSelect"></select>
+            <button type="button" data-add-option="majors">＋</button>
+          </div>
+        </label>
+
+        <label>
+          中類
+          <div class="select-row">
+            <select id="middleSelect"></select>
+            <button type="button" data-add-option="middles">＋</button>
+          </div>
+        </label>
+
+        <label>
+          細項
+          <div class="select-row">
+            <select id="minorSelect"></select>
+            <button type="button" data-add-option="minors">＋</button>
+          </div>
+        </label>
+
+        <label>
+          預計收付款日
+          <input id="dueDateInput" type="date" min="2026-01-01" max="2035-12-31" />
+        </label>
+
+        <label>
+          Google Drive 憑證連結
+          <textarea id="voucherLinksInput" rows="3" placeholder="一行一個連結，可先空著"></textarea>
+        </label>
+
+        <label>
+          備註
+          <textarea id="noteInput" rows="3" placeholder="補充說明，可先空著"></textarea>
+        </label>
+
+        <button id="submitButton" class="primary" type="submit" disabled>建立 LINE 草稿</button>
+        <p id="formHint">登入後可建立草稿，正式入帳仍在 ERP 待處理事項確認。</p>
+      </form>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="./src/liff.js"></script>
+  </body>
+</html>
