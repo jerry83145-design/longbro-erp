@@ -113,6 +113,8 @@ const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
 const pendingSummary = document.querySelector("#pendingSummary");
 const pendingList = document.querySelector("#pendingList");
+const voucherSummary = document.querySelector("#voucherSummary");
+const voucherList = document.querySelector("#voucherList");
 const settlementList = document.querySelector("#settlementList");
 const inventoryForm = document.querySelector("#inventoryForm");
 const inventoryDateInput = document.querySelector("#inventoryDateInput");
@@ -269,6 +271,7 @@ renderLedgerInventorySync();
 renderInventorySources();
 renderInventory();
 renderPendingCenter();
+renderVoucherCenter();
 renderSettlementCenter();
 renderBankTransactions();
 
@@ -284,6 +287,7 @@ if (isConfigured) {
   renderCashflow();
   renderInventory();
   renderPendingCenter();
+  renderVoucherCenter();
   renderSettlementCenter();
   renderBankTransactions();
 }
@@ -884,6 +888,7 @@ function showView(view) {
   if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
   if (view === "pending") renderPendingCenter();
+  if (view === "vouchers") renderVoucherCenter();
   if (view === "settings") {
     loadRecycleBinRecords();
     loadAuditLogs();
@@ -1285,6 +1290,7 @@ async function loadLineDrafts() {
     })
     .sort((a, b) => getRecordTimeValue(b) - getRecordTimeValue(a));
   renderPendingCenter();
+  renderVoucherCenter();
 }
 
 function normalizeLineDraft(draft) {
@@ -1863,6 +1869,7 @@ async function loadRecords() {
     renderCashflow();
   }
   renderPendingCenter();
+  renderVoucherCenter();
   renderSettlementCenter();
 }
 
@@ -3471,6 +3478,123 @@ function renderPendingCenter() {
 
   pendingList.className = "pending-list";
   pendingList.innerHTML = items.map(renderPendingItem).join("");
+}
+
+function renderVoucherCenter() {
+  if (!voucherSummary || !voucherList) return;
+
+  const rows = buildVoucherRows();
+  const uploadedCount = rows.reduce((sum, row) => sum + Number(row.voucherCount || 0), 0);
+  const linkedCount = rows.filter((row) => row.status === "已連到帳").length;
+  const waitingCount = rows.filter((row) => ["LINE待覆核", "待補憑證"].includes(row.status)).length;
+  const failedCount = rows.filter((row) => row.status === "上傳失敗").length;
+
+  voucherSummary.innerHTML = [
+    ["憑證張數", uploadedCount],
+    ["已連到帳", linkedCount],
+    ["待核實", waitingCount],
+    ["上傳失敗", failedCount],
+  ]
+    .map(([label, count]) => `
+      <article class="pending-card">
+        <span>${label}</span>
+        <strong>${formatNumber(count)} 筆</strong>
+      </article>
+    `)
+    .join("");
+
+  if (!rows.length) {
+    voucherList.className = "pending-list empty-state";
+    voucherList.textContent = "目前沒有憑證資料。";
+    return;
+  }
+
+  voucherList.className = "pending-list";
+  voucherList.innerHTML = rows.map(renderVoucherCenterRow).join("");
+}
+
+function buildVoucherRows() {
+  const rows = [];
+
+  recordsCache.forEach((record) => {
+    const links = getVoucherLinks(record);
+    const names = getVoucherNames(record);
+    const hasVoucher = Boolean(links.length || names.length || record.hasVoucher || record.voucher);
+
+    if (hasVoucher) {
+      rows.push({
+        status: "已連到帳",
+        tone: record.type === "income" ? "income" : "",
+        date: record.date || "",
+        title: record.item || "未命名交易",
+        subject: `${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`,
+        reason: `${record.cashflow || "未填金流"} / ${record.major || "未分類"} / ${record.middle || "未分類"} / ${record.minor || "未分類"}`,
+        action: "已在正式流水帳，可開啟憑證核對內容是否一致。",
+        voucherLinks: links,
+        voucherCount: Math.max(links.length, names.length, 1),
+        recordId: record.id,
+      });
+      return;
+    }
+
+    if (record.pendingReason || record.invoiceStatus === "無") {
+      rows.push({
+        status: "待補憑證",
+        tone: "pending",
+        date: record.date || "",
+        title: record.item || "未命名交易",
+        subject: `${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`,
+        reason: record.pendingReason || "這筆正式帳目前沒有憑證。",
+        action: "回收入／支出紀錄補上發票或收據。",
+        voucherLinks: [],
+        voucherCount: 0,
+        recordId: record.id,
+      });
+    }
+  });
+
+  lineDraftsCache
+    .filter((draft) => !["confirmed", "ignored"].includes(draft.status))
+    .forEach((draft) => {
+      const links = getVoucherLinks(draft);
+      const failed = draft.voucherUploadStatus === "failed";
+      if (!links.length && !failed) return;
+
+      rows.push({
+        status: failed ? "上傳失敗" : "LINE待覆核",
+        tone: failed ? "urgent" : "pending",
+        date: draft.date || "",
+        title: getLineDraftItem(draft),
+        subject: `${draft.type === "income" ? "收入" : "支出"}草稿 · ${draft.counterparty || "未填對象"} · NT$ ${formatNumber(draft.amount)}`,
+        reason: failed ? (draft.voucherUploadError || "憑證沒有成功上傳") : "憑證已上傳，但這筆 LINE 草稿尚未確認入帳。",
+        action: failed ? "請重新上傳憑證，或先確認草稿後回正式紀錄補憑證。" : "前往待處理事項覆核，確認後會轉成正式流水帳。",
+        voucherLinks: links,
+        voucherUploadStatus: draft.voucherUploadStatus || "",
+        voucherUploadError: draft.voucherUploadError || "",
+        voucherCount: links.length,
+        draftId: draft.id,
+      });
+    });
+
+  return rows.sort(compareRecordsByDateAndCreatedTime);
+}
+
+function renderVoucherCenterRow(row) {
+  const toneClass = row.tone || "";
+
+  return `
+    <article class="pending-item">
+      <span class="pill ${toneClass}">${escapeHtml(row.status)}</span>
+      <div>
+        <strong>${escapeHtml(row.title)}</strong>
+        <span>${escapeHtml(row.date)} · ${escapeHtml(row.subject)}</span>
+        <small>${escapeHtml(row.reason)}</small>
+        <small>${escapeHtml(row.action)}</small>
+        ${renderVoucherLinkList(row)}
+      </div>
+      <button type="button" data-pending-target="${row.draftId ? "pending" : "ledger"}" data-pending-type="">${row.draftId ? "去覆核" : "去紀錄"}</button>
+    </article>
+  `;
 }
 
 function buildPendingItems() {

@@ -1313,6 +1313,11 @@ textarea:focus {
   color: var(--warn);
 }
 
+.pill.urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .bank-panel {
   display: grid;
   gap: 16px;
