@@ -168,6 +168,11 @@ const restoreBackupPreview = document.querySelector("#restoreBackupPreview");
 const runSystemCheckButton = document.querySelector("#runSystemCheckButton");
 const systemCheckSummary = document.querySelector("#systemCheckSummary");
 const systemCheckList = document.querySelector("#systemCheckList");
+const duplicateImportModal = document.querySelector("#duplicateImportModal");
+const duplicateImportTitle = document.querySelector("#duplicateImportTitle");
+const duplicateImportSubtitle = document.querySelector("#duplicateImportSubtitle");
+const duplicateImportBody = document.querySelector("#duplicateImportBody");
+if (duplicateImportModal) duplicateImportModal.hidden = true;
 
 const fields = {
   date: document.querySelector("#dateInput"),
@@ -211,6 +216,7 @@ let currentVoucherOcrRecordId = "";
 let activeVoucherMatchId = "";
 let activeVoucherEditId = "";
 let voucherInboxStatusFilter = "open";
+let duplicateImportDecisionResolver = null;
 let editingRecordId = null;
 let editingInventoryId = null;
 let recycleBinCache = [];
@@ -634,6 +640,18 @@ importVoucherInboxInput?.addEventListener("change", async () => {
     showToast(`憑證清單匯入失敗：${error.message}`);
   } finally {
     importVoucherInboxInput.value = "";
+  }
+});
+
+duplicateImportModal?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-duplicate-import-action]");
+  if (!actionButton) return;
+
+  const action = actionButton.dataset.duplicateImportAction;
+  duplicateImportModal.hidden = true;
+  if (duplicateImportDecisionResolver) {
+    duplicateImportDecisionResolver(action);
+    duplicateImportDecisionResolver = null;
   }
 });
 
@@ -1916,6 +1934,206 @@ function getSelectedLedgerInventoryLots() {
   }).filter((item) => item.lot);
 }
 
+async function reviewDuplicateImports(kind, items) {
+  const approvedItems = [];
+  let skippedCount = 0;
+  let duplicateCount = 0;
+  let bulkAction = "";
+
+  for (const item of items) {
+    const duplicate = findImportDuplicate(kind, item);
+    if (!duplicate) {
+      approvedItems.push(item);
+      continue;
+    }
+
+    duplicateCount += 1;
+    const action = bulkAction || await askDuplicateImportDecision(kind, item, duplicate, duplicateCount, items.length);
+    if (action === "import-all") bulkAction = "import";
+    if (action === "skip-all") bulkAction = "skip";
+
+    if (action === "import" || action === "import-all" || bulkAction === "import") {
+      approvedItems.push(item);
+    } else {
+      skippedCount += 1;
+    }
+  }
+
+  return { approvedItems, skippedCount, duplicateCount };
+}
+
+function findImportDuplicate(kind, incoming) {
+  if (kind === "ledger") return recordsCache.find((existing) => isLedgerImportDuplicate(existing, incoming));
+  if (kind === "bank") return bankTransactionsCache.find((existing) => isBankImportDuplicate(existing, incoming));
+  if (kind === "voucher") return voucherInboxCache.find((existing) => isVoucherImportDuplicate(existing, incoming));
+  return null;
+}
+
+function isLedgerImportDuplicate(existing, incoming) {
+  if (!existing || existing.deletedAt) return false;
+  const sameType = existing.type === incoming.type;
+  const sameDate = String(existing.date || "") === String(incoming.date || "");
+  const sameAmount = sameMoney(existing.amount, incoming.amount);
+  const sameInvoice = normalizeInvoiceNumber(existing.invoiceNumber) && normalizeInvoiceNumber(existing.invoiceNumber) === normalizeInvoiceNumber(incoming.invoiceNumber);
+  const sameCoreText = sameLooseText(existing.counterparty, incoming.counterparty) && sameLooseText(existing.item, incoming.item);
+  const sameAccount = sameLooseText(existing.account, incoming.account);
+
+  return sameType && sameAmount && (sameInvoice || (sameDate && sameCoreText) || (sameDate && sameAccount && sameLooseText(existing.counterparty, incoming.counterparty)));
+}
+
+function isBankImportDuplicate(existing, incoming) {
+  if (!existing || existing.deletedAt) return false;
+  const existingKey = getBankTransactionKey(existing);
+  const incomingKey = getBankTransactionKey(incoming);
+  if (existingKey && incomingKey && existingKey === incomingKey) return true;
+
+  return (
+    String(existing.date || "") === String(incoming.date || "") &&
+    sameLooseText(existing.account, incoming.account) &&
+    sameMoney(existing.deposit, incoming.deposit) &&
+    sameMoney(existing.withdrawal, incoming.withdrawal) &&
+    sameLooseText(existing.description, incoming.description)
+  );
+}
+
+function isVoucherImportDuplicate(existing, incoming) {
+  if (!existing || existing.deletedAt) return false;
+  const existingInvoice = normalizeInvoiceNumber(existing.invoiceNumber);
+  const incomingInvoice = normalizeInvoiceNumber(incoming.invoiceNumber);
+  if (existingInvoice && incomingInvoice && existingInvoice === incomingInvoice) return true;
+  if (buildVoucherInboxDedupeKey(existing) === buildVoucherInboxDedupeKey(incoming)) return true;
+
+  return (
+    String(existing.date || "") === String(incoming.date || "") &&
+    sameMoney(existing.totalAmount, incoming.totalAmount) &&
+    sameLooseText(existing.counterparty, incoming.counterparty) &&
+    sameLooseText(existing.item, incoming.item)
+  );
+}
+
+function sameMoney(a, b) {
+  return Math.round(Number(a || 0)) === Math.round(Number(b || 0));
+}
+
+function sameLooseText(a, b) {
+  const left = normalizeDuplicateText(a);
+  const right = normalizeDuplicateText(b);
+  return Boolean(left && right && left === right);
+}
+
+function normalizeDuplicateText(value) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/[，,。．.、|｜:：;；()（）\[\]【】]/g, "")
+    .toLowerCase();
+}
+
+async function askDuplicateImportDecision(kind, incoming, existing, duplicateIndex, totalCount) {
+  if (!duplicateImportModal || !duplicateImportBody) {
+    const confirmed = window.confirm(buildDuplicateImportFallbackText(kind, incoming, existing));
+    return confirmed ? "import" : "skip";
+  }
+
+  duplicateImportTitle.textContent = `疑似重複匯入：${getImportKindLabel(kind)}`;
+  duplicateImportSubtitle.textContent = `第 ${duplicateIndex} 筆疑似重複資料，來源共 ${totalCount} 筆。請比較後決定是否匯入。`;
+  duplicateImportBody.innerHTML = `
+    <div class="duplicate-import-grid">
+      <article>
+        <span>即將匯入</span>
+        ${renderDuplicateImportDetails(kind, incoming)}
+      </article>
+      <article>
+        <span>已存在資料</span>
+        ${renderDuplicateImportDetails(kind, existing)}
+      </article>
+    </div>
+  `;
+  duplicateImportModal.hidden = false;
+
+  return new Promise((resolve) => {
+    duplicateImportDecisionResolver = resolve;
+  });
+}
+
+function buildDuplicateImportFallbackText(kind, incoming, existing) {
+  return [
+    `系統找到一筆疑似重複的${getImportKindLabel(kind)}。`,
+    "",
+    "即將匯入：",
+    plainDuplicateImportDetails(kind, incoming),
+    "",
+    "已存在資料：",
+    plainDuplicateImportDetails(kind, existing),
+    "",
+    "按確定仍然匯入，按取消略過這筆。",
+  ].join("\n");
+}
+
+function getImportKindLabel(kind) {
+  if (kind === "bank") return "銀行資料";
+  if (kind === "voucher") return "憑證資料";
+  return "流水帳";
+}
+
+function renderDuplicateImportDetails(kind, item) {
+  return `<dl>${getDuplicateImportRows(kind, item).map(([label, value]) => `
+    <div>
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value || "未填")}</dd>
+    </div>
+  `).join("")}</dl>`;
+}
+
+function plainDuplicateImportDetails(kind, item) {
+  return getDuplicateImportRows(kind, item).map(([label, value]) => `${label}：${value || "未填"}`).join("\n");
+}
+
+function getDuplicateImportRows(kind, item) {
+  if (kind === "bank") {
+    return [
+      ["日期", item.date],
+      ["帳戶", item.account],
+      ["流入", item.deposit ? `NT$ ${formatNumber(item.deposit)}` : ""],
+      ["流出", item.withdrawal ? `NT$ ${formatNumber(item.withdrawal)}` : ""],
+      ["說明", item.description],
+      ["來源", formatImportSource(item)],
+    ];
+  }
+
+  if (kind === "voucher") {
+    return [
+      ["類型", typeLabel(item.type)],
+      ["發票號碼", item.invoiceNumber],
+      ["日期", item.date],
+      ["總額", `NT$ ${formatNumber(item.totalAmount)}`],
+      ["交易對象", item.counterparty],
+      ["品項", item.item],
+      ["來源", formatImportSource(item)],
+    ];
+  }
+
+  return [
+    ["類型", typeLabel(item.type)],
+    ["日期", item.date],
+    ["金額", `NT$ ${formatNumber(item.amount)}`],
+    ["交易對象", item.counterparty],
+    ["項目", item.item],
+    ["帳戶", item.account],
+    ["發票號碼", item.invoiceNumber],
+    ["來源", formatImportSource(item)],
+  ];
+}
+
+function formatImportSource(item) {
+  return [
+    item.importSource,
+    item.sourceFile,
+    item.sourceWorkbook,
+    item.sourceFileName,
+    item.sourceRow ? `第 ${item.sourceRow} 列` : "",
+  ].filter(Boolean).join("｜");
+}
+
 async function importLedgerFile(file) {
   if (!window.XLSX) {
     throw new Error("Excel 套件尚未載入，請確認網路可連線後重試。");
@@ -1937,10 +2155,13 @@ async function importLedgerFile(file) {
     return;
   }
 
-  const confirmed = window.confirm(`將匯入 ${parsed.length} 筆${typeLabel(recordType)}資料。是否繼續？`);
-  if (!confirmed) return;
+  const { approvedItems, skippedCount } = await reviewDuplicateImports("ledger", parsed);
+  if (!approvedItems.length) {
+    showToast("匯入已取消，沒有新增資料。");
+    return;
+  }
 
-  for (const record of parsed) {
+  for (const record of approvedItems) {
     await saveCleanRecord(record);
   }
 
@@ -1958,7 +2179,9 @@ async function importLedgerFile(file) {
     renderSettlementCenter();
   }
 
-  showToast(`已匯入 ${parsed.length} 筆資料。`);
+  const importedCount = approvedItems.length;
+  const skippedMessage = skippedCount ? `，略過 ${skippedCount} 筆疑似重複資料` : "";
+  showToast(`已匯入 ${importedCount} 筆資料${skippedMessage}。`);
 }
 
 function parseImportRow(row, sourceRow) {
@@ -3097,15 +3320,23 @@ async function importBankFile(file) {
 
   if (isConfigured) await loadBankTransactions();
 
-  const existingKeys = new Set(bankTransactionsCache.map(getBankTransactionKey));
   const currentImportKeys = new Set();
-  const uniqueTransactions = parsed.filter((transaction) => {
+  const importUniqueTransactions = parsed.filter((transaction) => {
     const key = getBankTransactionKey(transaction);
-    if (existingKeys.has(key) || currentImportKeys.has(key)) return false;
+    if (currentImportKeys.has(key)) return false;
     currentImportKeys.add(key);
     transaction.importKey = key;
     return true;
   });
+  const { approvedItems: uniqueTransactions } = await reviewDuplicateImports(
+    "bank",
+    importUniqueTransactions,
+  );
+
+  if (!uniqueTransactions.length) {
+    showToast("匯入已取消，沒有新增銀行資料。");
+    return;
+  }
 
   for (const transaction of uniqueTransactions) {
     await saveBankTransaction(transaction);
@@ -3989,14 +4220,10 @@ async function syncDriveVoucherInbox() {
     });
     const vouchers = Array.isArray(result.vouchers) ? result.vouchers : [];
     let importedCount = 0;
-    let skippedCount = 0;
+    const normalizedVouchers = vouchers.map((voucher) => normalizeDriveVoucherInbox(voucher)).filter(Boolean);
+    const { approvedItems, skippedCount } = await reviewDuplicateImports("voucher", normalizedVouchers);
 
-    for (const voucher of vouchers) {
-      const normalizedVoucher = normalizeDriveVoucherInbox(voucher);
-      if (isDuplicateVoucherInbox(normalizedVoucher)) {
-        skippedCount += 1;
-        continue;
-      }
+    for (const normalizedVoucher of approvedItems) {
       await saveImportedVoucherInboxRecord(normalizedVoucher);
       importedCount += 1;
     }
@@ -4087,10 +4314,13 @@ async function importVoucherInboxFile(file) {
     return;
   }
 
-  const confirmed = window.confirm(`準備匯入 ${vouchers.length} 筆行政憑證到暫存池，之後可用金額配正式收入/支出。是否繼續？`);
-  if (!confirmed) return;
+  const { approvedItems, skippedCount } = await reviewDuplicateImports("voucher", vouchers);
+  if (!approvedItems.length) {
+    showToast("匯入已取消，沒有新增憑證資料。");
+    return;
+  }
 
-  for (const voucher of vouchers) {
+  for (const voucher of approvedItems) {
     await saveImportedVoucherInboxRecord(voucher);
   }
 
@@ -4101,7 +4331,9 @@ async function importVoucherInboxFile(file) {
     renderVoucherCenter();
   }
 
-  showToast(`已匯入 ${vouchers.length} 筆行政憑證。`);
+  const importedCount = approvedItems.length;
+  const skippedMessage = skippedCount ? `，略過 ${skippedCount} 筆疑似重複憑證` : "";
+  showToast(`已匯入 ${importedCount} 筆行政憑證${skippedMessage}。`);
 }
 
 function readAdminVoucherRows(sheet) {

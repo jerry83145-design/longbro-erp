@@ -647,6 +647,26 @@
       </main>
     </div>
 
+    <div id="duplicateImportModal" class="match-dialog-overlay duplicate-import-overlay" hidden>
+      <section class="match-dialog duplicate-import-dialog" aria-labelledby="duplicateImportTitle">
+        <div class="match-dialog-header">
+          <div>
+            <p class="eyebrow">IMPORT CHECK</p>
+            <h3 id="duplicateImportTitle">疑似重複匯入</h3>
+            <p id="duplicateImportSubtitle">系統找到一筆很像的既有資料，請先確認要不要匯入。</p>
+          </div>
+          <button type="button" data-duplicate-import-action="skip" aria-label="關閉">×</button>
+        </div>
+        <div id="duplicateImportBody" class="duplicate-import-body"></div>
+        <div class="match-dialog-actions duplicate-import-actions">
+          <button class="secondary-button" type="button" data-duplicate-import-action="skip">略過這筆</button>
+          <button class="secondary-button" type="button" data-duplicate-import-action="skip-all">全部略過相同資料</button>
+          <button class="secondary-button" type="button" data-duplicate-import-action="import-all">全部仍然匯入</button>
+          <button type="button" data-duplicate-import-action="import">仍然匯入</button>
+        </div>
+      </section>
+    </div>
+
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>

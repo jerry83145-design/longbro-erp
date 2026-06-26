@@ -2247,6 +2247,11 @@ textarea:focus {
   padding: 24px;
 }
 
+.match-dialog-overlay[hidden],
+.duplicate-import-overlay[hidden] {
+  display: none !important;
+}
+
 .match-dialog {
   width: min(780px, 100%);
   max-height: min(760px, calc(100vh - 48px));
@@ -2355,6 +2360,64 @@ textarea:focus {
   gap: 12px;
   padding: 16px 24px 22px;
   border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.duplicate-import-body {
+  padding: 18px 24px;
+  overflow: auto;
+}
+
+.duplicate-import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.duplicate-import-grid article {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfdfd;
+  padding: 14px;
+}
+
+.duplicate-import-grid article:first-child {
+  border-color: #f2c777;
+  background: #fff9eb;
+}
+
+.duplicate-import-grid article > span {
+  display: inline-flex;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: #e8f4f2;
+  color: var(--accent);
+  padding: 6px 12px;
+  font-weight: 800;
+}
+
+.duplicate-import-grid dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.duplicate-import-grid dl div {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.duplicate-import-grid dt {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.duplicate-import-grid dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1120px) {
@@ -2445,6 +2508,10 @@ textarea:focus {
 
   .match-dialog-summary,
   .match-option {
+    grid-template-columns: 1fr;
+  }
+
+  .duplicate-import-grid {
     grid-template-columns: 1fr;
   }
 
