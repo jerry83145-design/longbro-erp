@@ -144,6 +144,7 @@ lineDrafts
 - `middle`：中類
 - `minor`：細項
 - `dueDate`：預計收付款日
+- `invoiceNumber`：發票號碼，沒有可先空白，ERP 憑證中心會提醒補填
 - `voucherLinks`：Google Drive 憑證連結
 - `voucherFiles`：Google Drive 檔案資訊
 - `note`：備註

@@ -1025,6 +1025,175 @@ textarea:focus {
   line-height: 1.5;
 }
 
+.voucher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.voucher-ocr-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #f0d09a;
+  border-radius: 12px;
+  background: #fff8e7;
+  padding: 14px;
+  margin-top: 18px;
+}
+
+.voucher-ocr-panel strong,
+.voucher-ocr-panel span {
+  display: block;
+}
+
+.voucher-ocr-panel span {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.voucher-ocr-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.voucher-ocr-results button {
+  border-color: #d9b65e;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.voucher-inbox-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #cfe0dd;
+  border-radius: 12px;
+  background: #fbfdfd;
+}
+
+.voucher-inbox-form strong,
+.voucher-inbox-form span {
+  display: block;
+}
+
+.voucher-inbox-form span {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.voucher-inbox-import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d9e7e4;
+  border-radius: 10px;
+  background: #f3faf8;
+}
+
+.voucher-inbox-import small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.voucher-inbox-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.voucher-inbox-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.voucher-inbox-grid .wide {
+  grid-column: span 2;
+}
+
+.voucher-inbox-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.voucher-inbox-item {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 14px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.voucher-inbox-item > div strong,
+.voucher-inbox-item > div span,
+.voucher-inbox-item > div small {
+  display: block;
+}
+
+.voucher-inbox-item > div span,
+.voucher-inbox-item > div small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.voucher-match-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.voucher-match-head strong,
+.voucher-match-head span {
+  display: block;
+}
+
+.voucher-match-head span {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.voucher-match-list {
+  display: grid;
+  gap: 10px;
+}
+
+.voucher-match-candidate {
+  display: grid;
+  grid-template-columns: auto 1fr 140px;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fbfa;
+}
+
+.voucher-match-candidate span strong,
+.voucher-match-candidate span small {
+  display: block;
+}
+
+.voucher-match-candidate span small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
 .inventory-summary {
   margin-top: 20px;
 }
@@ -1168,6 +1337,12 @@ textarea:focus {
   padding: 14px;
   margin-top: 12px;
   background: #fff;
+}
+
+.record-item.highlight {
+  background: #fff8e7;
+  border-color: #dfae50;
+  box-shadow: 0 0 0 3px rgba(223, 174, 80, 0.22);
 }
 
 .inventory-match-panel {
@@ -1650,10 +1825,18 @@ textarea:focus {
   .report-grid,
   .record-item,
   .inventory-row,
+  .voucher-inbox-grid,
+  .voucher-inbox-item,
+  .voucher-match-candidate,
   .pending-item,
   .cashflow-row,
   .cashflow-row.detail {
     grid-template-columns: 1fr;
+  }
+
+  .voucher-inbox-grid .wide,
+  .voucher-match-panel {
+    grid-column: 1;
   }
 
   .report-filter,

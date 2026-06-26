@@ -1,4 +1,5 @@
 import { allowedEmails, firebaseConfig } from "./firebase-config.js";
+import { lineEndpointConfig } from "./line-endpoint-config.js";
 
 const defaultOptionsByType = {
   expense: {
@@ -115,6 +116,23 @@ const pendingSummary = document.querySelector("#pendingSummary");
 const pendingList = document.querySelector("#pendingList");
 const voucherSummary = document.querySelector("#voucherSummary");
 const voucherList = document.querySelector("#voucherList");
+const voucherOcrPanel = document.querySelector("#voucherOcrPanel");
+const voucherOcrStatus = document.querySelector("#voucherOcrStatus");
+const voucherOcrResults = document.querySelector("#voucherOcrResults");
+const voucherOcrInput = document.querySelector("#voucherOcrInput");
+const voucherInboxList = document.querySelector("#voucherInboxList");
+const voucherInboxFields = {
+  invoiceNumber: document.querySelector("#voucherInboxInvoiceInput"),
+  date: document.querySelector("#voucherInboxDateInput"),
+  counterparty: document.querySelector("#voucherInboxCounterpartyInput"),
+  amount: document.querySelector("#voucherInboxAmountInput"),
+  link: document.querySelector("#voucherInboxLinkInput"),
+  note: document.querySelector("#voucherInboxNoteInput"),
+};
+const saveVoucherInboxButton = document.querySelector("#saveVoucherInboxButton");
+const syncDriveVoucherInboxButton = document.querySelector("#syncDriveVoucherInboxButton");
+const importVoucherInboxButton = document.querySelector("#importVoucherInboxButton");
+const importVoucherInboxInput = document.querySelector("#importVoucherInboxInput");
 const settlementList = document.querySelector("#settlementList");
 const inventoryForm = document.querySelector("#inventoryForm");
 const inventoryDateInput = document.querySelector("#inventoryDateInput");
@@ -149,6 +167,7 @@ const fields = {
   account: document.querySelector("#accountSelect"),
   settlementStatus: document.querySelector("#settlementStatusSelect"),
   dueDate: document.querySelector("#dueDateInput"),
+  invoiceNumber: document.querySelector("#invoiceNumberInput"),
   major: document.querySelector("#majorSelect"),
   middle: document.querySelector("#middleSelect"),
   minor: document.querySelector("#minorSelect"),
@@ -171,9 +190,12 @@ let recordsCache = loadLocalRecords();
 let inventoryCache = loadLocalInventoryRecords();
 let bankTransactionsCache = loadLocalBankTransactions();
 let lineDraftsCache = loadLocalLineDrafts();
+let voucherInboxCache = loadLocalVoucherInbox();
 let optionsByType = loadOptions();
 let lastReportRows = [];
 let lastReportSummary = null;
+let currentVoucherOcrRecordId = "";
+let activeVoucherMatchId = "";
 let editingRecordId = null;
 let editingInventoryId = null;
 let recycleBinCache = [];
@@ -481,16 +503,83 @@ pendingList.addEventListener("click", async (event) => {
   const target = button.dataset.pendingTarget;
   const type = button.dataset.pendingType;
 
-  if (target === "ledger") {
-    setRecordType(type || "expense");
-    setActiveNavForType(type || "expense");
-  } else {
-    document.querySelectorAll(".nav-item").forEach((item) => {
-      item.classList.toggle("active", item.dataset.view === target);
-    });
+  navigateToViewTarget(target, type, button.dataset.recordId);
+});
+
+voucherList?.addEventListener("click", (event) => {
+  const matchButton = event.target.closest("[data-voucher-match]");
+  if (matchButton) {
+    matchVoucherInbox(matchButton.dataset.voucherId);
+    return;
   }
-  showView(target);
-  updatePageMeta(target === "ledger" ? type : target);
+
+  const scanButton = event.target.closest("[data-voucher-scan]");
+  if (scanButton) {
+    startVoucherOcr(scanButton.dataset.recordId);
+    return;
+  }
+
+  const button = event.target.closest("[data-pending-target]");
+  if (!button) return;
+
+  navigateToViewTarget(button.dataset.pendingTarget, button.dataset.pendingType, button.dataset.recordId);
+});
+
+voucherInboxList?.addEventListener("click", (event) => {
+  const applyButton = event.target.closest("[data-voucher-apply-match]");
+  if (applyButton) {
+    applyVoucherMatches(applyButton.dataset.voucherId);
+    return;
+  }
+
+  const matchButton = event.target.closest("[data-voucher-match]");
+  if (matchButton) {
+    matchVoucherInbox(matchButton.dataset.voucherId);
+    return;
+  }
+});
+
+saveVoucherInboxButton?.addEventListener("click", saveVoucherInboxFromForm);
+
+syncDriveVoucherInboxButton?.addEventListener("click", syncDriveVoucherInbox);
+
+importVoucherInboxButton?.addEventListener("click", () => {
+  importVoucherInboxInput?.click();
+});
+
+importVoucherInboxInput?.addEventListener("change", async () => {
+  const file = importVoucherInboxInput.files?.[0];
+  if (!file) return;
+
+  try {
+    await importVoucherInboxFile(file);
+  } catch (error) {
+    showToast(`憑證清單匯入失敗：${error.message}`);
+  } finally {
+    importVoucherInboxInput.value = "";
+  }
+});
+
+voucherOcrInput?.addEventListener("change", handleVoucherOcrFile);
+
+voucherOcrPanel?.addEventListener("click", async (event) => {
+  const closeButton = event.target.closest("[data-voucher-ocr-close]");
+  if (closeButton) {
+    closeVoucherOcrPanel();
+    return;
+  }
+
+  const pickLocalButton = event.target.closest("[data-voucher-ocr-pick-local]");
+  if (pickLocalButton) {
+    voucherOcrInput.value = "";
+    voucherOcrInput.click();
+    return;
+  }
+
+  const applyButton = event.target.closest("[data-apply-invoice-number]");
+  if (!applyButton) return;
+
+  await applyScannedInvoiceNumber(applyButton.dataset.applyInvoiceNumber);
 });
 
 settlementList.addEventListener("click", async (event) => {
@@ -543,6 +632,7 @@ clearButton.addEventListener("click", () => {
   setDefaultDate();
   voucherInput.value = "";
   voucherPreview.textContent = "目前默認：無發票";
+  fields.invoiceNumber.value = "";
   renderBatchVoucherList([]);
   fields.noteText.hidden = true;
   renderSettlementStatusOptions();
@@ -661,7 +751,7 @@ ledgerForm.addEventListener("submit", async (event) => {
         record.vouchers = previousRecord.vouchers || [];
         record.voucherFileNames = getVoucherNames(previousRecord);
         record.hasVoucher = true;
-        record.pendingReason = "";
+        record.pendingReason = resolveVoucherPendingReason(record);
       }
       await updateRecord(record);
     } else if (isConfigured) {
@@ -719,6 +809,7 @@ async function handleAuthState(user) {
   loadInventoryRecords();
   loadBankTransactions();
   loadLineDrafts();
+  loadVoucherInbox();
 }
 
 function setDefaultDate() {
@@ -903,6 +994,34 @@ function updatePageMeta(key) {
   topActionButton.textContent = meta.action;
 }
 
+function navigateToViewTarget(target, type = "", recordId = "") {
+  if (target === "ledger") {
+    const resolvedType = type || recordsCache.find((item) => item.id === recordId)?.type || recordType;
+    setRecordType(resolvedType);
+    setActiveNavForType(resolvedType);
+  } else {
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.toggle("active", item.dataset.view === target);
+    });
+  }
+
+  showView(target);
+  updatePageMeta(target === "ledger" ? recordType : target);
+  highlightRecord(recordId);
+}
+
+function highlightRecord(recordId) {
+  if (!recordId) return;
+
+  requestAnimationFrame(() => {
+    const element = document.querySelector(`[data-record-id="${recordId}"]`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.classList.add("highlight");
+    window.setTimeout(() => element.classList.remove("highlight"), 2400);
+  });
+}
+
 function updateActiveSummaryCard() {
   document.querySelectorAll("[data-summary-type]").forEach((card) => {
     card.classList.toggle("primary", card.dataset.summaryType === recordType);
@@ -988,6 +1107,7 @@ function buildRecord() {
   const voucherFiles = getVoucherFiles();
   const voucherFileNames = voucherFiles.map((file) => file.name);
   const dueDate = fields.dueDate.value;
+  const invoiceNumber = normalizeInvoiceNumber(fields.invoiceNumber.value);
   const settlementStatus = resolveSettlementStatus(fields.settlementStatus.value, dueDate, "", recordType);
 
   if (!date || date < "2026-01-01" || date > "2035-12-31") {
@@ -1005,7 +1125,7 @@ function buildRecord() {
     return null;
   }
 
-  return {
+  const record = {
     type: recordType,
     date,
     month: date.slice(0, 7).replace("-", ""),
@@ -1013,6 +1133,8 @@ function buildRecord() {
     item: fields.item.value.trim(),
     amount,
     invoiceStatus: voucherFiles.length ? "有" : "無",
+    invoiceNumber,
+    invoiceRequired: recordType === "expense" || Boolean(voucherFiles.length || invoiceNumber),
     cashflow: fields.cashflow.value,
     account: fields.account.value,
     settlementStatus,
@@ -1023,11 +1145,14 @@ function buildRecord() {
     minor: fields.minor.value,
     note,
     hasVoucher: Boolean(voucherFiles.length),
-    pendingReason: voucherFiles.length ? "" : "待補憑證",
+    pendingReason: "",
     voucherFiles,
     voucherFileNames,
     voucherBatchStatus: voucherFiles.length > 1 ? "待配對" : "",
   };
+
+  record.pendingReason = resolveVoucherPendingReason(record);
+  return record;
 }
 
 function resolveSettlementStatus(status, dueDate, settledDate, type) {
@@ -1076,9 +1201,82 @@ function getVoucherLinks(record) {
   const links = [];
   if (Array.isArray(record.voucherLinks)) links.push(...record.voucherLinks);
   if (Array.isArray(record.vouchers)) links.push(...record.vouchers.map((file) => file.url || file.webViewLink));
+  if (Array.isArray(record.voucherFiles)) links.push(...record.voucherFiles.map((file) => file.url || file.webViewLink));
   if (record.voucher?.url) links.push(record.voucher.url);
   if (record.voucher?.webViewLink) links.push(record.voucher.webViewLink);
   return links.filter(Boolean);
+}
+
+function getVoucherFileRefs(record) {
+  const refs = [];
+  const addRef = (file, index = refs.length) => {
+    if (!file) return;
+    const url = file.url || file.webViewLink || file.link || "";
+    const id = file.id || extractDriveFileId(url);
+    if (!id && !url) return;
+    refs.push({
+      id,
+      url,
+      name: file.name || file.originalName || `憑證 ${index + 1}`,
+      mimeType: file.mimeType || "",
+    });
+  };
+
+  if (Array.isArray(record.vouchers)) record.vouchers.forEach(addRef);
+  if (Array.isArray(record.voucherFiles)) record.voucherFiles.forEach(addRef);
+  if (record.voucher) addRef(record.voucher);
+  if (Array.isArray(record.voucherLinks)) {
+    record.voucherLinks.forEach((url, index) => addRef({ url, name: getVoucherNames(record)[index] || `憑證 ${index + 1}` }, index));
+  }
+
+  const seen = new Set();
+  return refs.filter((ref) => {
+    const key = ref.id || ref.url;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractDriveFileId(url) {
+  const value = String(url || "");
+  return (
+    value.match(/\/file\/d\/([^/?#]+)/)?.[1] ||
+    value.match(/[?&]id=([^&#]+)/)?.[1] ||
+    ""
+  );
+}
+
+function normalizeInvoiceNumber(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function hasAttachedVoucher(record) {
+  return Boolean(
+    getVoucherLinks(record).length ||
+      getVoucherNames(record).length ||
+      record.voucherFiles?.length ||
+      record.hasVoucher ||
+      record.voucher,
+  );
+}
+
+function recordNeedsVoucher(record) {
+  return Boolean(
+    record.invoiceRequired === true ||
+      record.type === "expense" ||
+      record.invoiceStatus === "有" ||
+      hasAttachedVoucher(record) ||
+      /發票|收據|憑證/.test(record.pendingReason || ""),
+  );
+}
+
+function resolveVoucherPendingReason(record) {
+  if (!recordNeedsVoucher(record)) return record.pendingReason || "";
+  if (!hasAttachedVoucher(record)) return "待補憑證";
+  if (!normalizeInvoiceNumber(record.invoiceNumber)) return "待補發票號碼";
+  if (record.pendingReason && !/發票|收據|憑證/.test(record.pendingReason)) return record.pendingReason;
+  return "";
 }
 
 function findPossibleDuplicate(record) {
@@ -1179,6 +1377,31 @@ async function updateRecord(record) {
   renderSettlementCenter();
 }
 
+async function updateLedgerRecordFields(previousRecord, updatedRecord) {
+  const cleanedRecord = {
+    ...stripFile(updatedRecord),
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  await writeAuditLog("update", "ledgerRecords", previousRecord.id, previousRecord, cleanedRecord);
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", previousRecord.id), cleanedRecord);
+    await loadRecords();
+  } else {
+    recordsCache = recordsCache.map((item) => (item.id === previousRecord.id ? { ...item, ...cleanedRecord } : item));
+    saveLocalRecords();
+    renderRecords(recordsCache);
+    updateSummary(recordsCache);
+  }
+
+  renderCustomReport();
+  renderCashflow();
+  renderPendingCenter();
+  renderSettlementCenter();
+  renderVoucherCenter();
+}
+
 function startEditingRecord(record) {
   editingRecordId = record.id;
   setRecordType(record.type);
@@ -1193,6 +1416,7 @@ function startEditingRecord(record) {
   ensureSelectValue(fields.account, record.account);
   renderSettlementStatusOptions(record.settlementStatus);
   fields.dueDate.value = record.dueDate || "";
+  fields.invoiceNumber.value = record.invoiceNumber || "";
   ensureSelectValue(fields.major, record.major);
   ensureSelectValue(fields.middle, record.middle);
   ensureSelectValue(fields.minor, record.minor);
@@ -1429,8 +1653,10 @@ function buildRecordFromLineDraft(draft) {
   );
 
   const voucherLinks = Array.isArray(draft.voucherLinks) ? draft.voucherLinks.filter(Boolean) : [];
+  const voucherMetadata = buildLineDraftVoucherMetadata(draft);
+  const invoiceNumber = normalizeInvoiceNumber(draft.invoiceNumber);
 
-  return {
+  const record = {
     type,
     date,
     month: date.slice(0, 7).replace("-", ""),
@@ -1438,6 +1664,8 @@ function buildRecordFromLineDraft(draft) {
     item,
     amount,
     invoiceStatus: voucherLinks.length ? "有" : "無",
+    invoiceNumber,
+    invoiceRequired: type === "expense" || Boolean(voucherLinks.length || invoiceNumber),
     cashflow: draft.cashflow || options.cashflows?.[0] || "",
     account: draft.account || options.accounts?.[0] || "",
     settlementStatus,
@@ -1448,8 +1676,10 @@ function buildRecordFromLineDraft(draft) {
     minor: draft.minor || options.minors?.[0] || "",
     note: draft.note || "LINE 草稿匯入",
     hasVoucher: Boolean(voucherLinks.length),
-    pendingReason: draft.needsReview === false ? "" : "LINE 草稿確認入帳，請複核分類與憑證。",
+    pendingReason: "",
     voucherLinks,
+    vouchers: voucherMetadata,
+    voucherFiles: voucherMetadata,
     voucherFileNames: voucherLinks.map((_, index) => `LINE 憑證 ${index + 1}`),
     voucherBatchStatus: voucherLinks.length > 1 ? "LINE 多筆憑證" : "",
     source: "line",
@@ -1457,6 +1687,9 @@ function buildRecordFromLineDraft(draft) {
     lineDraftId: draft.id,
     lineDraftRaw: draft,
   };
+
+  record.pendingReason = resolveVoucherPendingReason(record);
+  return record;
 }
 
 function getLineDraftItem(draft) {
@@ -1472,9 +1705,14 @@ function getLineDraftItem(draft) {
 
 function buildLineDraftVoucherMetadata(draft) {
   const links = Array.isArray(draft.voucherLinks) ? draft.voucherLinks.filter(Boolean) : [];
+  const files = Array.isArray(draft.voucherFiles) ? draft.voucherFiles : [];
   return links.map((url, index) => ({
+    id: files[index]?.id || extractDriveFileId(url),
     name: draft.voucherFileNames?.[index] || `LINE 憑證 ${index + 1}`,
+    originalName: files[index]?.originalName || "",
+    mimeType: files[index]?.mimeType || "",
     url,
+    webViewLink: files[index]?.webViewLink || url,
     status: "google-drive-link",
     storage: "google-drive",
   }));
@@ -1659,8 +1897,9 @@ function parseImportRow(row, sourceRow) {
   const counterparty = String(pickValue(row, ["交易對象", "對象", "廠商", "客戶", "counterparty"]) || inferImportCounterparty(row, type)).trim();
   const invoiceRaw = pickValue(row, ["有無發票", "發票", "發票狀態", "invoiceStatus"]);
   const invoiceStatus = normalizeInvoiceStatus(invoiceRaw);
+  const invoiceNumber = normalizeInvoiceNumber(pickValue(row, ["發票號碼", "憑證號碼", "invoiceNumber"]));
   const invoiceFileName = String(pickValue(row, ["發票檔名", "憑證檔名", "收據檔名"]) || "").trim();
-  const shouldRequireVoucher = type === "expense" || Boolean(invoiceRaw) || Boolean(invoiceFileName);
+  const shouldRequireVoucher = type === "expense" || Boolean(invoiceRaw) || Boolean(invoiceFileName) || Boolean(invoiceNumber);
   const productCost = parseAmount(pickValue(row, ["商品成本", "銷貨成本"]));
   const logisticsCost = parseAmount(pickValue(row, ["金流／物流成本", "金流/物流成本", "物流成本", "金流成本"]));
   const logisticsIncome = parseAmount(pickValue(row, ["金流／物流收入", "金流/物流收入", "物流收入", "金流收入"]));
@@ -1680,7 +1919,7 @@ function parseImportRow(row, sourceRow) {
     return null;
   }
 
-  return {
+  const record = {
     type,
     date,
     month: date.slice(0, 7).replace("-", ""),
@@ -1688,6 +1927,8 @@ function parseImportRow(row, sourceRow) {
     item,
     amount: Math.abs(amount),
     invoiceStatus,
+    invoiceNumber,
+    invoiceRequired: shouldRequireVoucher,
     cashflow: String(pickValue(row, ["金流方式", "付款方式", "收款方式", "支出方式", "收入方式", "cashflow"]) || inferImportCashflow(row, type)).trim(),
     account: String(pickValue(row, ["帳戶", "支出帳戶", "收款帳戶", "account"]) || inferImportAccount(type)).trim(),
     settlementStatus,
@@ -1698,7 +1939,7 @@ function parseImportRow(row, sourceRow) {
     minor: String(pickValue(row, ["細項", "minor"]) || inferImportMinor(row, type)).trim(),
     note: String(pickValue(row, ["備註", "note"]) || `Excel 匯入列 ${sourceRow}`).trim(),
     hasVoucher: invoiceStatus === "有" || Boolean(invoiceFileName),
-    pendingReason: invoiceStatus === "有" || invoiceFileName || !shouldRequireVoucher ? "" : "待補憑證",
+    pendingReason: "",
     voucherFileName: invoiceFileName,
     productCost,
     logisticsCost,
@@ -1709,6 +1950,9 @@ function parseImportRow(row, sourceRow) {
     importSource: "Excel",
     sourceRow,
   };
+
+  record.pendingReason = resolveVoucherPendingReason(record);
+  return record;
 }
 
 function readLedgerRows(sheet) {
@@ -3484,14 +3728,15 @@ function renderVoucherCenter() {
   if (!voucherSummary || !voucherList) return;
 
   const rows = buildVoucherRows();
+  renderVoucherInbox();
   const uploadedCount = rows.reduce((sum, row) => sum + Number(row.voucherCount || 0), 0);
-  const linkedCount = rows.filter((row) => row.status === "已連到帳").length;
-  const waitingCount = rows.filter((row) => ["LINE待覆核", "待補憑證"].includes(row.status)).length;
+  const linkedCount = rows.filter((row) => row.status === "已核實").length;
+  const waitingCount = rows.filter((row) => ["LINE待覆核", "待補憑證", "待補發票號碼"].includes(row.status)).length;
   const failedCount = rows.filter((row) => row.status === "上傳失敗").length;
 
   voucherSummary.innerHTML = [
     ["憑證張數", uploadedCount],
-    ["已連到帳", linkedCount],
+    ["已核實", linkedCount],
     ["待核實", waitingCount],
     ["上傳失敗", failedCount],
   ]
@@ -3513,44 +3758,589 @@ function renderVoucherCenter() {
   voucherList.innerHTML = rows.map(renderVoucherCenterRow).join("");
 }
 
+async function loadVoucherInbox() {
+  if (!isConfigured) {
+    voucherInboxCache = loadLocalVoucherInbox();
+    renderVoucherCenter();
+    return;
+  }
+
+  if (!currentUser || !db) {
+    voucherInboxCache = [];
+    renderVoucherCenter();
+    return;
+  }
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "voucherInbox"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(100),
+    ),
+  );
+
+  voucherInboxCache = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((voucher) => !voucher.deletedAt)
+    .sort(compareRecordsByDateAndCreatedTime);
+  renderVoucherCenter();
+}
+
+async function saveVoucherInboxFromForm() {
+  const invoiceNumber = normalizeInvoiceNumber(voucherInboxFields.invoiceNumber?.value || "");
+  const amount = parseAmount(voucherInboxFields.amount?.value || 0);
+
+  if (!amount) {
+    showToast("請先填憑證總金額。");
+    return;
+  }
+
+  const voucher = {
+    type: "expense",
+    invoiceNumber,
+    date: voucherInboxFields.date?.value || toDateValue(new Date()),
+    counterparty: voucherInboxFields.counterparty?.value?.trim() || "",
+    totalAmount: amount,
+    matchedAmount: 0,
+    remainingAmount: amount,
+    voucherLinks: voucherInboxFields.link?.value?.trim() ? [voucherInboxFields.link.value.trim()] : [],
+    note: voucherInboxFields.note?.value?.trim() || "",
+    matches: [],
+    status: "unmatched",
+    source: "manual",
+    createdAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    createdBy: currentUser?.email || "local-preview",
+    userId: currentUser?.uid || "local-preview",
+  };
+
+  if (isConfigured) {
+    const docRef = await firebaseApi.addDoc(firebaseApi.collection(db, "voucherInbox"), voucher);
+    await writeAuditLog("create", "voucherInbox", docRef.id, null, voucher);
+    await loadVoucherInbox();
+  } else {
+    voucherInboxCache.unshift({ id: crypto.randomUUID(), ...voucher });
+    saveLocalVoucherInbox();
+    renderVoucherCenter();
+  }
+
+  Object.values(voucherInboxFields).forEach((field) => {
+    if (field) field.value = "";
+  });
+  showToast("已加入憑證暫存池。");
+}
+
+async function saveImportedVoucherInboxRecord(voucher) {
+  if (isConfigured) {
+    const docRef = await firebaseApi.addDoc(firebaseApi.collection(db, "voucherInbox"), voucher);
+    await writeAuditLog("create", "voucherInbox", docRef.id, null, voucher);
+    return docRef.id;
+  }
+
+  const id = crypto.randomUUID();
+  voucherInboxCache.unshift({ id, ...voucher });
+  return id;
+}
+
+async function syncDriveVoucherInbox() {
+  if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
+    showToast("尚未設定 LINE 後端網址，無法同步 Drive 行政清單。");
+    return;
+  }
+
+  if (!currentUser && isConfigured) {
+    showToast("請先登入後再同步 Drive 行政清單。");
+    return;
+  }
+
+  syncDriveVoucherInboxButton.disabled = true;
+  syncDriveVoucherInboxButton.textContent = "同步中...";
+
+  try {
+    const result = await requestLineBackendJsonp({
+      action: "readAdminVoucherFolders",
+      secret: lineEndpointConfig.sharedSecret,
+      userId: currentUser?.uid || "local-preview",
+      userEmail: currentUser?.email || "local-preview",
+    });
+    const vouchers = Array.isArray(result.vouchers) ? result.vouchers : [];
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const voucher of vouchers) {
+      const normalizedVoucher = normalizeDriveVoucherInbox(voucher);
+      if (isDuplicateVoucherInbox(normalizedVoucher)) {
+        skippedCount += 1;
+        continue;
+      }
+      await saveImportedVoucherInboxRecord(normalizedVoucher);
+      importedCount += 1;
+    }
+
+    if (isConfigured) {
+      await loadVoucherInbox();
+    } else {
+      saveLocalVoucherInbox();
+      renderVoucherCenter();
+    }
+
+    showToast(`Drive 同步完成：新增 ${importedCount} 筆，略過重複 ${skippedCount} 筆。`);
+  } catch (error) {
+    showToast(`Drive 同步失敗：${error.message}`);
+  } finally {
+    syncDriveVoucherInboxButton.disabled = false;
+    syncDriveVoucherInboxButton.textContent = "同步 Drive 行政清單";
+  }
+}
+
+function normalizeDriveVoucherInbox(voucher) {
+  const amount = parseAmount(voucher.totalAmount || voucher.amount || 0);
+  const type = resolveVoucherRecordType(voucher);
+  return {
+    type,
+    invoiceNumber: normalizeInvoiceNumber(voucher.invoiceNumber),
+    date: normalizeImportDate(voucher.date) || toDateValue(new Date()),
+    counterparty: String(voucher.counterparty || "").trim(),
+    item: String(voucher.item || "").trim(),
+    quantity: parseAmount(voucher.quantity),
+    unitPrice: parseAmount(voucher.unitPrice),
+    netAmount: parseAmount(voucher.netAmount),
+    taxAmount: parseAmount(voucher.taxAmount),
+    totalAmount: amount,
+    matchedAmount: parseAmount(voucher.matchedAmount),
+    remainingAmount: amount,
+    voucherLinks: Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : [],
+    sourceFileName: voucher.sourceFileName || "",
+    sourceWorkbook: voucher.sourceWorkbook || "",
+    sourceRow: voucher.sourceRow || "",
+    voucherType: voucher.voucherType || "",
+    processResult: voucher.processResult || "",
+    note: voucher.note || "",
+    matches: [],
+    status: "unmatched",
+    source: "admin-drive",
+    createdAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    createdBy: currentUser?.email || voucher.createdBy || "local-preview",
+    userId: currentUser?.uid || voucher.userId || "local-preview",
+  };
+}
+
+function isDuplicateVoucherInbox(voucher) {
+  const key = buildVoucherInboxDedupeKey(voucher);
+  return voucherInboxCache.some((item) => buildVoucherInboxDedupeKey(item) === key);
+}
+
+function buildVoucherInboxDedupeKey(voucher) {
+  return [
+    normalizeInvoiceNumber(voucher.invoiceNumber),
+    normalizeImportDate(voucher.date) || voucher.date || "",
+    String(voucher.sourceWorkbook || "").trim(),
+    String(voucher.sourceRow || "").trim(),
+    String(voucher.sourceFileName || "").trim(),
+    Number(voucher.totalAmount || 0),
+  ].join("|");
+}
+
+async function importVoucherInboxFile(file) {
+  if (!window.XLSX) {
+    throw new Error("目前缺少 Excel 讀取元件，請重新整理後再試一次。");
+  }
+
+  if (!currentUser && isConfigured) {
+    showToast("請先登入後再匯入憑證清單。");
+    return;
+  }
+
+  const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const sheetName = workbook.SheetNames[0];
+  const rows = readAdminVoucherRows(workbook.Sheets[sheetName]);
+  const vouchers = rows
+    .map((row) => parseAdminVoucherRow(row.values, row.sourceRow, file.name))
+    .filter(Boolean);
+
+  if (!vouchers.length) {
+    showToast("沒有找到可匯入的憑證資料。");
+    return;
+  }
+
+  const confirmed = window.confirm(`準備匯入 ${vouchers.length} 筆行政憑證到暫存池，之後可用金額配正式收入/支出。是否繼續？`);
+  if (!confirmed) return;
+
+  for (const voucher of vouchers) {
+    await saveImportedVoucherInboxRecord(voucher);
+  }
+
+  if (isConfigured) {
+    await loadVoucherInbox();
+  } else {
+    saveLocalVoucherInbox();
+    renderVoucherCenter();
+  }
+
+  showToast(`已匯入 ${vouchers.length} 筆行政憑證。`);
+}
+
+function readAdminVoucherRows(sheet) {
+  const matrix = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const headerIndex = matrix.findIndex((row) => {
+    const headers = row.map(normalizeHeader);
+    const hasVoucherSignal = ["發票日期", "發票號碼", "供應商名稱", "新檔名"].some((name) =>
+      headers.includes(normalizeHeader(name)),
+    );
+    const hasAmount = ["含稅價", "支出金額", "未稅總價", "稅金"].some((name) =>
+      headers.includes(normalizeHeader(name)),
+    );
+    return hasVoucherSignal && hasAmount;
+  });
+
+  if (headerIndex < 0) return [];
+
+  const headers = matrix[headerIndex].map((value) => String(value).trim());
+  return matrix.slice(headerIndex + 1).map((row, rowOffset) => {
+    const values = {};
+    headers.forEach((header, index) => {
+      if (header) values[header] = row[index];
+    });
+    return { values, sourceRow: headerIndex + rowOffset + 2 };
+  });
+}
+
+function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
+  const invoiceNumber = normalizeInvoiceNumber(pickValue(row, ["發票號碼", "憑證號碼"]));
+  const date = normalizeImportDate(pickValue(row, ["發票日期", "日期"]));
+  const counterparty = String(pickValue(row, ["供應商名稱", "供應商", "交易對象", "廠商"]) || "").trim();
+  const item = String(pickValue(row, ["品項", "項目", "摘要"]) || "").trim();
+  const quantity = parseAmount(pickValue(row, ["數量"]));
+  const unitPrice = parseAmount(pickValue(row, ["單價"]));
+  const netAmount = parseAmount(pickValue(row, ["未稅總價", "未稅金額"]));
+  const taxAmount = parseAmount(pickValue(row, ["稅金", "稅額"]));
+  const grossAmount = parseAmount(pickValue(row, ["含稅價", "含稅金額", "總金額"]));
+  const expenseAmount = parseAmount(pickValue(row, ["支出金額", "金額"]));
+  const amount = grossAmount || expenseAmount || netAmount + taxAmount || netAmount;
+  const sourceFileName = String(pickValue(row, ["新檔名", "檔名", "憑證檔名"]) || "").trim();
+  const voucherType = String(pickValue(row, ["發票型式", "憑證型式"]) || "").trim();
+  const processResult = String(pickValue(row, ["處理結果"]) || "").trim();
+  const rawNote = String(pickValue(row, ["備註"]) || "").trim();
+  const link = String(pickValue(row, ["憑證連結", "檔案連結", "Google Drive", "連結"]) || "").trim();
+
+  if (!amount || (!invoiceNumber && !sourceFileName && !counterparty && !item)) return null;
+
+  return {
+    type: "expense",
+    invoiceNumber,
+    date: date || toDateValue(new Date()),
+    counterparty,
+    item,
+    quantity,
+    unitPrice,
+    netAmount,
+    taxAmount,
+    totalAmount: amount,
+    matchedAmount: 0,
+    remainingAmount: amount,
+    voucherLinks: link ? [link] : [],
+    sourceFileName,
+    sourceWorkbook,
+    sourceRow,
+    voucherType,
+    processResult,
+    note: [
+      item,
+      processResult,
+      rawNote,
+      sourceFileName ? `檔名：${sourceFileName}` : "",
+      `來源：${sourceWorkbook} 第 ${sourceRow} 列`,
+    ].filter(Boolean).join("｜"),
+    matches: [],
+    status: "unmatched",
+    source: "admin-list",
+    createdAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    createdBy: currentUser?.email || "local-preview",
+    userId: currentUser?.uid || "local-preview",
+  };
+}
+
+function renderVoucherInbox() {
+  if (!voucherInboxList) return;
+
+  if (!voucherInboxCache.length) {
+    voucherInboxList.className = "voucher-inbox-list empty-state";
+    voucherInboxList.textContent = "目前沒有暫存憑證。";
+    return;
+  }
+
+  voucherInboxList.className = "voucher-inbox-list";
+  voucherInboxList.innerHTML = voucherInboxCache.map(renderVoucherInboxRow).join("");
+}
+
+function renderVoucherInboxRow(voucher) {
+  const matchedAmount = getVoucherMatchedAmount(voucher);
+  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - matchedAmount);
+  const status = remainingAmount <= 0 ? "已配完" : matchedAmount > 0 ? "部分配帳" : "待配帳";
+  const tone = remainingAmount <= 0 ? "income" : matchedAmount > 0 ? "pending" : "";
+  const voucherType = resolveVoucherRecordType(voucher);
+  const voucherTypeLabel = voucherType === "income" ? "銷項收入憑證" : "進項支出憑證";
+  const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : [];
+  const matchPanel = activeVoucherMatchId === voucher.id ? renderVoucherMatchPanel(voucher, remainingAmount) : "";
+
+  return `
+    <article class="voucher-inbox-item">
+      <span class="pill ${tone}">${escapeHtml(status)}</span>
+      <div>
+        <strong>${escapeHtml(voucher.invoiceNumber || "未填發票號碼")}</strong>
+        <span>${escapeHtml(voucherTypeLabel)}</span>
+        <span>${escapeHtml(voucher.date || "")} · ${escapeHtml(voucher.counterparty || "未填交易對象")} · 總額 NT$ ${formatNumber(voucher.totalAmount)}</span>
+        <small>已配 NT$ ${formatNumber(matchedAmount)}，剩餘 NT$ ${formatNumber(remainingAmount)}</small>
+        ${voucher.note ? `<small>${escapeHtml(voucher.note)}</small>` : ""}
+        ${links.map((url, index) => `<a class="voucher-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">查看憑證 ${index + 1}</a>`).join("")}
+      </div>
+      <div class="voucher-actions">
+        <button type="button" data-voucher-match data-voucher-id="${escapeHtml(voucher.id)}">${activeVoucherMatchId === voucher.id ? "收合配帳" : "配帳"}</button>
+      </div>
+      ${matchPanel}
+    </article>
+  `;
+}
+
+function renderVoucherMatchPanel(voucher, remainingAmount) {
+  const voucherType = resolveVoucherRecordType(voucher);
+  const voucherTypeLabel = voucherType === "income" ? "收入" : "支出";
+  const candidates = recordsCache
+    .filter((record) => !record.deletedAt && record.type === voucherType && Number(record.amount || 0) > 0)
+    .filter((record) => !hasVoucherMatch(record, voucher.id))
+    .slice(0, 40);
+
+  if (!remainingAmount) {
+    return `<div class="voucher-match-panel"><div class="empty-state">這張憑證已經配完。</div></div>`;
+  }
+
+  if (!candidates.length) {
+    return `<div class="voucher-match-panel"><div class="empty-state">目前沒有可配對的${voucherTypeLabel}。</div></div>`;
+  }
+
+  return `
+    <div class="voucher-match-panel" data-voucher-match-panel="${escapeHtml(voucher.id)}">
+      <div class="voucher-match-head">
+        <strong>選擇要核實的${voucherTypeLabel}帳務</strong>
+        <span>只會顯示${voucherTypeLabel}，可多選，分配合計不可超過 NT$ ${formatNumber(remainingAmount)}</span>
+      </div>
+      <div class="voucher-match-list">
+        ${candidates.map((record) => renderVoucherMatchCandidate(record, remainingAmount)).join("")}
+      </div>
+      <button type="button" data-voucher-apply-match data-voucher-id="${escapeHtml(voucher.id)}">套用配帳</button>
+    </div>
+  `;
+}
+
+function renderVoucherMatchCandidate(record, remainingAmount) {
+  const suggestedAmount = Math.min(Number(record.amount || 0), remainingAmount);
+  return `
+    <label class="voucher-match-candidate">
+      <input type="checkbox" data-match-record-id="${escapeHtml(record.id)}" />
+      <span>
+        <strong>${escapeHtml(record.item || "未命名交易")}</strong>
+        <small>${escapeHtml(record.date || "")} · ${escapeHtml(typeLabel(record.type))} · ${escapeHtml(record.counterparty || "未填交易對象")} · NT$ ${formatNumber(record.amount)}</small>
+      </span>
+      <input type="number" min="0" step="1" value="${escapeHtml(String(suggestedAmount))}" data-match-amount-for="${escapeHtml(record.id)}" />
+    </label>
+  `;
+}
+
+function resolveVoucherRecordType(voucher) {
+  if (voucher?.type === "income" || voucher?.recordType === "income" || voucher?.voucherDirection === "income") return "income";
+  if (voucher?.type === "expense" || voucher?.recordType === "expense" || voucher?.voucherDirection === "expense") return "expense";
+
+  const text = [
+    voucher?.voucherType,
+    voucher?.processResult,
+    voucher?.sourceWorkbook,
+    voucher?.sourceFileName,
+    voucher?.note,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (/銷項|收入|銷貨|開立|平台發票|我們開/.test(text)) return "income";
+  return "expense";
+}
+
+function getVoucherMatchedAmount(voucher) {
+  return (Array.isArray(voucher.matches) ? voucher.matches : []).reduce((sum, match) => sum + Number(match.amount || 0), 0);
+}
+
+function hasVoucherMatch(record, voucherId) {
+  return (Array.isArray(record.voucherMatches) ? record.voucherMatches : []).some((match) => match.voucherId === voucherId);
+}
+
+function matchVoucherInbox(voucherId) {
+  activeVoucherMatchId = activeVoucherMatchId === voucherId ? "" : voucherId;
+  renderVoucherCenter();
+}
+
+async function applyVoucherMatches(voucherId) {
+  const voucher = voucherInboxCache.find((item) => item.id === voucherId);
+  const panel = voucherInboxList?.querySelector(`[data-voucher-match-panel="${CSS.escape(voucherId)}"]`);
+  if (!voucher || !panel) return;
+
+  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - getVoucherMatchedAmount(voucher));
+  const selected = Array.from(panel.querySelectorAll("[data-match-record-id]:checked"))
+    .map((checkbox) => {
+      const recordId = checkbox.dataset.matchRecordId;
+      const amountInput = panel.querySelector(`[data-match-amount-for="${CSS.escape(recordId)}"]`);
+      return {
+        recordId,
+        amount: parseAmount(amountInput?.value || 0),
+      };
+    })
+    .filter((match) => match.recordId && match.amount > 0);
+
+  if (!selected.length) {
+    showToast("請先勾選要配帳的交易。");
+    return;
+  }
+
+  const totalSelected = selected.reduce((sum, match) => sum + match.amount, 0);
+  if (totalSelected > remainingAmount) {
+    showToast(`分配金額超過憑證剩餘 NT$ ${formatNumber(remainingAmount)}。`);
+    return;
+  }
+
+  const voucherType = resolveVoucherRecordType(voucher);
+  const hasWrongType = selected.some((match) => {
+    const record = recordsCache.find((item) => item.id === match.recordId);
+    return !record || record.type !== voucherType;
+  });
+  if (hasWrongType) {
+    showToast(`這張憑證只能配${voucherType === "income" ? "收入" : "支出"}帳務。`);
+    return;
+  }
+
+  const now = new Date();
+  const newMatches = selected.map((match) => ({
+    voucherId,
+    ledgerId: match.recordId,
+    amount: match.amount,
+    invoiceNumber: voucher.invoiceNumber || "",
+    matchedAt: now,
+    matchedBy: currentUser?.email || "local-preview",
+  }));
+  const updatedVoucher = normalizeVoucherInboxAfterMatch(voucher, newMatches);
+
+  await saveVoucherInboxUpdate(voucher, updatedVoucher);
+  for (const match of newMatches) {
+    const record = recordsCache.find((item) => item.id === match.ledgerId);
+    if (!record) continue;
+    await saveLedgerVoucherMatch(record, voucher, match);
+  }
+
+  activeVoucherMatchId = "";
+  renderVoucherCenter();
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  showToast("憑證已配到帳務。");
+}
+
+function normalizeVoucherInboxAfterMatch(voucher, newMatches) {
+  const matches = [...(Array.isArray(voucher.matches) ? voucher.matches : []), ...newMatches];
+  const matchedAmount = matches.reduce((sum, match) => sum + Number(match.amount || 0), 0);
+  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - matchedAmount);
+  return {
+    ...voucher,
+    matches,
+    matchedAmount,
+    remainingAmount,
+    status: remainingAmount <= 0 ? "matched" : matchedAmount > 0 ? "partial" : "unmatched",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
+}
+
+async function saveVoucherInboxUpdate(previousVoucher, updatedVoucher) {
+  await writeAuditLog("update", "voucherInbox", previousVoucher.id, previousVoucher, updatedVoucher);
+  if (isConfigured) {
+    const { id, ...payload } = updatedVoucher;
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "voucherInbox", previousVoucher.id), payload);
+    await loadVoucherInbox();
+    return;
+  }
+
+  voucherInboxCache = voucherInboxCache.map((item) => (item.id === previousVoucher.id ? updatedVoucher : item));
+  saveLocalVoucherInbox();
+}
+
+async function saveLedgerVoucherMatch(record, voucher, match) {
+  const voucherLinks = [
+    ...new Set([
+      ...(Array.isArray(record.voucherLinks) ? record.voucherLinks : []),
+      ...(Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks : []),
+    ].filter(Boolean)),
+  ];
+  const voucherMatches = [...(Array.isArray(record.voucherMatches) ? record.voucherMatches : []), match];
+  const updatedRecord = {
+    ...record,
+    invoiceNumber: voucher.invoiceNumber || record.invoiceNumber || "",
+    invoiceRequired: true,
+    voucherMatches,
+    voucherLinks,
+    hasVoucher: Boolean(voucherLinks.length || record.hasVoucher),
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
+  updatedRecord.pendingReason = resolveVoucherPendingReason(updatedRecord);
+
+  await writeAuditLog("update", "ledgerRecords", record.id, record, updatedRecord);
+  if (isConfigured) {
+    const { id, ...payload } = updatedRecord;
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), payload);
+    await loadRecords();
+    return;
+  }
+
+  recordsCache = recordsCache.map((item) => (item.id === record.id ? updatedRecord : item));
+  saveLocalRecords();
+}
+
 function buildVoucherRows() {
   const rows = [];
 
   recordsCache.forEach((record) => {
     const links = getVoucherLinks(record);
     const names = getVoucherNames(record);
-    const hasVoucher = Boolean(links.length || names.length || record.hasVoucher || record.voucher);
+    const hasVoucher = hasAttachedVoucher(record);
+    const needsVoucher = recordNeedsVoucher(record);
+    const hasInvoiceNumber = Boolean(normalizeInvoiceNumber(record.invoiceNumber));
 
-    if (hasVoucher) {
+    if (!needsVoucher && !hasVoucher) return;
+
+    if (hasVoucher && hasInvoiceNumber) {
       rows.push({
-        status: "已連到帳",
+        status: "已核實",
         tone: record.type === "income" ? "income" : "",
         date: record.date || "",
         title: record.item || "未命名交易",
         subject: `${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`,
-        reason: `${record.cashflow || "未填金流"} / ${record.major || "未分類"} / ${record.middle || "未分類"} / ${record.minor || "未分類"}`,
-        action: "已在正式流水帳，可開啟憑證核對內容是否一致。",
+        reason: `${record.cashflow || "未填金流"} / 發票號碼 ${record.invoiceNumber}`,
+        action: "憑證檔與發票號碼都已掛在正式帳務，可核對內容是否一致。",
         voucherLinks: links,
         voucherCount: Math.max(links.length, names.length, 1),
         recordId: record.id,
+        recordType: record.type,
       });
       return;
     }
 
-    if (record.pendingReason || record.invoiceStatus === "無") {
-      rows.push({
-        status: "待補憑證",
-        tone: "pending",
-        date: record.date || "",
-        title: record.item || "未命名交易",
-        subject: `${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`,
-        reason: record.pendingReason || "這筆正式帳目前沒有憑證。",
-        action: "回收入／支出紀錄補上發票或收據。",
-        voucherLinks: [],
-        voucherCount: 0,
-        recordId: record.id,
-      });
-    }
+    rows.push({
+      status: hasVoucher ? "待補發票號碼" : "待補憑證",
+      tone: "pending",
+      date: record.date || "",
+      title: record.item || "未命名交易",
+      subject: `${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`,
+      reason: hasVoucher ? "已有憑證檔，但還沒填發票號碼。" : record.pendingReason || "這筆正式帳目前沒有憑證。",
+      action: hasVoucher ? "回收入／支出紀錄補上發票號碼。" : "回收入／支出紀錄補上發票或收據。",
+      voucherLinks: links,
+      voucherCount: hasVoucher ? Math.max(links.length, names.length, 1) : 0,
+      recordId: record.id,
+      recordType: record.type,
+    });
   });
 
   lineDraftsCache
@@ -3581,6 +4371,9 @@ function buildVoucherRows() {
 
 function renderVoucherCenterRow(row) {
   const toneClass = row.tone || "";
+  const target = row.draftId ? "pending" : "ledger";
+  const label = row.draftId ? "覆核草稿" : "查看帳務";
+  const canScan = Boolean(row.recordId && row.status !== "已核實");
 
   return `
     <article class="pending-item">
@@ -3592,9 +4385,319 @@ function renderVoucherCenterRow(row) {
         <small>${escapeHtml(row.action)}</small>
         ${renderVoucherLinkList(row)}
       </div>
-      <button type="button" data-pending-target="${row.draftId ? "pending" : "ledger"}" data-pending-type="">${row.draftId ? "去覆核" : "去紀錄"}</button>
+      <div class="voucher-actions">
+        ${canScan ? `<button type="button" data-voucher-scan data-record-id="${escapeHtml(row.recordId)}">掃描號碼</button>` : ""}
+        <button type="button" data-pending-target="${target}" data-pending-type="${escapeHtml(row.recordType || "")}" data-record-id="${escapeHtml(row.recordId || "")}">${label}</button>
+      </div>
     </article>
   `;
+}
+
+async function startVoucherOcr(recordId) {
+  const record = recordsCache.find((item) => item.id === recordId);
+  if (!record) {
+    showToast("找不到要掃描的帳務。");
+    return;
+  }
+
+  if (!window.Tesseract) {
+    showToast("OCR 套件尚未載入，請確認網路後重新整理。");
+    return;
+  }
+
+  currentVoucherOcrRecordId = recordId;
+  voucherOcrPanel.hidden = false;
+  voucherOcrStatus.textContent = `正在替「${record.item || "未命名交易"}」準備掃描，請選擇發票圖片。`;
+  voucherOcrResults.innerHTML = "";
+  voucherOcrInput.value = "";
+  const uploadedVoucherRefs = getVoucherFileRefs(record);
+  if (uploadedVoucherRefs.length) {
+    voucherOcrStatus.textContent = "正在掃描這筆已上傳的憑證，不需要再選一次檔案...";
+    try {
+      const result = await scanUploadedVoucherFiles(uploadedVoucherRefs);
+      if (hasVoucherScanErrors(result) && !(result.invoiceNumbers || result.candidates || []).length) {
+        showVoucherOcrFallback(result);
+        return;
+      }
+      renderVoucherOcrResults(result.invoiceNumbers || result.candidates || []);
+      if (result.files?.length) renderVoucherOcrFileNotes(result.files);
+      return;
+    } catch (error) {
+      voucherOcrStatus.textContent = "已上傳憑證暫時無法自動掃描，可以先改選本機圖片掃描。";
+      voucherOcrResults.innerHTML = `<button type="button" data-voucher-ocr-pick-local>改選本機圖片掃描</button><small>${escapeHtml(error.message || String(error))}</small>`;
+      return;
+    }
+  }
+
+  voucherOcrStatus.textContent = "這筆帳目前沒有可掃描的已上傳憑證，請選擇本機圖片掃描。";
+  voucherOcrInput.click();
+}
+
+async function handleVoucherOcrFile() {
+  const file = voucherOcrInput?.files?.[0];
+  if (!file || !currentVoucherOcrRecordId) return;
+
+  if (!file.type.startsWith("image/")) {
+    showToast("目前先支援圖片掃描，PDF 請先截圖或轉成圖片。");
+    return;
+  }
+
+  voucherOcrPanel.hidden = false;
+  voucherOcrStatus.textContent = "正在掃描發票號碼，圖片越清楚會越準...";
+  voucherOcrResults.innerHTML = "";
+
+  try {
+    const candidates = await scanLocalImageForInvoiceNumbers(file);
+    renderVoucherOcrResults(candidates);
+  } catch (error) {
+    voucherOcrStatus.textContent = "掃描失敗，請改用較清楚的照片或手動填入。";
+    showToast(`掃描失敗：${error.message}`);
+  }
+}
+
+async function scanLocalImageForInvoiceNumbers(file) {
+  const variants = await buildImageScanVariants(file);
+  const found = new Set();
+
+  for (const variant of variants) {
+    voucherOcrStatus.textContent = `正在掃描發票號碼：${variant.label}`;
+    const result = await window.Tesseract.recognize(variant.blob, "eng", {
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+      preserve_interword_spaces: "0",
+    });
+    extractInvoiceNumbers(result?.data?.text || "").forEach((number) => found.add(number));
+    if (found.size) break;
+  }
+
+  return [...found];
+}
+
+async function buildImageScanVariants(file) {
+  const image = await createImageBitmap(file);
+  const variants = [];
+
+  [0, 90, 180, 270].forEach((degrees) => {
+    const fullCanvas = drawRotatedImage(image, degrees);
+    variants.push({
+      label: `${degrees} 度全圖`,
+      blob: canvasToPngBlob(fullCanvas),
+    });
+
+    const topCrop = cropCanvas(fullCanvas, 0, 0, fullCanvas.width, Math.round(fullCanvas.height * 0.35));
+    variants.push({
+      label: `${degrees} 度上方區塊`,
+      blob: canvasToPngBlob(topCrop),
+    });
+  });
+
+  return Promise.all(
+    variants.map(async (variant) => ({
+      ...variant,
+      blob: await variant.blob,
+    })),
+  );
+}
+
+function drawRotatedImage(image, degrees) {
+  const normalizedDegrees = ((degrees % 360) + 360) % 360;
+  const swap = normalizedDegrees === 90 || normalizedDegrees === 270;
+  const maxSide = 2200;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const sourceWidth = Math.round(image.width * scale);
+  const sourceHeight = Math.round(image.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = swap ? sourceHeight : sourceWidth;
+  canvas.height = swap ? sourceWidth : sourceHeight;
+
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate((normalizedDegrees * Math.PI) / 180);
+  context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
+  return canvas;
+}
+
+function cropCanvas(source, x, y, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(source, x, y, width, height, 0, 0, width, height);
+  return canvas;
+}
+
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("圖片轉換失敗"));
+    }, "image/png");
+  });
+}
+
+async function scanUploadedVoucherFiles(fileRefs) {
+  if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
+    throw new Error("尚未設定 LINE 後端掃描網址");
+  }
+
+  const files = fileRefs
+    .filter((file) => file.id || file.url)
+    .slice(0, 6)
+    .map((file) => ({
+      id: file.id || "",
+      url: file.url || file.webViewLink || "",
+      name: file.name || "",
+      mimeType: file.mimeType || "",
+    }));
+
+  if (!files.length) throw new Error("這筆憑證沒有可掃描的 Drive 檔案");
+
+  return requestLineBackendJsonp({
+    action: "scanInvoiceNumbers",
+    secret: lineEndpointConfig.sharedSecret,
+    files,
+  });
+}
+
+function requestLineBackendJsonp(payload) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `lineBackendCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("掃描逾時，請稍後再試"));
+    }, 45000);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    };
+
+    window[callbackName] = (result) => {
+      cleanup();
+      if (!result?.ok) {
+        reject(new Error(result?.error || "掃描失敗"));
+        return;
+      }
+      resolve(result);
+    };
+
+    const url = new URL(lineEndpointConfig.endpointUrl);
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      url.searchParams.set(key, Array.isArray(value) || typeof value === "object" ? JSON.stringify(value) : String(value));
+    });
+    url.searchParams.set("callback", callbackName);
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("無法連到 LINE 後端掃描服務"));
+    };
+    script.src = url.toString();
+    document.body.appendChild(script);
+  });
+}
+
+function renderVoucherOcrFileNotes(files = []) {
+  const notes = files
+    .map((file) => {
+      const name = file.name || file.id || "未命名憑證";
+      const count = Array.isArray(file.invoiceNumbers) ? file.invoiceNumbers.length : 0;
+      const status = file.error ? `失敗：${file.error}` : `掃到 ${count} 個號碼`;
+      return `<small>${escapeHtml(name)}：${escapeHtml(status)}</small>`;
+    })
+    .join("");
+  if (notes) voucherOcrResults.insertAdjacentHTML("beforeend", notes);
+}
+
+function hasVoucherScanErrors(result) {
+  return Array.isArray(result?.files) && result.files.some((file) => file.error);
+}
+
+function showVoucherOcrFallback(result) {
+  const errors = (result.files || [])
+    .map((file) => file.error)
+    .filter(Boolean);
+  const isRateLimited = errors.some((error) => /rate limit|quota|exceeded/i.test(error));
+  voucherOcrStatus.textContent = isRateLimited
+    ? "Google OCR 暫時額度滿了，可以稍後再試，或先改用本機圖片掃描。"
+    : "已上傳憑證暫時無法自動掃描，可以先改用本機圖片掃描。";
+  voucherOcrResults.innerHTML = `
+    <button type="button" data-voucher-ocr-pick-local>改選本機圖片掃描</button>
+    ${errors.map((error) => `<small>${escapeHtml(error)}</small>`).join("")}
+  `;
+}
+
+function extractInvoiceNumbers(text) {
+  const normalizedText = String(text || "")
+    .toUpperCase()
+    .replace(/[Ｏ]/g, "O")
+    .replace(/[０]/g, "0")
+    .replace(/[１]/g, "1")
+    .replace(/[２]/g, "2")
+    .replace(/[３]/g, "3")
+    .replace(/[４]/g, "4")
+    .replace(/[５]/g, "5")
+    .replace(/[６]/g, "6")
+    .replace(/[７]/g, "7")
+    .replace(/[８]/g, "8")
+    .replace(/[９]/g, "9");
+
+  const matches = normalizedText.match(/[A-Z]{2}[\s-]*\d[\d\s-]{7,}/g) || [];
+  return [...new Set(matches.map((value) => value.replace(/[\s-]/g, "")).filter((value) => /^[A-Z]{2}\d{8}$/.test(value)))];
+}
+
+function renderVoucherOcrResults(candidates) {
+  if (!candidates.length) {
+    voucherOcrStatus.textContent = "沒有掃到明確的發票號碼，請換一張清楚照片或回帳務手動填入。";
+    voucherOcrResults.innerHTML = "";
+    return;
+  }
+
+  voucherOcrStatus.textContent = `偵測到 ${candidates.length} 個可能的發票號碼，請選擇正確的一個套用。`;
+  voucherOcrResults.innerHTML = candidates
+    .map((candidate) => `
+      <button type="button" data-apply-invoice-number="${escapeHtml(candidate)}">${escapeHtml(candidate)}</button>
+    `)
+    .join("");
+}
+
+async function applyScannedInvoiceNumber(invoiceNumber) {
+  const record = recordsCache.find((item) => item.id === currentVoucherOcrRecordId);
+  if (!record) {
+    showToast("找不到要套用的帳務。");
+    return;
+  }
+
+  const normalizedInvoiceNumber = normalizeInvoiceNumber(invoiceNumber);
+  if (!normalizedInvoiceNumber) return;
+
+  const updatedRecord = {
+    ...record,
+    invoiceNumber: normalizedInvoiceNumber,
+    invoiceRequired: true,
+  };
+  updatedRecord.pendingReason = resolveVoucherPendingReason(updatedRecord);
+
+  try {
+    await updateLedgerRecordFields(record, updatedRecord);
+    closeVoucherOcrPanel();
+    showToast(`已套用發票號碼：${normalizedInvoiceNumber}`);
+  } catch (error) {
+    showToast(`套用失敗：${error.message}`);
+  }
+}
+
+function closeVoucherOcrPanel() {
+  currentVoucherOcrRecordId = "";
+  if (voucherOcrPanel) voucherOcrPanel.hidden = true;
+  if (voucherOcrStatus) voucherOcrStatus.textContent = "選擇發票圖片後，系統會在電腦瀏覽器辨識號碼。";
+  if (voucherOcrResults) voucherOcrResults.innerHTML = "";
+  if (voucherOcrInput) voucherOcrInput.value = "";
 }
 
 function buildPendingItems() {
@@ -3623,15 +4726,15 @@ function buildPendingItems() {
 
   recordsCache.forEach((record) => {
     if (record.pendingReason) {
-      items.push(createPendingItem("voucher", "待補憑證", record.date, record.item, record.pendingReason, "回收入／支出紀錄補上發票或收據。", "ledger", record.type));
+      items.push(createPendingItem("voucher", record.pendingReason, record.date, record.item, record.pendingReason, "回收入／支出紀錄補上發票、收據或發票號碼。", "ledger", record.type, record.id));
     }
 
     if (record.voucherBatchStatus) {
-      items.push(createPendingItem("voucher", "批次憑證待配對", record.date, record.item, "多張憑證尚未逐筆配對", "確認這批憑證分別對應哪些交易。", "ledger", record.type));
+      items.push(createPendingItem("voucher", "批次憑證待配對", record.date, record.item, "多張憑證尚未逐筆配對", "確認這批憑證分別對應哪些交易。", "ledger", record.type, record.id));
     }
 
     if (record.type === "income" && !record.inventoryLinks?.length) {
-      items.push(createPendingItem("inventory", "收入待配庫存", record.date, record.item, "尚未選取售出庫存", "在收入紀錄下方勾選一筆或多筆庫存來源。", "ledger", "income"));
+      items.push(createPendingItem("inventory", "收入待配庫存", record.date, record.item, "尚未選取售出庫存", "在收入紀錄下方勾選一筆或多筆庫存來源。", "ledger", "income", record.id));
     }
 
     const bucket = classifyCashflowRecord(record);
@@ -3691,25 +4794,25 @@ function buildSettlementPendingItem(record) {
   const action = isReceivable ? "確認實際收款日，或補上預計收款日。" : "確認實際付款日，或補上預計付款日。";
 
   if (!record.dueDate) {
-    return createPendingItem("settlement", title, record.date, record.item, "尚未填帳期／預計日期", action, "ledger", record.type);
+    return createPendingItem("settlement", title, record.date, record.item, "尚未填帳期／預計日期", action, "ledger", record.type, record.id);
   }
 
   const today = toDateValue(new Date());
   if (record.dueDate < today) {
-    return createPendingItem("settlement", title, record.dueDate, record.item, "已逾期未結清", action, "ledger", record.type);
+    return createPendingItem("settlement", title, record.dueDate, record.item, "已逾期未結清", action, "ledger", record.type, record.id);
   }
 
   const soon = new Date(`${today}T00:00:00`);
   soon.setDate(soon.getDate() + 7);
   if (record.dueDate <= toDateValue(soon)) {
-    return createPendingItem("settlement", title, record.dueDate, record.item, "7 天內到期", action, "ledger", record.type);
+    return createPendingItem("settlement", title, record.dueDate, record.item, "7 天內到期", action, "ledger", record.type, record.id);
   }
 
   return null;
 }
 
-function createPendingItem(group, title, date, subject, reason, action, targetView, targetType = "") {
-  return { group, title, date, subject, reason, action, targetView, targetType };
+function createPendingItem(group, title, date, subject, reason, action, targetView, targetType = "", recordId = "") {
+  return { group, title, date, subject, reason, action, targetView, targetType, recordId };
 }
 
 function enrichPendingItem(item) {
@@ -3772,7 +4875,7 @@ function renderPendingItem(item) {
         <span>${escapeHtml(item.date)} · ${escapeHtml(item.reason)}</span>
         <small>${escapeHtml(item.action)}</small>
       </div>
-      <button type="button" data-pending-target="${escapeHtml(item.targetView)}" data-pending-type="${escapeHtml(item.targetType)}">前往處理</button>
+      <button type="button" data-pending-target="${escapeHtml(item.targetView)}" data-pending-type="${escapeHtml(item.targetType)}" data-record-id="${escapeHtml(item.recordId || "")}">前往處理</button>
     </article>
   `;
 }
@@ -4275,7 +5378,7 @@ function buildTransactionDetailSheet() {
   return [
     ["交易明細與分類依據"],
     [],
-    ["日期", "類型", "交易對象", "摘要", "收入", "營業費用／成本", "商品成本", "金流／物流成本", "三級科目", "含稅／總額", "未稅金額", "金流方式", "帳戶", "收付款狀態", "預計收付款日", "實際收付款日", "發票狀態", "待處理原因", "備註", "來源"],
+    ["日期", "類型", "交易對象", "摘要", "收入", "營業費用／成本", "商品成本", "金流／物流成本", "三級科目", "含稅／總額", "未稅金額", "金流方式", "帳戶", "收付款狀態", "預計收付款日", "實際收付款日", "發票狀態", "發票號碼", "待處理原因", "備註", "來源"],
     ...lastReportRows.map((record) => {
       const income = record.type === "income" ? Number(record.amount || 0) : 0;
       const expense = record.type === "expense" ? Number(record.amount || 0) : Number(record.logisticsCost || 0) + Number(record.extraExpense || 0);
@@ -4298,6 +5401,7 @@ function buildTransactionDetailSheet() {
         record.dueDate || "",
         record.settledDate || "",
         record.invoiceStatus || (record.hasVoucher ? "有" : "無"),
+        record.invoiceNumber || "",
         record.pendingReason || "",
         record.note || "",
         record.importSource ? `${record.importSource}｜第 ${record.sourceRow || ""} 列` : "網頁輸入",
@@ -5003,6 +6107,7 @@ function renderRecordItem(record) {
       <div class="record-meta">
         ${escapeHtml(record.date)}<br />
         ${escapeHtml(record.cashflow)} · ${escapeHtml(voucherLabel)}
+        ${record.invoiceNumber ? `<br />發票號碼：${escapeHtml(record.invoiceNumber)}` : ""}
         ${renderVoucherLinkList(record)}
         ${renderSettlementMeta(record)}
         ${record.voucherBatchStatus ? `<br /><span class="pill pending">${escapeHtml(record.voucherBatchStatus)}</span>` : ""}
@@ -5282,6 +6387,18 @@ function loadLocalLineDrafts() {
 
 function saveLocalLineDrafts() {
   localStorage.setItem("lineDraftsPreview", JSON.stringify(lineDraftsCache));
+}
+
+function loadLocalVoucherInbox() {
+  try {
+    return JSON.parse(localStorage.getItem("voucherInboxPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalVoucherInbox() {
+  localStorage.setItem("voucherInboxPreview", JSON.stringify(voucherInboxCache));
 }
 
 function loadLocalDeletedRecords() {

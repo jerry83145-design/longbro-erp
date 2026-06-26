@@ -205,6 +205,11 @@
                 <input id="dueDateInput" type="date" min="2026-01-01" max="2035-12-31" />
               </div>
 
+              <div class="field">
+                <label for="invoiceNumberInput">發票號碼</label>
+                <input id="invoiceNumberInput" type="text" placeholder="例如：AB12345678" />
+              </div>
+
               <div class="field with-add">
                 <label for="majorSelect">大類 <b>*</b></label>
                 <select id="majorSelect" required></select>
@@ -469,7 +474,60 @@
             <p class="eyebrow">VOUCHERS</p>
             <h2>憑證中心</h2>
             <p class="muted-text">核對發票、收據是否已連到正式收入／支出，並追蹤 LINE 草稿憑證與待補憑證。</p>
+            <div class="logic-note">
+              <strong>核對邏輯</strong>
+              <span>需要發票／收據的交易，必須同時有憑證檔與發票號碼才算核實；缺檔案或缺號碼都會留在這裡提醒。</span>
+            </div>
+            <div id="voucherOcrPanel" class="voucher-ocr-panel" hidden>
+              <div>
+                <strong>發票號碼掃描</strong>
+                <span id="voucherOcrStatus">選擇發票圖片後，系統會在電腦瀏覽器辨識號碼。</span>
+              </div>
+              <div id="voucherOcrResults" class="voucher-ocr-results"></div>
+              <button class="secondary-button" type="button" data-voucher-ocr-close>關閉</button>
+            </div>
+            <input id="voucherOcrInput" type="file" accept="image/*" hidden />
+            <div class="voucher-inbox-form">
+              <div>
+                <strong>新增憑證到暫存池</strong>
+                <span>先把行政人員整理好的發票／收據登進來，再用金額分配到多筆收入或支出。</span>
+              </div>
+              <div class="voucher-inbox-import">
+                <button id="syncDriveVoucherInboxButton" type="button">同步 Drive 行政清單</button>
+                <button id="importVoucherInboxButton" class="secondary-button" type="button">匯入行政憑證清單</button>
+                <input id="importVoucherInboxInput" type="file" accept=".xlsx,.xls,.csv" hidden />
+                <small>支援欄位：發票日期、發票號碼、供應商名稱、品項、未稅總價、稅金、含稅價、支出金額、新檔名、處理結果、備註。</small>
+              </div>
+              <div class="voucher-inbox-grid">
+                <label>
+                  發票號碼
+                  <input id="voucherInboxInvoiceInput" type="text" placeholder="例如：ZX04555853" />
+                </label>
+                <label>
+                  憑證日期
+                  <input id="voucherInboxDateInput" type="date" min="2026-01-01" max="2035-12-31" />
+                </label>
+                <label>
+                  交易對象
+                  <input id="voucherInboxCounterpartyInput" type="text" placeholder="例如：統一發票、卡商" />
+                </label>
+                <label>
+                  憑證總金額
+                  <input id="voucherInboxAmountInput" type="number" min="0" step="1" placeholder="例如：66000" />
+                </label>
+                <label class="wide">
+                  憑證連結
+                  <input id="voucherInboxLinkInput" type="url" placeholder="Google Drive 圖片或發票連結，可先空白" />
+                </label>
+                <label class="wide">
+                  備註
+                  <input id="voucherInboxNoteInput" type="text" placeholder="例如：行政人員清單第 12 列" />
+                </label>
+              </div>
+              <button id="saveVoucherInboxButton" type="button">加入暫存池</button>
+            </div>
             <div id="voucherSummary" class="pending-summary"></div>
+            <div id="voucherInboxList" class="voucher-inbox-list empty-state">目前沒有暫存憑證。</div>
             <div id="voucherList" class="pending-list empty-state">尚無憑證資料。</div>
           </div>
         </section>
@@ -546,6 +604,7 @@
 
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>
