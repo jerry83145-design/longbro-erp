@@ -527,6 +527,13 @@
               <button id="saveVoucherInboxButton" type="button">加入暫存池</button>
             </div>
             <div id="voucherSummary" class="pending-summary"></div>
+            <div id="voucherInboxFilter" class="voucher-filter" role="group" aria-label="憑證暫存池篩選">
+              <button class="active" type="button" data-voucher-filter="open">待處理</button>
+              <button type="button" data-voucher-filter="unmatched">待配帳</button>
+              <button type="button" data-voucher-filter="partial">部分配帳</button>
+              <button type="button" data-voucher-filter="matched">已配完</button>
+              <button type="button" data-voucher-filter="all">全部</button>
+            </div>
             <div id="voucherInboxList" class="voucher-inbox-list empty-state">目前沒有暫存憑證。</div>
             <div id="voucherList" class="pending-list empty-state">尚無憑證資料。</div>
           </div>
