@@ -1181,6 +1181,11 @@ textarea:focus {
   background: #fbfdfd;
 }
 
+.voucher-inbox-item.overmatched {
+  border-left-color: #b91c1c;
+  background: #fff8f6;
+}
+
 .voucher-inbox-main {
   display: grid;
   gap: 5px;
@@ -1214,6 +1219,16 @@ textarea:focus {
   background: #f8fbfa;
 }
 
+.voucher-amount-grid span.danger {
+  border-color: #f2c4bd;
+  background: #fff1ef;
+}
+
+.voucher-amount-grid span.danger strong,
+.voucher-amount-grid span.danger small {
+  color: #b91c1c;
+}
+
 .voucher-amount-grid small {
   color: var(--muted);
   font-size: 12px;
@@ -1222,6 +1237,173 @@ textarea:focus {
 
 .voucher-amount-grid strong {
   font-size: 17px;
+}
+
+.voucher-ledger-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid #d9e7e4;
+  border-radius: 10px;
+  background: #f8fbfa;
+  padding: 10px 12px;
+}
+
+.voucher-ledger-summary.empty {
+  background: #fffdf7;
+}
+
+.voucher-ledger-summary > strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.voucher-ledger-summary.empty span {
+  color: var(--muted);
+}
+
+.voucher-ledger-list {
+  display: grid;
+  gap: 6px;
+}
+
+.voucher-ledger-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid rgba(18, 93, 83, 0.12);
+  padding-top: 6px;
+}
+
+.voucher-ledger-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.voucher-ledger-row span strong,
+.voucher-ledger-row span small {
+  display: block;
+}
+
+.voucher-ledger-row span small {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.voucher-ledger-row b {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.voucher-ledger-row.missing b,
+.voucher-ledger-row.missing span strong {
+  color: #b91c1c;
+}
+
+.voucher-info-hint {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+}
+
+.voucher-info-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid #e6c985;
+  border-radius: 999px;
+  background: #fff8e7;
+  color: #9b6500;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 0 10px;
+  cursor: help;
+}
+
+.voucher-info-popover {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  top: calc(100% + 8px);
+  width: min(520px, 72vw);
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #d9c58f;
+  border-radius: 10px;
+  background: #fffdf7;
+  box-shadow: 0 14px 30px rgba(15, 47, 43, 0.16);
+  color: var(--text);
+  line-height: 1.65;
+  opacity: 0;
+  pointer-events: none;
+  padding: 12px 14px;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  white-space: pre-wrap;
+}
+
+.voucher-info-hint:hover .voucher-info-popover,
+.voucher-info-hint:focus-within .voucher-info-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.voucher-edit-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 14px;
+}
+
+.voucher-edit-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.voucher-edit-panel label.wide {
+  grid-column: span 2;
+}
+
+.voucher-edit-panel input,
+.voucher-edit-panel textarea {
+  width: 100%;
+}
+
+.voucher-edit-panel textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.voucher-edit-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.voucher-edit-actions button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0 16px;
+}
+
+.voucher-edit-actions button:first-child {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .voucher-match-panel {
@@ -1909,7 +2091,14 @@ textarea:focus {
   }
 
   .voucher-inbox-grid .wide,
+  .voucher-edit-panel,
   .voucher-match-panel {
+    grid-column: 1;
+  }
+
+  .voucher-edit-panel,
+  .voucher-edit-panel label.wide {
+    grid-template-columns: 1fr;
     grid-column: 1;
   }
 

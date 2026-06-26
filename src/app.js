@@ -197,6 +197,7 @@ let lastReportRows = [];
 let lastReportSummary = null;
 let currentVoucherOcrRecordId = "";
 let activeVoucherMatchId = "";
+let activeVoucherEditId = "";
 let voucherInboxStatusFilter = "open";
 let editingRecordId = null;
 let editingInventoryId = null;
@@ -528,6 +529,27 @@ voucherList?.addEventListener("click", (event) => {
 });
 
 voucherInboxList?.addEventListener("click", (event) => {
+  const saveEditButton = event.target.closest("[data-voucher-save-edit]");
+  if (saveEditButton) {
+    saveVoucherInboxEdit(saveEditButton.dataset.voucherId);
+    return;
+  }
+
+  const cancelEditButton = event.target.closest("[data-voucher-cancel-edit]");
+  if (cancelEditButton) {
+    activeVoucherEditId = "";
+    renderVoucherCenter();
+    return;
+  }
+
+  const editButton = event.target.closest("[data-voucher-edit]");
+  if (editButton) {
+    activeVoucherEditId = activeVoucherEditId === editButton.dataset.voucherId ? "" : editButton.dataset.voucherId;
+    activeVoucherMatchId = "";
+    renderVoucherCenter();
+    return;
+  }
+
   const applyButton = event.target.closest("[data-voucher-apply-match]");
   if (applyButton) {
     applyVoucherMatches(applyButton.dataset.voucherId);
@@ -536,6 +558,7 @@ voucherInboxList?.addEventListener("click", (event) => {
 
   const matchButton = event.target.closest("[data-voucher-match]");
   if (matchButton) {
+    activeVoucherEditId = "";
     matchVoucherInbox(matchButton.dataset.voucherId);
     return;
   }
@@ -547,6 +570,7 @@ voucherInboxFilter?.addEventListener("click", (event) => {
 
   voucherInboxStatusFilter = button.dataset.voucherFilter || "open";
   activeVoucherMatchId = "";
+  activeVoucherEditId = "";
   renderVoucherInbox();
 });
 
@@ -4095,13 +4119,16 @@ function renderVoucherInbox() {
 
 function renderVoucherInboxRow(voucher) {
   const matchedAmount = getVoucherMatchedAmount(voucher);
-  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - matchedAmount);
+  const totalAmount = Number(voucher.totalAmount || 0);
+  const remainingAmount = Math.max(0, totalAmount - matchedAmount);
+  const overAmount = Math.max(0, matchedAmount - totalAmount);
   const statusInfo = getVoucherInboxStatusInfo(voucher);
-  const tone = statusInfo.status === "matched" ? "income" : statusInfo.status === "partial" ? "pending" : "";
+  const tone = statusInfo.status === "matched" ? "income" : statusInfo.status === "partial" || statusInfo.status === "overmatched" ? "pending" : "";
   const voucherType = resolveVoucherRecordType(voucher);
   const voucherTypeLabel = voucherType === "income" ? "銷項收入憑證" : "進項支出憑證";
   const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : [];
   const matchPanel = activeVoucherMatchId === voucher.id ? renderVoucherMatchPanel(voucher, remainingAmount) : "";
+  const editPanel = activeVoucherEditId === voucher.id ? renderVoucherEditPanel(voucher) : "";
 
   return `
     <article class="voucher-inbox-item ${escapeHtml(statusInfo.status)}">
@@ -4113,16 +4140,110 @@ function renderVoucherInboxRow(voucher) {
         <div class="voucher-amount-grid">
           <span><small>總額</small><strong>NT$ ${formatNumber(voucher.totalAmount)}</strong></span>
           <span><small>已配</small><strong>NT$ ${formatNumber(matchedAmount)}</strong></span>
-          <span><small>剩餘</small><strong>NT$ ${formatNumber(remainingAmount)}</strong></span>
+          <span class="${overAmount ? "danger" : ""}"><small>${overAmount ? "超配" : "剩餘"}</small><strong>NT$ ${formatNumber(overAmount || remainingAmount)}</strong></span>
         </div>
-        ${voucher.note ? `<small>${escapeHtml(voucher.note)}</small>` : ""}
+        ${renderVoucherLedgerMatchSummary(voucher)}
+        ${renderVoucherInfoHint(voucher)}
         ${links.map((url, index) => `<a class="voucher-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">查看憑證 ${index + 1}</a>`).join("")}
       </div>
       <div class="voucher-actions">
+        <button type="button" data-voucher-edit data-voucher-id="${escapeHtml(voucher.id)}">${activeVoucherEditId === voucher.id ? "收合編輯" : "編輯"}</button>
         <button type="button" data-voucher-match data-voucher-id="${escapeHtml(voucher.id)}">${activeVoucherMatchId === voucher.id ? "收合配帳" : "配帳"}</button>
       </div>
+      ${editPanel}
       ${matchPanel}
     </article>
+  `;
+}
+
+function renderVoucherInfoHint(voucher) {
+  if (!voucher.note) return "";
+
+  return `
+    <span class="voucher-info-hint" tabindex="0">
+      <span class="voucher-info-label">! 發票資訊</span>
+      <span class="voucher-info-popover">${escapeHtml(voucher.note)}</span>
+    </span>
+  `;
+}
+
+function renderVoucherEditPanel(voucher) {
+  const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean).join("\n") : "";
+  return `
+    <div class="voucher-edit-panel" data-voucher-edit-panel="${escapeHtml(voucher.id)}">
+      <label>
+        <span>發票號碼</span>
+        <input type="text" value="${escapeHtml(voucher.invoiceNumber || "")}" data-voucher-edit-field="invoiceNumber" placeholder="例如：ZX04555853" />
+      </label>
+      <label>
+        <span>憑證日期</span>
+        <input type="date" value="${escapeHtml(voucher.date || "")}" data-voucher-edit-field="date" />
+      </label>
+      <label>
+        <span>交易對象</span>
+        <input type="text" value="${escapeHtml(voucher.counterparty || "")}" data-voucher-edit-field="counterparty" placeholder="例如：供應商名稱" />
+      </label>
+      <label class="wide">
+        <span>品項</span>
+        <input type="text" value="${escapeHtml(voucher.item || "")}" data-voucher-edit-field="item" placeholder="例如：入財金3盒" />
+      </label>
+      <label>
+        <span>憑證總金額</span>
+        <input type="number" min="0" step="1" value="${escapeHtml(String(voucher.totalAmount || ""))}" data-voucher-edit-field="totalAmount" />
+      </label>
+      <label class="wide">
+        <span>憑證連結</span>
+        <textarea data-voucher-edit-field="voucherLinks" placeholder="一行一個 Google Drive 或發票連結">${escapeHtml(links)}</textarea>
+      </label>
+      <label class="wide">
+        <span>發票資訊／備註</span>
+        <textarea data-voucher-edit-field="note" placeholder="掃描錯誤、行政清單來源、待確認原因等">${escapeHtml(voucher.note || "")}</textarea>
+      </label>
+      <div class="voucher-edit-actions">
+        <button type="button" data-voucher-save-edit data-voucher-id="${escapeHtml(voucher.id)}">儲存憑證</button>
+        <button type="button" data-voucher-cancel-edit data-voucher-id="${escapeHtml(voucher.id)}">取消</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderVoucherLedgerMatchSummary(voucher) {
+  const matches = Array.isArray(voucher.matches) ? voucher.matches : [];
+  if (!matches.length) {
+    return `
+      <div class="voucher-ledger-summary empty">
+        <strong>已配帳務</strong>
+        <span>尚未配到任何收入／支出。</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="voucher-ledger-summary">
+      <strong>已配帳務 ${matches.length} 筆</strong>
+      <div class="voucher-ledger-list">
+        ${matches.map(renderVoucherLedgerMatchRow).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderVoucherLedgerMatchRow(match) {
+  const record = recordsCache.find((item) => item.id === match.ledgerId);
+  const title = record?.item || "找不到原帳務";
+  const type = record ? typeLabel(record.type) : "未知";
+  const date = record?.date || "";
+  const counterparty = record?.counterparty || "未填交易對象";
+  const amount = Number(match.amount || 0);
+
+  return `
+    <div class="voucher-ledger-row ${record ? "" : "missing"}">
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(date)} · ${escapeHtml(type)} · ${escapeHtml(counterparty)}</small>
+      </span>
+      <b>NT$ ${formatNumber(amount)}</b>
+    </div>
   `;
 }
 
@@ -4139,7 +4260,7 @@ function updateVoucherInboxFilter() {
 }
 
 function getVoucherInboxFilterCounts() {
-  const counts = { open: 0, unmatched: 0, partial: 0, matched: 0, all: voucherInboxCache.length };
+  const counts = { open: 0, unmatched: 0, partial: 0, overmatched: 0, matched: 0, all: voucherInboxCache.length };
   voucherInboxCache.forEach((voucher) => {
     const status = getVoucherInboxStatusInfo(voucher).status;
     counts[status] += 1;
@@ -4153,6 +4274,7 @@ function getVoucherInboxFilterLabel(filter) {
     open: "待處理",
     unmatched: "待配帳",
     partial: "部分配帳",
+    overmatched: "金額異常",
     matched: "已配完",
     all: "全部",
   };
@@ -4173,8 +4295,10 @@ function getVoucherFilterEmptyText() {
 
 function getVoucherInboxStatusInfo(voucher) {
   const matchedAmount = getVoucherMatchedAmount(voucher);
-  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - matchedAmount);
-  if (remainingAmount <= 0 && Number(voucher.totalAmount || 0) > 0) return { status: "matched", label: "已配完" };
+  const totalAmount = Number(voucher.totalAmount || 0);
+  const remainingAmount = Math.max(0, totalAmount - matchedAmount);
+  if (totalAmount > 0 && matchedAmount > totalAmount) return { status: "overmatched", label: "金額異常" };
+  if (remainingAmount <= 0 && totalAmount > 0) return { status: "matched", label: "已配完" };
   if (matchedAmount > 0) return { status: "partial", label: "部分配帳" };
   return { status: "unmatched", label: "待配帳" };
 }
@@ -4330,6 +4454,47 @@ function normalizeVoucherInboxAfterMatch(voucher, newMatches) {
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
     updatedBy: currentUser?.email || "local-preview",
   };
+}
+
+async function saveVoucherInboxEdit(voucherId) {
+  const voucher = voucherInboxCache.find((item) => item.id === voucherId);
+  const panel = voucherInboxList?.querySelector(`[data-voucher-edit-panel="${CSS.escape(voucherId)}"]`);
+  if (!voucher || !panel) return;
+
+  const getFieldValue = (fieldName) => panel.querySelector(`[data-voucher-edit-field="${fieldName}"]`)?.value || "";
+  const totalAmount = parseAmount(getFieldValue("totalAmount"));
+  if (!totalAmount) {
+    showToast("請填憑證總金額。");
+    return;
+  }
+
+  const voucherLinks = getFieldValue("voucherLinks")
+    .split(/\r?\n/)
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const matches = Array.isArray(voucher.matches) ? voucher.matches : [];
+  const matchedAmount = matches.reduce((sum, match) => sum + Number(match.amount || 0), 0);
+  const remainingAmount = Math.max(0, totalAmount - matchedAmount);
+  const updatedVoucher = {
+    ...voucher,
+    invoiceNumber: normalizeInvoiceNumber(getFieldValue("invoiceNumber")),
+    date: getFieldValue("date") || voucher.date || toDateValue(new Date()),
+    counterparty: getFieldValue("counterparty").trim(),
+    item: getFieldValue("item").trim(),
+    totalAmount,
+    matchedAmount,
+    remainingAmount,
+    voucherLinks,
+    note: getFieldValue("note").trim(),
+    status: totalAmount > 0 && matchedAmount > totalAmount ? "overmatched" : remainingAmount <= 0 ? "matched" : matchedAmount > 0 ? "partial" : "unmatched",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
+
+  await saveVoucherInboxUpdate(voucher, updatedVoucher);
+  activeVoucherEditId = "";
+  renderVoucherCenter();
+  showToast("憑證資料已更新。");
 }
 
 async function saveVoucherInboxUpdate(previousVoucher, updatedVoucher) {
@@ -5428,6 +5593,7 @@ function exportCurrentReport() {
   appendSheet(workbook, "損益", buildIncomeStatementSheet());
   appendSheet(workbook, "庫存表", buildInventoryReportSheet());
   appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
+  appendSheet(workbook, "憑證核對表", buildVoucherReconciliationSheet());
   appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
   window.XLSX.writeFile(workbook, `${lastReportSummary.start}_${lastReportSummary.end}_內帳報表.xlsx`);
 }
@@ -5541,6 +5707,85 @@ function buildPendingSheet() {
         record.importSource ? `${record.importSource}｜第 ${record.sourceRow || ""} 列` : "網頁輸入",
       ]),
   ];
+}
+
+function buildVoucherReconciliationSheet() {
+  const reportRecordIds = new Set(lastReportRows.map((record) => record.id).filter(Boolean));
+  const vouchers = voucherInboxCache
+    .filter((voucher) => isVoucherInReportRange(voucher, reportRecordIds))
+    .sort(compareRecordsByDateAndCreatedTime);
+
+  return [
+    [`${lastReportSummary.start} 至 ${lastReportSummary.end} 憑證核對表`],
+    [],
+    [
+      "憑證狀態",
+      "憑證類型",
+      "發票號碼",
+      "憑證日期",
+      "交易對象",
+      "品項",
+      "憑證總額",
+      "已配帳金額",
+      "剩餘／超配金額",
+      "配帳筆數",
+      "配到的帳務",
+      "憑證連結",
+      "備註",
+      "來源",
+    ],
+    ...vouchers.map((voucher) => {
+      const matchedAmount = getVoucherMatchedAmount(voucher);
+      const totalAmount = Number(voucher.totalAmount || 0);
+      const remainingAmount = totalAmount - matchedAmount;
+      const statusInfo = getVoucherInboxStatusInfo(voucher);
+      const matches = Array.isArray(voucher.matches) ? voucher.matches : [];
+      const matchedRecordsText = matches.length
+        ? matches.map((match) => formatVoucherReportMatch(match)).join("\n")
+        : "尚未配帳";
+      const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean).join("\n") : "";
+
+      return [
+        statusInfo.label,
+        resolveVoucherRecordType(voucher) === "income" ? "銷項收入憑證" : "進項支出憑證",
+        voucher.invoiceNumber || "",
+        voucher.date || "",
+        voucher.counterparty || "",
+        voucher.item || "",
+        totalAmount,
+        matchedAmount,
+        remainingAmount,
+        matches.length,
+        matchedRecordsText,
+        links,
+        voucher.note || "",
+        voucher.sourceWorkbook || voucher.source || "手動建立",
+      ];
+    }),
+  ];
+}
+
+function isVoucherInReportRange(voucher, reportRecordIds) {
+  const date = voucher.date || "";
+  const inVoucherDateRange = date >= lastReportSummary.start && date <= lastReportSummary.end;
+  if (inVoucherDateRange) return true;
+
+  const matches = Array.isArray(voucher.matches) ? voucher.matches : [];
+  return matches.some((match) => reportRecordIds.has(match.ledgerId));
+}
+
+function formatVoucherReportMatch(match) {
+  const record = recordsCache.find((item) => item.id === match.ledgerId);
+  const amount = Number(match.amount || 0);
+  if (!record) return `找不到原帳務｜NT$ ${formatNumber(amount)}`;
+
+  return [
+    record.date || "",
+    typeLabel(record.type),
+    record.counterparty || "未填交易對象",
+    record.item || "未命名交易",
+    `配帳 NT$ ${formatNumber(amount)}`,
+  ].join("｜");
 }
 
 function buildIncomeStatementSheet() {
@@ -6186,7 +6431,6 @@ function renderRecordItem(record) {
         ${escapeHtml(record.date)}<br />
         ${escapeHtml(record.cashflow)} · ${escapeHtml(voucherLabel)}
         ${record.invoiceNumber ? `<br />發票號碼：${escapeHtml(record.invoiceNumber)}` : ""}
-        ${renderVoucherLinkList(record)}
         ${renderSettlementMeta(record)}
         ${record.voucherBatchStatus ? `<br /><span class="pill pending">${escapeHtml(record.voucherBatchStatus)}</span>` : ""}
         ${record.pendingReason ? `<br /><span class="pill pending">${escapeHtml(record.pendingReason)}</span>` : ""}
