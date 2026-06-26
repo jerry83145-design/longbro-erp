@@ -574,6 +574,21 @@
           <div class="placeholder-panel">
             <div class="section-heading compact">
               <div>
+                <p class="eyebrow">DATA RESTORE</p>
+                <h2>備份檔預覽</h2>
+                <p class="muted-text">先讀取備份 Excel 並確認各類資料筆數，不會寫入或覆蓋現有資料。</p>
+              </div>
+              <label class="restore-file-button">
+                選擇備份檔
+                <input id="restoreBackupInput" type="file" accept=".xlsx,.xls" hidden />
+              </label>
+            </div>
+            <div id="restoreBackupStatus" class="backup-status">請選擇從「一鍵匯出備份」下載的隆博ERP備份檔。</div>
+            <div id="restoreBackupPreview" class="restore-preview empty-state">尚未讀取備份檔。</div>
+          </div>
+          <div class="placeholder-panel">
+            <div class="section-heading compact">
+              <div>
                 <p class="eyebrow">SYSTEM CHECK</p>
                 <h2>系統檢查</h2>
                 <p class="muted-text">一鍵確認登入、雲端讀取、流水帳、待處理、憑證、銀行核對與備份狀態。</p>
@@ -635,6 +650,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260626-system-check"></script>
+    <script type="module" src="./src/app.js?v=20260626-restore-plan"></script>
   </body>
 </html>

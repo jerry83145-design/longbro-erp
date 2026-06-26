@@ -162,6 +162,9 @@ const auditLogList = document.querySelector("#auditLogList");
 const refreshAuditLogButton = document.querySelector("#refreshAuditLogButton");
 const exportBackupButton = document.querySelector("#exportBackupButton");
 const backupStatus = document.querySelector("#backupStatus");
+const restoreBackupInput = document.querySelector("#restoreBackupInput");
+const restoreBackupStatus = document.querySelector("#restoreBackupStatus");
+const restoreBackupPreview = document.querySelector("#restoreBackupPreview");
 const runSystemCheckButton = document.querySelector("#runSystemCheckButton");
 const systemCheckSummary = document.querySelector("#systemCheckSummary");
 const systemCheckList = document.querySelector("#systemCheckList");
@@ -194,6 +197,8 @@ let currentUser = null;
 let firebaseApi = {};
 let recordType = "expense";
 let currentView = "overview";
+let restoreBackupDraft = null;
+let restoreBackupPlan = null;
 let recordsCache = loadLocalRecords();
 let inventoryCache = loadLocalInventoryRecords();
 let bankTransactionsCache = loadLocalBankTransactions();
@@ -427,6 +432,19 @@ saveInventorySettingsButton.addEventListener("click", () => {
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
 refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
 exportBackupButton?.addEventListener("click", exportFullBackup);
+restoreBackupInput?.addEventListener("change", previewBackupFile);
+restoreBackupPreview?.addEventListener("click", async (event) => {
+  const planButton = event.target.closest("[data-restore-plan]");
+  if (planButton) {
+    await buildRestorePlan();
+    return;
+  }
+
+  const restoreButton = event.target.closest("[data-confirm-restore]");
+  if (restoreButton) {
+    await confirmRestoreBackup();
+  }
+});
 runSystemCheckButton?.addEventListener("click", runSystemCheck);
 
 recycleBinList?.addEventListener("click", async (event) => {
@@ -5897,6 +5915,488 @@ const backupFields = {
   auditLogs: ["id", "action", "collectionName", "recordId", "createdAt", "createdBy", "rawJson"],
   systemSettings: ["id", "createdAt", "updatedAt", "rawJson"],
 };
+
+const restoreSheetDefinitions = [
+  { key: "ledgerRecords", name: "流水帳", label: "流水帳", collectionName: "ledgerRecords" },
+  { key: "bankTransactions", name: "銀行資料", label: "銀行資料", collectionName: "bankTransactions" },
+  { key: "inventoryRecords", name: "庫存紀錄", label: "庫存紀錄", collectionName: "inventoryRecords" },
+  { key: "voucherInbox", name: "憑證暫存池", label: "憑證暫存池", collectionName: "voucherInbox" },
+  { key: "lineDrafts", name: "LINE草稿", label: "LINE 草稿", collectionName: "lineDrafts" },
+  { key: "recycleBin", name: "回收桶", label: "回收桶", collectionName: "" },
+  { key: "auditLogs", name: "修改紀錄", label: "修改紀錄", collectionName: "auditLogs" },
+  { key: "systemSettings", name: "系統選項", label: "系統選項", collectionName: "systemSettings" },
+];
+
+async function previewBackupFile() {
+  const file = restoreBackupInput?.files?.[0];
+  if (!file) return;
+
+  if (!window.XLSX) {
+    showToast("Excel 讀取工具尚未載入，請重新整理後再試。");
+    return;
+  }
+
+  restoreBackupDraft = null;
+  restoreBackupPlan = null;
+  if (restoreBackupStatus) restoreBackupStatus.textContent = `正在讀取：${file.name}`;
+  if (restoreBackupPreview) {
+    restoreBackupPreview.className = "restore-preview empty-state";
+    restoreBackupPreview.textContent = "讀取中，請稍候...";
+  }
+
+  try {
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const summary = readBackupSummary(workbook);
+    const sheets = restoreSheetDefinitions.map((definition) => ({
+      ...definition,
+      ...readBackupSheetState(workbook, definition.name),
+    }));
+    const missingSheets = sheets.filter((sheet) => !sheet.exists);
+    const totalRows = sheets.reduce((sum, sheet) => sum + sheet.count, 0);
+    restoreBackupDraft = { fileName: file.name, summary, sheets };
+
+    if (restoreBackupStatus) {
+      restoreBackupStatus.textContent = `已讀取：${file.name}。目前只是預覽，尚未還原或覆蓋資料。`;
+    }
+
+    renderRestoreBackupPreview({
+      fileName: file.name,
+      totalRows,
+      summary,
+      sheets,
+      missingSheets,
+    });
+  } catch (error) {
+    if (restoreBackupStatus) restoreBackupStatus.textContent = "讀取失敗，請確認這是隆博ERP匯出的 Excel 備份檔。";
+    if (restoreBackupPreview) {
+      restoreBackupPreview.className = "restore-preview empty-state";
+      restoreBackupPreview.textContent = `讀取失敗：${error.message || error}`;
+    }
+    showToast(`備份檔讀取失敗：${error.message || error}`);
+  } finally {
+    if (restoreBackupInput) restoreBackupInput.value = "";
+  }
+}
+
+function readBackupSummary(workbook) {
+  const sheet = workbook.Sheets["備份摘要"];
+  if (!sheet) return { exists: false };
+
+  const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const findValue = (label) => {
+    const row = rows.find((item) => String(item[0] || "").trim() === label);
+    return row ? String(row[1] || "").trim() : "";
+  };
+
+  return {
+    exists: true,
+    exportedAt: findValue("匯出時間"),
+    exportedBy: findValue("匯出者"),
+    source: findValue("資料來源"),
+  };
+}
+
+function readBackupSheetState(workbook, sheetName) {
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) return { exists: false, count: 0, headers: [], records: [] };
+
+  const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const headers = (rows[0] || []).map((cell) => String(cell || "").trim()).filter(Boolean);
+  const dataRows = rows
+    .slice(1)
+    .filter((row) => row.some((cell) => String(cell || "").trim()))
+    .filter((row) => String(row[0] || "").trim() !== "目前沒有資料");
+
+  return {
+    exists: true,
+    count: dataRows.length,
+    headers,
+    records: dataRows.map((row) => parseBackupRow(headers, row)),
+  };
+}
+
+function parseBackupRow(headers, row) {
+  const record = Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]));
+  if (record.rawJson) {
+    try {
+      const parsed = JSON.parse(record.rawJson);
+      return { ...record, ...parsed };
+    } catch {
+      return record;
+    }
+  }
+  return record;
+}
+
+function renderRestoreBackupPreview({ fileName, totalRows, summary, sheets, missingSheets }) {
+  if (!restoreBackupPreview) return;
+
+  const summaryItems = [
+    ["檔案", fileName],
+    ["匯出時間", summary.exists ? summary.exportedAt || "未提供" : "找不到備份摘要"],
+    ["匯出者", summary.exists ? summary.exportedBy || "未提供" : "找不到備份摘要"],
+    ["資料來源", summary.exists ? summary.source || "未提供" : "找不到備份摘要"],
+  ];
+
+  restoreBackupPreview.className = "restore-preview";
+  restoreBackupPreview.innerHTML = `
+    <div class="restore-preview-meta">
+      ${summaryItems
+        .map(
+          ([label, value]) => `
+            <article>
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(value)}</strong>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+    <div class="restore-preview-grid">
+      ${sheets
+        .map(
+          (sheet) => `
+            <article class="restore-preview-card ${sheet.exists ? "" : "missing"}">
+              <span>${sheet.exists ? "已讀取" : "缺少頁籤"}</span>
+              <strong>${escapeHtml(sheet.label)}</strong>
+              <b>${formatNumber(sheet.count)} 筆</b>
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+    <div class="restore-preview-note ${missingSheets.length ? "warn" : "pass"}">
+      ${missingSheets.length
+        ? `缺少 ${formatNumber(missingSheets.length)} 個頁籤：${missingSheets.map((sheet) => escapeHtml(sheet.label)).join("、")}。請先確認備份檔是否完整。`
+        : `備份格式看起來完整，共讀到 ${formatNumber(totalRows)} 筆資料。下一步會先建立還原計畫，不會直接寫入。`}
+    </div>
+    <div class="restore-preview-actions">
+      <button type="button" data-restore-plan>建立還原計畫</button>
+    </div>
+  `;
+}
+
+async function buildRestorePlan() {
+  if (!restoreBackupDraft) {
+    showToast("請先選擇備份檔。");
+    return;
+  }
+
+  const button = restoreBackupPreview?.querySelector("[data-restore-plan]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "比對中";
+  }
+
+  try {
+    const existingIds = await collectRestoreExistingIds();
+    const plan = restoreBackupDraft.sheets.map((sheet) => {
+      if (!sheet.exists) {
+        return { ...sheet, add: 0, existing: 0, problem: 1, recordsToAdd: [], problemRecords: [], problemReason: "缺少頁籤" };
+      }
+
+      if (!sheet.collectionName) {
+        return {
+          ...sheet,
+          add: 0,
+          existing: sheet.count || 0,
+          problem: 0,
+          recordsToAdd: [],
+          problemRecords: [],
+          problemReason: "回收桶為輔助清單，正式還原以原資料表為準。",
+        };
+      }
+
+      const currentIds = existingIds[sheet.key] || new Set();
+      const rows = sheet.records || [];
+      const rowsWithId = rows.filter((record) => getRestoreRecordId(record, sheet));
+      const recordsToAdd = rowsWithId.filter((record) => !currentIds.has(getRestoreRecordId(record, sheet)));
+      const existingRecords = rowsWithId.filter((record) => currentIds.has(getRestoreRecordId(record, sheet)));
+      const problemRecords = rows.filter((record) => !getRestoreRecordId(record, sheet));
+      const add = recordsToAdd.length;
+      const existing = existingRecords.length;
+      const problem = rows.length - rowsWithId.length;
+
+      return { ...sheet, add, existing, problem, recordsToAdd, existingRecords, problemRecords, problemReason: problem ? "有資料缺少 ID" : "" };
+    });
+
+    restoreBackupPlan = plan;
+    renderRestorePlan(plan);
+    showToast("還原計畫已建立，尚未寫入資料。");
+  } catch (error) {
+    showToast(`建立還原計畫失敗：${error.message || error}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "重新建立還原計畫";
+    }
+  }
+}
+
+async function collectRestoreExistingIds() {
+  if (!isConfigured || !currentUser || !db) {
+    return {
+      ledgerRecords: new Set(recordsCache.map((record) => record.id).filter(Boolean)),
+      bankTransactions: new Set(bankTransactionsCache.map((record) => record.id).filter(Boolean)),
+      inventoryRecords: new Set(inventoryCache.map((record) => record.id).filter(Boolean)),
+      voucherInbox: new Set(voucherInboxCache.map((record) => record.id).filter(Boolean)),
+      lineDrafts: new Set(lineDraftsCache.map((record) => record.id).filter(Boolean)),
+      recycleBin: new Set(recycleBinCache.map((record) => getRestoreRecordId(record, { key: "recycleBin" })).filter(Boolean)),
+      auditLogs: new Set(auditLogCache.map((record) => record.id).filter(Boolean)),
+      systemSettings: new Set(["options"]),
+    };
+  }
+
+  const [
+    ledgerRecords,
+    bankTransactions,
+    inventoryRecords,
+    voucherInbox,
+    lineDrafts,
+    auditLogs,
+    systemSettings,
+  ] = await Promise.all([
+    fetchUserCollectionForBackup("ledgerRecords", 1000),
+    fetchUserCollectionForBackup("bankTransactions", 1000),
+    fetchUserCollectionForBackup("inventoryRecords", 1000),
+    fetchUserCollectionForBackup("voucherInbox", 1000),
+    fetchUserCollectionForBackup("lineDrafts", 500),
+    fetchUserCollectionForBackup("auditLogs", 500),
+    fetchSystemSettingsForBackup(),
+  ]);
+
+  return {
+    ledgerRecords: new Set(ledgerRecords.map((record) => record.id).filter(Boolean)),
+    bankTransactions: new Set(bankTransactions.map((record) => record.id).filter(Boolean)),
+    inventoryRecords: new Set(inventoryRecords.map((record) => record.id).filter(Boolean)),
+    voucherInbox: new Set(voucherInbox.map((record) => record.id).filter(Boolean)),
+    lineDrafts: new Set(lineDrafts.map((record) => record.id).filter(Boolean)),
+    recycleBin: new Set(),
+    auditLogs: new Set(auditLogs.map((record) => record.id).filter(Boolean)),
+    systemSettings: new Set(systemSettings.map((record) => record.id).filter(Boolean)),
+  };
+}
+
+function getRestoreRecordId(record, sheet) {
+  if (!record) return "";
+  if (sheet.key === "recycleBin") {
+    return [record.collectionName, record.id || record.recordId].filter(Boolean).join(":");
+  }
+  return String(record.id || record.recordId || "").trim();
+}
+
+function renderRestorePlan(plan) {
+  if (!restoreBackupPreview) return;
+
+  const totals = plan.reduce(
+    (result, item) => {
+      result.add += item.add || 0;
+      result.existing += item.existing || 0;
+      result.problem += item.problem || 0;
+      return result;
+    },
+    { add: 0, existing: 0, problem: 0 },
+  );
+
+  const oldPlan = restoreBackupPreview.querySelector(".restore-plan");
+  oldPlan?.remove();
+  restoreBackupPreview.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div class="restore-plan">
+        <div class="restore-plan-heading">
+          <div>
+            <p class="eyebrow">RESTORE PLAN</p>
+            <h3>還原計畫</h3>
+            <p class="muted-text">目前只做比對，不會寫入。正式還原會等你確認後再做。</p>
+          </div>
+          <div class="restore-plan-total">
+            <span>可新增</span>
+            <strong>${formatNumber(totals.add)} 筆</strong>
+          </div>
+        </div>
+        <div class="restore-plan-grid">
+          ${plan
+            .map(
+              (item) => `
+                <article class="restore-plan-card ${item.problem ? "warn" : "pass"}">
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <span>可新增 ${formatNumber(item.add || 0)} 筆</span>
+                  <span>已存在 ${formatNumber(item.existing || 0)} 筆</span>
+                  <span>需確認 ${formatNumber(item.problem || 0)} 筆</span>
+                  ${item.problemReason ? `<small>${escapeHtml(item.problemReason)}</small>` : ""}
+                </article>
+              `,
+            )
+            .join("")}
+        </div>
+        <div class="restore-preview-note ${totals.add ? "warn" : "pass"}">
+          ${totals.add
+            ? "確認後只會新增缺少的資料；已存在、缺少 ID 或無法判斷的資料都會跳過，不會覆蓋、刪除或清空目前資料。"
+            : "目前沒有需要新增的資料，可能是資料都已存在，或備份檔沒有可安全還原的內容。"}
+        </div>
+        ${totals.add
+          ? `
+            <div class="restore-preview-actions">
+              <button type="button" data-confirm-restore>確認還原 ${formatNumber(totals.add)} 筆</button>
+            </div>
+          `
+          : ""}
+      </div>
+    `,
+  );
+}
+
+async function confirmRestoreBackup() {
+  if (!restoreBackupPlan?.length) {
+    showToast("請先建立還原計畫。");
+    return;
+  }
+
+  if (!isConfigured || !currentUser || !db) {
+    showToast("正式還原需要先登入雲端版本。");
+    return;
+  }
+
+  const totalToAdd = restoreBackupPlan.reduce((sum, item) => sum + (item.recordsToAdd?.length || 0), 0);
+  if (!totalToAdd) {
+    showToast("沒有可新增的資料。");
+    return;
+  }
+
+  const confirmed = window.confirm(`即將新增 ${formatNumber(totalToAdd)} 筆缺少資料。已存在資料會跳過，不會覆蓋或刪除。確定還原？`);
+  if (!confirmed) return;
+
+  const button = restoreBackupPreview?.querySelector("[data-confirm-restore]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "還原中";
+  }
+
+  const result = {
+    added: 0,
+    skipped: restoreBackupPlan.reduce((sum, item) => sum + (item.existing || 0), 0),
+    failed: restoreBackupPlan.reduce((sum, item) => sum + (item.problem || 0), 0),
+    bySheet: [],
+  };
+
+  for (const sheet of restoreBackupPlan) {
+    const sheetResult = { label: sheet.label, added: 0, skipped: sheet.existing || 0, failed: sheet.problem || 0 };
+    for (const record of sheet.recordsToAdd || []) {
+      try {
+        const recordId = getRestoreRecordId(record, sheet);
+        if (!recordId || !sheet.collectionName) {
+          sheetResult.failed += 1;
+          result.failed += 1;
+          continue;
+        }
+
+        const payload = prepareRestorePayload(record, sheet);
+        const reference = firebaseApi.doc(db, sheet.collectionName, recordId);
+        const currentSnapshot = await firebaseApi.getDoc(reference);
+        if (currentSnapshot.exists()) {
+          sheetResult.skipped += 1;
+          result.skipped += 1;
+          continue;
+        }
+
+        await firebaseApi.setDoc(reference, payload);
+        sheetResult.added += 1;
+        result.added += 1;
+      } catch {
+        sheetResult.failed += 1;
+        result.failed += 1;
+      }
+    }
+    result.bySheet.push(sheetResult);
+  }
+
+  await writeAuditLog("restore-backup", "backup", restoreBackupDraft?.fileName || "backup", null, {
+    added: result.added,
+    skipped: result.skipped,
+    failed: result.failed,
+    fileName: restoreBackupDraft?.fileName || "",
+  });
+
+  await refreshAfterRestore();
+  renderRestoreResult(result);
+  showToast(`還原完成：新增 ${formatNumber(result.added)} 筆，跳過 ${formatNumber(result.skipped)} 筆。`);
+}
+
+function prepareRestorePayload(record, sheet) {
+  const payload = { ...record };
+  delete payload.id;
+  delete payload.rawJson;
+
+  if (sheet.key !== "systemSettings") {
+    payload.userId = payload.userId || currentUser.uid;
+  }
+
+  payload.restoredAt = firebaseApi.serverTimestamp();
+  payload.restoredBy = currentUser.email;
+  payload.restoreSourceFile = restoreBackupDraft?.fileName || "";
+  return payload;
+}
+
+async function refreshAfterRestore() {
+  await Promise.allSettled([
+    loadRecords(),
+    loadBankTransactions(),
+    loadInventoryRecords(),
+    loadVoucherInbox(),
+    loadLineDrafts(),
+    loadRecycleBinRecords(),
+    loadAuditLogs(),
+    loadSharedOptions(),
+  ]);
+}
+
+function renderRestoreResult(result) {
+  if (!restoreBackupPreview) return;
+
+  restoreBackupPreview.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div class="restore-result">
+        <div class="restore-plan-heading">
+          <div>
+            <p class="eyebrow">RESTORE RESULT</p>
+            <h3>還原結果</h3>
+            <p class="muted-text">已完成安全還原，未覆蓋既有資料。</p>
+          </div>
+        </div>
+        <div class="restore-preview-grid">
+          <article class="restore-preview-card pass">
+            <span>新增成功</span>
+            <b>${formatNumber(result.added)} 筆</b>
+          </article>
+          <article class="restore-preview-card">
+            <span>已存在跳過</span>
+            <b>${formatNumber(result.skipped)} 筆</b>
+          </article>
+          <article class="restore-preview-card ${result.failed ? "missing" : "pass"}">
+            <span>需確認 / 失敗</span>
+            <b>${formatNumber(result.failed)} 筆</b>
+          </article>
+        </div>
+        <div class="restore-plan-grid">
+          ${result.bySheet
+            .map(
+              (item) => `
+                <article class="restore-plan-card ${item.failed ? "warn" : "pass"}">
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <span>新增 ${formatNumber(item.added)} 筆</span>
+                  <span>跳過 ${formatNumber(item.skipped)} 筆</span>
+                  <span>需確認 ${formatNumber(item.failed)} 筆</span>
+                </article>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `,
+  );
+}
 
 async function collectBackupData() {
   const backup = {
