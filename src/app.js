@@ -1071,6 +1071,7 @@ function showView(view) {
   currentView = view;
   document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`)?.classList.add("active");
+  if (view === "reports") renderCustomReport();
   if (view === "cashflow") renderCashflow();
   if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
@@ -7990,7 +7991,7 @@ function formatNumber(value) {
 
 function formatPercent(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  return `${(Number(value) * 100).toFixed(1)}%`;
+  return `${(Number(value) * 100).toFixed(2)}%`;
 }
 
 function formatBytes(bytes) {
