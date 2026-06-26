@@ -123,23 +123,17 @@
         </section>
 
         <section id="overviewView" class="view-panel active">
-          <div class="placeholder-panel">
-            <p class="eyebrow">ERP OVERVIEW</p>
-            <h2>營運總覽</h2>
-            <div class="rule-list">
-              <article>
-                <strong>經營損益</strong>
-                <span>追蹤營收、商品成本、金流物流成本、包材、毛利率與淨利率。</span>
-              </article>
-              <article>
-                <strong>現金狀態</strong>
-                <span>之後銀行對帳單匯入後，會拆出已收、已付、應收未收、應付未付與股東代墊。</span>
-              </article>
-              <article>
-                <strong>待處理提醒</strong>
-                <span>集中查看待補憑證、待分類、可能重複入帳、平台待撥款與待會計師確認。</span>
-              </article>
+          <div class="placeholder-panel overview-check-panel">
+            <div class="overview-check-heading">
+              <div>
+                <p class="eyebrow">CHECK CENTER</p>
+                <h2>檢查中心</h2>
+                <p>把影響報表正確性的項目集中在總覽，不用每頁翻找。</p>
+              </div>
+              <button type="button" class="secondary-button" data-pending-target="pending">查看全部待處理</button>
             </div>
+            <div id="overviewCheckSummary" class="overview-check-summary"></div>
+            <div id="overviewCheckList" class="overview-check-list empty-state">目前沒有需要檢查的項目。</div>
           </div>
         </section>
 

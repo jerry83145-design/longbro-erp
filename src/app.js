@@ -114,6 +114,8 @@ const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
 const pendingSummary = document.querySelector("#pendingSummary");
 const pendingList = document.querySelector("#pendingList");
+const overviewCheckSummary = document.querySelector("#overviewCheckSummary");
+const overviewCheckList = document.querySelector("#overviewCheckList");
 const voucherSummary = document.querySelector("#voucherSummary");
 const voucherList = document.querySelector("#voucherList");
 const voucherOcrPanel = document.querySelector("#voucherOcrPanel");
@@ -510,6 +512,21 @@ pendingList.addEventListener("click", async (event) => {
   const type = button.dataset.pendingType;
 
   navigateToViewTarget(target, type, button.dataset.recordId);
+});
+
+overviewCheckList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-pending-target]");
+  if (!button) return;
+
+  event.stopPropagation();
+  navigateToViewTarget(button.dataset.pendingTarget, button.dataset.pendingType, button.dataset.recordId);
+});
+
+document.querySelector("#overviewView")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-pending-target]");
+  if (!button) return;
+
+  navigateToViewTarget(button.dataset.pendingTarget, button.dataset.pendingType, button.dataset.recordId);
 });
 
 voucherList?.addEventListener("click", (event) => {
@@ -3738,6 +3755,8 @@ function renderPendingCenter() {
   const today = toDateValue(new Date());
   const dueCount = items.filter((item) => item.date && item.date <= today).length;
 
+  renderOverviewCheckCenter(items, counts, urgentCount);
+
   pendingSummary.innerHTML = [
     ["全部待辦", items.length],
     ["優先處理", urgentCount],
@@ -3761,6 +3780,51 @@ function renderPendingCenter() {
 
   pendingList.className = "pending-list";
   pendingList.innerHTML = items.map(renderPendingItem).join("");
+}
+
+function renderOverviewCheckCenter(items = [], counts = {}, urgentCount = 0) {
+  if (!overviewCheckSummary || !overviewCheckList) return;
+
+  overviewCheckSummary.innerHTML = [
+    ["全部待辦", items.length],
+    ["優先處理", urgentCount],
+    ["待補憑證", counts.voucher || 0],
+    ["待核對金流", counts.cashflow || 0],
+  ]
+    .map(([label, count]) => `
+      <article>
+        <span>${label}</span>
+        <strong>${formatNumber(count)} 筆</strong>
+      </article>
+    `)
+    .join("");
+
+  if (!items.length) {
+    overviewCheckList.className = "overview-check-list empty-state";
+    overviewCheckList.textContent = "目前沒有需要檢查的項目。";
+    return;
+  }
+
+  overviewCheckList.className = "overview-check-list";
+  overviewCheckList.innerHTML = items.slice(0, 4).map(renderOverviewCheckItem).join("");
+}
+
+function renderOverviewCheckItem(item) {
+  const toneClass = item.priority >= 80 ? "urgent" : item.group === "cashflow" ? "pending" : item.group === "inventory" ? "income" : "";
+  const targetView = item.targetView || "pending";
+  const targetType = item.targetType || "";
+  const recordId = item.recordId || "";
+
+  return `
+    <article class="overview-check-item">
+      <span class="pill ${toneClass}">${escapeHtml(item.status)}</span>
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <small>${escapeHtml(item.date || "未填日期")} · ${escapeHtml(item.subject || "未填項目")}</small>
+      </div>
+      <button type="button" data-pending-target="${escapeHtml(targetView)}" data-pending-type="${escapeHtml(targetType)}" data-record-id="${escapeHtml(recordId)}">處理</button>
+    </article>
+  `;
 }
 
 function renderVoucherCenter() {

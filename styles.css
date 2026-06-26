@@ -944,6 +944,75 @@ textarea:focus {
   margin-top: 24px;
 }
 
+.overview-check-panel {
+  display: grid;
+  gap: 22px;
+}
+
+.overview-check-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.overview-check-heading p:not(.eyebrow) {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.overview-check-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.overview-check-summary article {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfefe;
+  padding: 16px;
+}
+
+.overview-check-summary span {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.overview-check-summary strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.overview-check-list {
+  display: grid;
+  gap: 10px;
+}
+
+.overview-check-item {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.overview-check-item strong,
+.overview-check-item small {
+  display: block;
+}
+
+.overview-check-item small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .pending-card {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2010,6 +2079,10 @@ textarea:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .overview-check-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .bank-reconcile-columns {
     grid-template-columns: 1fr;
   }
@@ -2084,6 +2157,9 @@ textarea:focus {
 
   .summary-grid,
   .options-grid,
+  .overview-check-heading,
+  .overview-check-summary,
+  .overview-check-item,
   .report-summary-grid,
   .cashflow-summary-grid,
   .inventory-summary-grid,
