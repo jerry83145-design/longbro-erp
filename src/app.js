@@ -162,6 +162,9 @@ const auditLogList = document.querySelector("#auditLogList");
 const refreshAuditLogButton = document.querySelector("#refreshAuditLogButton");
 const exportBackupButton = document.querySelector("#exportBackupButton");
 const backupStatus = document.querySelector("#backupStatus");
+const runSystemCheckButton = document.querySelector("#runSystemCheckButton");
+const systemCheckSummary = document.querySelector("#systemCheckSummary");
+const systemCheckList = document.querySelector("#systemCheckList");
 
 const fields = {
   date: document.querySelector("#dateInput"),
@@ -424,6 +427,7 @@ saveInventorySettingsButton.addEventListener("click", () => {
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
 refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
 exportBackupButton?.addEventListener("click", exportFullBackup);
+runSystemCheckButton?.addEventListener("click", runSystemCheck);
 
 recycleBinList?.addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-recycle-restore]");
@@ -5646,6 +5650,206 @@ function renderInventoryRecord(record) {
   `;
 }
 
+async function runSystemCheck() {
+  if (!systemCheckSummary || !systemCheckList) return;
+
+  const originalText = runSystemCheckButton?.textContent || "開始檢查";
+  if (runSystemCheckButton) {
+    runSystemCheckButton.disabled = true;
+    runSystemCheckButton.textContent = "檢查中";
+  }
+
+  try {
+    const checks = [];
+    const pendingItems = buildPendingItems();
+    const activeRecords = recordsCache.filter((record) => !record.deletedAt);
+    const activeInventory = inventoryCache.filter((record) => !record.deletedAt);
+    const activeBank = bankTransactionsCache.filter((transaction) => !transaction.deletedAt);
+    const activeVouchers = voucherInboxCache.filter((voucher) => !voucher.deletedAt);
+    const incomeCount = activeRecords.filter((record) => record.type === "income").length;
+    const expenseCount = activeRecords.filter((record) => record.type === "expense").length;
+    const pendingCounts = pendingItems.reduce((map, item) => {
+      map[item.group] = (map[item.group] || 0) + 1;
+      return map;
+    }, {});
+
+    checks.push({
+      title: "登入狀態",
+      status: currentUser ? "pass" : "pending",
+      value: currentUser?.email || "尚未登入",
+      detail: currentUser ? "已使用 Google 帳號登入。" : "尚未登入時只能檢查本機暫存資料。",
+    });
+
+    checks.push(await buildFirebaseReadCheck());
+
+    checks.push({
+      title: "收入／支出資料",
+      status: activeRecords.length ? "pass" : "pending",
+      value: `${formatNumber(activeRecords.length)} 筆`,
+      detail: `收入 ${formatNumber(incomeCount)} 筆，支出 ${formatNumber(expenseCount)} 筆。`,
+    });
+
+    checks.push({
+      title: "待處理事項",
+      status: pendingItems.length ? "warn" : "pass",
+      value: `${formatNumber(pendingItems.length)} 筆`,
+      detail: pendingItems.length ? "有項目會影響報表完整性，請到待處理事項查看。" : "目前沒有待處理項目。",
+    });
+
+    checks.push({
+      title: "憑證核對",
+      status: (pendingCounts.voucher || 0) ? "warn" : "pass",
+      value: `${formatNumber(pendingCounts.voucher || 0)} 筆`,
+      detail: `憑證暫存池 ${formatNumber(activeVouchers.length)} 筆；待補或待核憑證 ${formatNumber(pendingCounts.voucher || 0)} 筆。`,
+    });
+
+    checks.push({
+      title: "銀行核對",
+      status: (pendingCounts.cashflow || 0) ? "warn" : "pass",
+      value: `${formatNumber(pendingCounts.cashflow || 0)} 筆`,
+      detail: `銀行交易 ${formatNumber(activeBank.length)} 筆；待核對現金流 ${formatNumber(pendingCounts.cashflow || 0)} 筆。`,
+    });
+
+    checks.push({
+      title: "庫存資料",
+      status: (pendingCounts.inventory || pendingCounts.cost) ? "warn" : "pass",
+      value: `${formatNumber(activeInventory.length)} 筆`,
+      detail: `庫存紀錄 ${formatNumber(activeInventory.length)} 筆；待配庫存或待補成本 ${formatNumber((pendingCounts.inventory || 0) + (pendingCounts.cost || 0))} 筆。`,
+    });
+
+    checks.push(buildBackupCheck());
+    renderSystemCheckResult(checks);
+    showToast("系統檢查完成。");
+  } catch (error) {
+    renderSystemCheckResult([
+      {
+        title: "系統檢查",
+        status: "fail",
+        value: "失敗",
+        detail: error.message || String(error),
+      },
+    ]);
+    showToast(`系統檢查失敗：${error.message || error}`);
+  } finally {
+    if (runSystemCheckButton) {
+      runSystemCheckButton.disabled = false;
+      runSystemCheckButton.textContent = originalText;
+    }
+  }
+}
+
+async function buildFirebaseReadCheck() {
+  if (!isConfigured) {
+    return {
+      title: "雲端讀取",
+      status: "pending",
+      value: "本機模式",
+      detail: "Firebase 尚未設定，現在讀到的是瀏覽器暫存資料。",
+    };
+  }
+
+  if (!currentUser || !db) {
+    return {
+      title: "雲端讀取",
+      status: "pending",
+      value: "待登入",
+      detail: "登入後才能確認 Firestore 是否能正常讀取。",
+    };
+  }
+
+  try {
+    await firebaseApi.getDocs(
+      firebaseApi.query(
+        firebaseApi.collection(db, "ledgerRecords"),
+        firebaseApi.where("userId", "==", currentUser.uid),
+        firebaseApi.limit(1),
+      ),
+    );
+    return {
+      title: "雲端讀取",
+      status: "pass",
+      value: "正常",
+      detail: "Firestore 可以讀取目前帳號的流水帳資料。",
+    };
+  } catch (error) {
+    return {
+      title: "雲端讀取",
+      status: "fail",
+      value: "失敗",
+      detail: error.message || String(error),
+    };
+  }
+}
+
+function buildBackupCheck() {
+  const lastBackupAt = localStorage.getItem("lastBackupExportAt");
+
+  if (!lastBackupAt) {
+    return {
+      title: "最近備份",
+      status: "pending",
+      value: "待確認",
+      detail: "尚未在這台瀏覽器找到備份匯出紀錄。大量整理前後建議匯出一次備份。",
+    };
+  }
+
+  const lastBackupDate = new Date(lastBackupAt);
+  const ageHours = (Date.now() - lastBackupDate.getTime()) / 36e5;
+  return {
+    title: "最近備份",
+    status: ageHours > 72 ? "warn" : "pass",
+    value: lastBackupDate.toLocaleString("zh-TW", { hour12: false }),
+    detail: ageHours > 72 ? "距離上次備份超過 3 天，建議重新匯出。" : "最近 3 天內有匯出備份。",
+  };
+}
+
+function renderSystemCheckResult(checks) {
+  const counts = checks.reduce(
+    (map, check) => {
+      map[check.status] = (map[check.status] || 0) + 1;
+      return map;
+    },
+    { pass: 0, warn: 0, pending: 0, fail: 0 },
+  );
+
+  systemCheckSummary.innerHTML = [
+    ["正常", counts.pass || 0, "pass"],
+    ["需處理", counts.warn || 0, "warn"],
+    ["待確認", counts.pending || 0, "pending"],
+    ["錯誤", counts.fail || 0, "fail"],
+  ]
+    .map(([label, count, tone]) => `
+      <article class="${tone}">
+        <span>${label}</span>
+        <strong>${formatNumber(count)} 項</strong>
+      </article>
+    `)
+    .join("");
+
+  systemCheckList.className = "system-check-list";
+  systemCheckList.innerHTML = checks.map(renderSystemCheckItem).join("");
+}
+
+function renderSystemCheckItem(check) {
+  const labelMap = {
+    pass: "正常",
+    warn: "需處理",
+    pending: "待確認",
+    fail: "錯誤",
+  };
+
+  return `
+    <article class="system-check-item ${escapeHtml(check.status)}">
+      <span class="check-pill ${escapeHtml(check.status)}">${labelMap[check.status] || "待確認"}</span>
+      <div>
+        <strong>${escapeHtml(check.title)}</strong>
+        <small>${escapeHtml(check.detail || "")}</small>
+      </div>
+      <b>${escapeHtml(check.value || "")}</b>
+    </article>
+  `;
+}
+
 async function exportFullBackup() {
   if (!window.XLSX) {
     showToast("Excel 匯出工具尚未載入，請重新整理後再試。");
@@ -5670,6 +5874,7 @@ async function exportFullBackup() {
 
     const stamp = getBackupTimestamp();
     window.XLSX.writeFile(workbook, `${stamp}_隆博ERP_資料備份.xlsx`);
+    localStorage.setItem("lastBackupExportAt", new Date().toISOString());
     if (backupStatus) {
       backupStatus.textContent = `已匯出備份：流水帳 ${backup.ledgerRecords.length} 筆、銀行 ${backup.bankTransactions.length} 筆、庫存 ${backup.inventoryRecords.length} 筆、憑證 ${backup.voucherInbox.length} 筆。`;
     }

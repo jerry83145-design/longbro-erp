@@ -1431,6 +1431,134 @@ textarea:focus {
   font-size: 0.95rem;
 }
 
+.system-check-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.system-check-summary article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfa;
+  padding: 16px;
+}
+
+.system-check-summary article.pass {
+  background: #eef8f5;
+  border-color: #b8ddd5;
+}
+
+.system-check-summary article.warn {
+  background: #fff8e7;
+  border-color: #edd28d;
+}
+
+.system-check-summary article.pending {
+  background: #f7fafc;
+  border-color: #d2dce5;
+}
+
+.system-check-summary article.fail {
+  background: #fff1f1;
+  border-color: #efb4b4;
+}
+
+.system-check-summary span {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.system-check-summary strong {
+  color: var(--text);
+  font-size: 1.65rem;
+  line-height: 1.1;
+}
+
+.system-check-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.system-check-item {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.system-check-item.pass {
+  border-left-color: var(--green);
+}
+
+.system-check-item.warn {
+  border-left-color: #d69317;
+}
+
+.system-check-item.pending {
+  border-left-color: #64748b;
+}
+
+.system-check-item.fail {
+  border-left-color: #dc2626;
+}
+
+.system-check-item strong,
+.system-check-item small {
+  display: block;
+}
+
+.system-check-item small {
+  color: var(--muted);
+  line-height: 1.55;
+  margin-top: 3px;
+}
+
+.system-check-item b {
+  color: var(--text);
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border-radius: 999px;
+  font-weight: 900;
+  padding: 0 12px;
+}
+
+.check-pill.pass {
+  background: #e6f5f1;
+  color: var(--green);
+}
+
+.check-pill.warn {
+  background: #fff0c2;
+  color: #9b6500;
+}
+
+.check-pill.pending {
+  background: #eef2f6;
+  color: #475569;
+}
+
+.check-pill.fail {
+  background: #ffe4e4;
+  color: #b91c1c;
+}
+
 .voucher-edit-panel {
   grid-column: 1 / -1;
   display: grid;

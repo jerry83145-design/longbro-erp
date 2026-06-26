@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260626-check-center-sync" />
+    <link rel="stylesheet" href="./styles.css?v=20260626-system-check" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -574,6 +574,23 @@
           <div class="placeholder-panel">
             <div class="section-heading compact">
               <div>
+                <p class="eyebrow">SYSTEM CHECK</p>
+                <h2>系統檢查</h2>
+                <p class="muted-text">一鍵確認登入、雲端讀取、流水帳、待處理、憑證、銀行核對與備份狀態。</p>
+              </div>
+              <button id="runSystemCheckButton" type="button">開始檢查</button>
+            </div>
+            <div id="systemCheckSummary" class="system-check-summary">
+              <article>
+                <span>尚未檢查</span>
+                <strong>--</strong>
+              </article>
+            </div>
+            <div id="systemCheckList" class="system-check-list empty-state">按下開始檢查後，這裡會列出目前需要注意的項目。</div>
+          </div>
+          <div class="placeholder-panel">
+            <div class="section-heading compact">
+              <div>
                 <p class="eyebrow">RECYCLE BIN</p>
                 <h2>資料回收桶</h2>
                 <p class="muted-text">刪除的流水帳、銀行資料、庫存會先保留在這裡，可再復原。</p>
@@ -618,6 +635,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260626-check-center-sync"></script>
+    <script type="module" src="./src/app.js?v=20260626-system-check"></script>
   </body>
 </html>
