@@ -1351,6 +1351,17 @@ textarea:focus {
   transform: translateY(0);
 }
 
+.backup-status {
+  margin-top: 16px;
+  max-width: 760px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #f7fbfa;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .voucher-edit-panel {
   grid-column: 1 / -1;
   display: grid;

@@ -158,6 +158,8 @@ const recycleBinList = document.querySelector("#recycleBinList");
 const refreshRecycleBinButton = document.querySelector("#refreshRecycleBinButton");
 const auditLogList = document.querySelector("#auditLogList");
 const refreshAuditLogButton = document.querySelector("#refreshAuditLogButton");
+const exportBackupButton = document.querySelector("#exportBackupButton");
+const backupStatus = document.querySelector("#backupStatus");
 
 const fields = {
   date: document.querySelector("#dateInput"),
@@ -419,6 +421,7 @@ saveInventorySettingsButton.addEventListener("click", () => {
 
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
 refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
+exportBackupButton?.addEventListener("click", exportFullBackup);
 
 recycleBinList?.addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-recycle-restore]");
@@ -5576,6 +5579,204 @@ function renderInventoryRecord(record) {
       </div>
     </article>
   `;
+}
+
+async function exportFullBackup() {
+  if (!window.XLSX) {
+    showToast("Excel 匯出工具尚未載入，請重新整理後再試。");
+    return;
+  }
+
+  exportBackupButton.disabled = true;
+  if (backupStatus) backupStatus.textContent = "正在整理備份資料，請稍候...";
+
+  try {
+    const backup = await collectBackupData();
+    const workbook = window.XLSX.utils.book_new();
+    appendSheet(workbook, "備份摘要", buildBackupSummarySheet(backup));
+    appendSheet(workbook, "流水帳", buildBackupSheet(backup.ledgerRecords, backupFields.ledgerRecords));
+    appendSheet(workbook, "銀行資料", buildBackupSheet(backup.bankTransactions, backupFields.bankTransactions));
+    appendSheet(workbook, "庫存紀錄", buildBackupSheet(backup.inventoryRecords, backupFields.inventoryRecords));
+    appendSheet(workbook, "憑證暫存池", buildBackupSheet(backup.voucherInbox, backupFields.voucherInbox));
+    appendSheet(workbook, "LINE草稿", buildBackupSheet(backup.lineDrafts, backupFields.lineDrafts));
+    appendSheet(workbook, "回收桶", buildBackupSheet(backup.recycleBin, backupFields.recycleBin));
+    appendSheet(workbook, "修改紀錄", buildBackupSheet(backup.auditLogs, backupFields.auditLogs));
+    appendSheet(workbook, "系統選項", buildBackupSheet(backup.systemSettings, backupFields.systemSettings));
+
+    const stamp = getBackupTimestamp();
+    window.XLSX.writeFile(workbook, `${stamp}_隆博ERP_資料備份.xlsx`);
+    if (backupStatus) {
+      backupStatus.textContent = `已匯出備份：流水帳 ${backup.ledgerRecords.length} 筆、銀行 ${backup.bankTransactions.length} 筆、庫存 ${backup.inventoryRecords.length} 筆、憑證 ${backup.voucherInbox.length} 筆。`;
+    }
+    showToast("備份 Excel 已匯出。");
+  } catch (error) {
+    if (backupStatus) backupStatus.textContent = "備份失敗，請確認已登入並重新整理後再試。";
+    showToast(`備份失敗：${error.message || error}`);
+  } finally {
+    exportBackupButton.disabled = false;
+  }
+}
+
+const backupFields = {
+  ledgerRecords: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "settlementStatus", "dueDate", "settledDate", "major", "middle", "minor", "invoiceNumber", "invoiceStatus", "hasVoucher", "pendingReason", "deletedAt", "createdBy"],
+  bankTransactions: ["id", "date", "account", "description", "counterparty", "deposit", "withdrawal", "amount", "balance", "status", "linkedType", "linkedRecordId", "sourceFile", "deletedAt", "createdBy"],
+  inventoryRecords: ["id", "date", "type", "action", "source", "name", "quantity", "remainingQuantity", "unitCost", "totalCost", "reference", "linkedLedgerId", "deletedAt", "createdBy"],
+  voucherInbox: ["id", "invoiceNumber", "date", "type", "counterparty", "item", "totalAmount", "matchedAmount", "remainingAmount", "status", "source", "sourceWorkbook", "sourceFileName", "sourceRow", "deletedAt", "createdBy"],
+  lineDrafts: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "major", "middle", "minor", "status", "needsReview", "source", "createdBy"],
+  recycleBin: ["collectionName", "id", "date", "type", "item", "description", "amount", "deletedAt", "deletedBy", "rawJson"],
+  auditLogs: ["id", "action", "collectionName", "recordId", "createdAt", "createdBy", "rawJson"],
+  systemSettings: ["id", "createdAt", "updatedAt", "rawJson"],
+};
+
+async function collectBackupData() {
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    exportedBy: currentUser?.email || "本機預覽",
+    source: isConfigured && currentUser && db ? "Firebase" : "本機瀏覽器",
+    ledgerRecords: recordsCache,
+    bankTransactions: bankTransactionsCache,
+    inventoryRecords: inventoryCache,
+    voucherInbox: voucherInboxCache,
+    lineDrafts: lineDraftsCache,
+    recycleBin: recycleBinCache,
+    auditLogs: auditLogCache,
+    systemSettings: [{ id: "options", options: optionsByType }],
+  };
+
+  if (!isConfigured || !currentUser || !db) return normalizeBackupData(backup);
+
+  const [
+    ledgerRecords,
+    bankTransactions,
+    inventoryRecords,
+    voucherInbox,
+    lineDrafts,
+    auditLogs,
+    systemSettings,
+  ] = await Promise.all([
+    fetchUserCollectionForBackup("ledgerRecords", 1000),
+    fetchUserCollectionForBackup("bankTransactions", 1000),
+    fetchUserCollectionForBackup("inventoryRecords", 1000),
+    fetchUserCollectionForBackup("voucherInbox", 1000),
+    fetchUserCollectionForBackup("lineDrafts", 500),
+    fetchUserCollectionForBackup("auditLogs", 500),
+    fetchSystemSettingsForBackup(),
+  ]);
+
+  backup.ledgerRecords = ledgerRecords;
+  backup.bankTransactions = bankTransactions;
+  backup.inventoryRecords = inventoryRecords;
+  backup.voucherInbox = voucherInbox;
+  backup.lineDrafts = lineDrafts;
+  backup.auditLogs = auditLogs;
+  backup.systemSettings = systemSettings;
+  backup.recycleBin = [
+    ...ledgerRecords.filter((record) => record.deletedAt).map((record) => ({ collectionName: "ledgerRecords", ...record })),
+    ...bankTransactions.filter((record) => record.deletedAt).map((record) => ({ collectionName: "bankTransactions", ...record })),
+    ...inventoryRecords.filter((record) => record.deletedAt).map((record) => ({ collectionName: "inventoryRecords", ...record })),
+  ];
+
+  return normalizeBackupData(backup);
+}
+
+async function fetchUserCollectionForBackup(collectionName, maxRows) {
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, collectionName),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(maxRows),
+    ),
+  );
+
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+}
+
+async function fetchSystemSettingsForBackup() {
+  try {
+    const snapshot = await firebaseApi.getDoc(firebaseApi.doc(db, "systemSettings", "options"));
+    return snapshot.exists() ? [{ id: "options", ...snapshot.data() }] : [{ id: "options", options: optionsByType }];
+  } catch {
+    return [{ id: "options", options: optionsByType, backupNote: "讀取雲端系統選項失敗，改用目前瀏覽器選項。" }];
+  }
+}
+
+function normalizeBackupData(backup) {
+  return Object.fromEntries(
+    Object.entries(backup).map(([key, value]) => {
+      if (Array.isArray(value)) return [key, value.map(cleanBackupObject)];
+      return [key, value];
+    }),
+  );
+}
+
+function cleanBackupObject(record) {
+  return JSON.parse(JSON.stringify(record, backupJsonReplacer));
+}
+
+function backupJsonReplacer(_key, value) {
+  if (value && typeof value.toDate === "function") return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  if (typeof File !== "undefined" && value instanceof File) return { name: value.name, type: value.type, size: value.size };
+  if (value === undefined) return "";
+  return value;
+}
+
+function buildBackupSummarySheet(backup) {
+  return [
+    ["隆博ERP 資料備份"],
+    [],
+    ["匯出時間", backup.exportedAt],
+    ["匯出者", backup.exportedBy],
+    ["資料來源", backup.source],
+    [],
+    ["資料類型", "筆數"],
+    ["流水帳", backup.ledgerRecords.length],
+    ["銀行資料", backup.bankTransactions.length],
+    ["庫存紀錄", backup.inventoryRecords.length],
+    ["憑證暫存池", backup.voucherInbox.length],
+    ["LINE 草稿", backup.lineDrafts.length],
+    ["回收桶", backup.recycleBin.length],
+    ["修改紀錄", backup.auditLogs.length],
+    ["系統選項", backup.systemSettings.length],
+    [],
+    ["提醒", "這是備份檔。需要還原時，請先人工確認後再匯入，避免覆蓋正式資料。"],
+  ];
+}
+
+function buildBackupSheet(records, preferredFields) {
+  const rows = Array.isArray(records) ? records : [];
+  const dynamicFields = Array.from(new Set(rows.flatMap((record) => Object.keys(record))));
+  const headers = Array.from(new Set([...preferredFields.filter((field) => field !== "rawJson"), ...dynamicFields, "rawJson"]));
+  if (!rows.length) return [headers, ["目前沒有資料"]];
+
+  return [
+    headers,
+    ...rows.map((record) =>
+      headers.map((field) => {
+        if (field === "rawJson") return JSON.stringify(record);
+        return formatBackupCell(record[field]);
+      }),
+    ),
+  ];
+}
+
+function formatBackupCell(value) {
+  if (Array.isArray(value) || (value && typeof value === "object")) return JSON.stringify(value);
+  if (value === null || value === undefined) return "";
+  return value;
+}
+
+function getBackupTimestamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    "-",
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+  ].join("");
 }
 
 function exportCurrentReport() {

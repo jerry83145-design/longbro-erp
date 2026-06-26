@@ -1,0 +1,133 @@
+{
+  "sourceTerms": [
+    "jerry83145-design.github.io",
+    "longbro-erp",
+    "longbroerp",
+    "localhost",
+    "127.0.0.1"
+  ],
+  "categories": {
+    "A": {
+      "label": "ERP backup",
+      "confidence": "high",
+      "terms": [
+        "erp",
+        "backup",
+        "\u9686\u535aERP",
+        "\u8cc7\u6599\u5099\u4efd"
+      ]
+    },
+    "B": {
+      "label": "formal reports",
+      "confidence": "high",
+      "terms": [
+        "report",
+        "daily",
+        "weekly",
+        "monthly",
+        "\u5167\u5e33\u5831\u8868",
+        "\u5831\u8868",
+        "\u65e5\u5831",
+        "\u9031\u5831",
+        "\u6708\u5831",
+        "\u5e74\u5831",
+        "\u640d\u76ca",
+        "\u8cc7\u7522\u8ca0\u50b5",
+        "\u73fe\u91d1\u6d41"
+      ]
+    },
+    "C": {
+      "label": "import source files",
+      "confidence": "medium",
+      "terms": [
+        "\u532f\u5165",
+        "\u539f\u59cb\u6a94",
+        "raw",
+        "import"
+      ],
+      "extensions": [
+        ".xlsx",
+        ".xls",
+        ".csv"
+      ]
+    },
+    "D": {
+      "label": "vouchers and receipts",
+      "confidence": "high",
+      "terms": [
+        "invoice",
+        "receipt",
+        "voucher",
+        "\u767c\u7968",
+        "\u6536\u64da",
+        "\u6191\u8b49",
+        "\u4e09\u806f",
+        "\u4e8c\u806f",
+        "\u7d71\u7de8",
+        "\u7d71\u4e00\u7de8\u865f",
+        "\u767c\u7968\u865f\u78bc",
+        "\u767c\u7968\u65e5\u671f",
+        "\u4f9b\u61c9\u5546",
+        "\u542b\u7a05",
+        "\u672a\u7a05",
+        "\u7a05\u984d",
+        "\u7e3d\u984d",
+        "\u542b\u7a05\u50f9",
+        "\u672a\u7a05\u7e3d\u50f9",
+        "\u8655\u7406\u6e05\u55ae",
+        "\u8655\u7406\u7d50\u679c"
+      ],
+      "extensions": [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".pdf",
+        ".heic",
+        ".webp"
+      ]
+    },
+    "E": {
+      "label": "admin sync",
+      "confidence": "high",
+      "terms": [
+        "admin",
+        "drive sync",
+        "\u8655\u7406\u6e05\u55ae",
+        "\u884c\u653f\u4eba\u54e1",
+        "\u884c\u653f\u6e05\u55ae"
+      ]
+    },
+    "F": {
+      "label": "bank and cashflow",
+      "confidence": "high",
+      "terms": [
+        "bank",
+        "statement",
+        "cashflow",
+        "card",
+        "\u9280\u884c",
+        "\u5c0d\u5e33",
+        "\u5b58\u647a",
+        "\u4fe1\u7528\u5361",
+        "\u91d1\u6d41",
+        "\u9280\u884c\u5e33",
+        "\u5e33\u55ae"
+      ]
+    },
+    "G": {
+      "label": "inventory",
+      "confidence": "high",
+      "terms": [
+        "inventory",
+        "stock",
+        "\u9032\u92b7\u5b58",
+        "\u5eab\u5b58",
+        "\u5361\u76d2",
+        "\u5361\u7247",
+        "\u5305\u6750",
+        "\u5165\u5eab",
+        "\u51fa\u5eab"
+      ]
+    }
+  }
+}
