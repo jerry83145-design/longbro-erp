@@ -1001,6 +1001,7 @@ function setRecordType(type) {
   renderOptionsEditor();
   updateFormLabels();
   renderLedgerInventorySync();
+  renderRecords(recordsCache);
 }
 
 function setActiveNavForType(type) {
@@ -6521,21 +6522,18 @@ function renderCategoryRow(row) {
 }
 
 function renderRecords(records) {
-  if (!records.length) {
+  const visibleRecords = records.filter((record) => record.type === recordType);
+
+  if (!visibleRecords.length) {
     recordsList.className = "record-list empty-state";
-    recordsList.textContent = "尚無資料";
+    recordsList.textContent = `尚無${typeLabel(recordType)}資料`;
     return;
   }
 
-  const sortedRecords = sortLedgerRecordsByTime(records);
-  const incomeRecords = sortedRecords.filter((record) => record.type === "income");
-  const expenseRecords = sortedRecords.filter((record) => record.type === "expense");
+  const sortedRecords = sortLedgerRecordsByTime(visibleRecords);
 
   recordsList.className = "record-list grouped";
-  recordsList.innerHTML = [
-    renderRecordGroup("收入紀錄", incomeRecords, "income"),
-    renderRecordGroup("支出紀錄", expenseRecords, "expense"),
-  ].join("");
+  recordsList.innerHTML = renderRecordGroup(`${typeLabel(recordType)}紀錄`, sortedRecords, recordType);
 }
 
 function renderRecordGroup(title, records, type) {
