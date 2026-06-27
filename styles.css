@@ -1287,9 +1287,37 @@ textarea:focus {
   gap: 14px;
   align-items: center;
   border: 1px solid var(--line);
+  border-left: 5px solid transparent;
   border-radius: 12px;
   background: #fff;
   padding: 14px;
+}
+
+.overview-check-item.voucher {
+  border-left-color: #b78300;
+  background: #fffdf7;
+}
+
+.overview-check-item.cashflow {
+  border-left-color: #0f7f73;
+}
+
+.overview-check-item.inventory {
+  border-left-color: #1e6b9a;
+}
+
+.overview-check-item.settlement {
+  border-left-color: #7a5a9d;
+}
+
+.overview-check-item.duplicate {
+  border-left-color: #b45a4a;
+  background: #fffaf8;
+}
+
+.overview-check-item.lineDraft {
+  border-left-color: #cf4f62;
+  background: #fff8f9;
 }
 
 .overview-check-item strong,

@@ -4467,8 +4467,14 @@ function renderPendingCenter() {
   const urgentCount = items.filter((item) => item.priority >= 80).length;
   const today = toDateValue(new Date());
   const dueCount = items.filter((item) => item.date && item.date <= today).length;
+  const overviewItems = buildOverviewCheckItems(items);
+  const overviewCounts = overviewItems.reduce((map, item) => {
+    map[item.group] = (map[item.group] || 0) + 1;
+    return map;
+  }, {});
+  const overviewUrgentCount = overviewItems.filter((item) => item.priority >= 80).length;
 
-  renderOverviewCheckCenter(items, counts, urgentCount);
+  renderOverviewCheckCenter(overviewItems, overviewCounts, overviewUrgentCount);
 
   pendingSummary.innerHTML = [
     ["全部待辦", items.length],
@@ -4497,12 +4503,13 @@ function renderPendingCenter() {
 
 function renderOverviewCheckCenter(items = [], counts = {}, urgentCount = 0) {
   if (!overviewCheckSummary || !overviewCheckList) return;
+  const cashflowInventoryCount = (counts.cashflow || 0) + (counts.inventory || 0) + (counts.settlement || 0);
 
   overviewCheckSummary.innerHTML = [
-    ["全部待辦", items.length],
+    ["全部檢查", items.length],
     ["優先處理", urgentCount],
-    ["待補憑證", counts.voucher || 0],
-    ["待核對金流", counts.cashflow || 0],
+    ["憑證／發票", counts.voucher || 0],
+    ["金流／庫存", cashflowInventoryCount],
   ]
     .map(([label, count]) => `
       <article>
@@ -4519,25 +4526,277 @@ function renderOverviewCheckCenter(items = [], counts = {}, urgentCount = 0) {
   }
 
   overviewCheckList.className = "overview-check-list";
-  overviewCheckList.innerHTML = items.slice(0, 4).map(renderOverviewCheckItem).join("");
+  overviewCheckList.innerHTML = items.slice(0, 6).map(renderOverviewCheckItem).join("");
 }
 
 function renderOverviewCheckItem(item) {
   const toneClass = item.priority >= 80 ? "urgent" : item.group === "cashflow" ? "pending" : item.group === "inventory" ? "income" : "";
+  const groupClass = getOverviewCheckGroupClass(item.group);
   const targetView = item.targetView || "pending";
   const targetType = item.targetType || "";
   const recordId = item.recordId || "";
+  const detail = item.detail || item.reason || item.action || "";
 
   return `
-    <article class="overview-check-item">
+    <article class="overview-check-item ${groupClass}">
       <span class="pill ${toneClass}">${escapeHtml(item.status)}</span>
       <div>
         <strong>${escapeHtml(item.title)}</strong>
         <small>${escapeHtml(item.date || "未填日期")} · ${escapeHtml(item.subject || "未填項目")}</small>
+        ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
       </div>
       <button type="button" data-pending-target="${escapeHtml(targetView)}" data-pending-type="${escapeHtml(targetType)}" data-record-id="${escapeHtml(recordId)}">處理</button>
     </article>
   `;
+}
+
+function buildOverviewCheckItems(pendingItems = []) {
+  const items = pendingItems.map((item) => ({
+    ...item,
+    detail: item.detail || item.reason || item.action || "",
+  }));
+  const today = toDateValue(new Date());
+  const activeRecords = recordsCache.filter((record) => !record.deletedAt);
+  const activeBank = bankTransactionsCache.filter((transaction) => !transaction.deletedAt);
+  const activeVouchers = voucherInboxCache.filter((voucher) => !voucher.deletedAt);
+
+  activeRecords.forEach((record) => {
+    const hasVoucher = hasAttachedVoucher(record);
+    const invoiceNumber = normalizeInvoiceNumber(record.invoiceNumber);
+
+    if (hasVoucher && !invoiceNumber) {
+      items.push(createOverviewCheckItem({
+        group: "voucher",
+        title: "有憑證但缺發票號碼",
+        date: record.date,
+        subject: record.item,
+        detail: "這筆已有憑證檔，請補上發票號碼，之後查帳會更快。",
+        targetView: "ledger",
+        targetType: record.type,
+        recordId: record.id,
+        priority: 82,
+        status: "待補號碼",
+      }));
+    }
+
+    if (invoiceNumber && !hasVoucher) {
+      items.push(createOverviewCheckItem({
+        group: "voucher",
+        title: "有發票號碼但缺憑證",
+        date: record.date,
+        subject: record.item,
+        detail: "發票號碼已填，但尚未附上發票或收據檔。",
+        targetView: "ledger",
+        targetType: record.type,
+        recordId: record.id,
+        priority: 72,
+        status: "待補憑證",
+      }));
+    }
+
+    if (isSalesRevenueRecord(record) && !record.inventoryLinks?.length) {
+      items.push(createOverviewCheckItem({
+        group: "inventory",
+        title: "銷貨收入未配庫存",
+        date: record.date,
+        subject: record.item,
+        detail: "尚未選擇售出的卡盒或卡片，毛利可能失真。",
+        targetView: "ledger",
+        targetType: "income",
+        recordId: record.id,
+        priority: 78,
+        status: "待配庫存",
+      }));
+    }
+
+    if (record.type === "income" && Array.isArray(record.inventoryLinks) && record.inventoryLinks.some((link) => {
+      const sourceId = getInventoryLinkSourceId(link);
+      return !sourceId || !inventoryCache.some((lot) => lot.id === sourceId);
+    })) {
+      items.push(createOverviewCheckItem({
+        group: "inventory",
+        title: "收入配到不存在庫存",
+        date: record.date,
+        subject: record.item,
+        detail: "這筆收入有庫存連結，但找不到原始庫存批次。",
+        targetView: "ledger",
+        targetType: "income",
+        recordId: record.id,
+        priority: 95,
+        status: "庫存異常",
+      }));
+    }
+
+    if (recordLooksLikePurchaseInventory(record) && !hasInventoryEntryForLedger(record.id)) {
+      items.push(createOverviewCheckItem({
+        group: "inventory",
+        title: "進貨支出未入庫",
+        date: record.date,
+        subject: record.item,
+        detail: "支出看起來是進貨或包材，但沒有對應入庫紀錄。",
+        targetView: "ledger",
+        targetType: "expense",
+        recordId: record.id,
+        priority: 74,
+        status: "待入庫",
+      }));
+    }
+
+    if ((isReceivableRecord(record) || isPayableRecord(record)) && record.dueDate && record.dueDate <= today) {
+      items.push(createOverviewCheckItem({
+        group: "settlement",
+        title: isReceivableRecord(record) ? "應收已到期" : "應付已到期",
+        date: record.dueDate,
+        subject: record.item,
+        detail: "帳期已到或逾期，請確認是否已收款／付款並與銀行核對。",
+        targetView: "settlement",
+        targetType: record.type,
+        recordId: record.id,
+        priority: record.dueDate < today ? 96 : 88,
+        status: record.dueDate < today ? "逾期" : "今日到期",
+      }));
+    }
+  });
+
+  activeVouchers.forEach((voucher) => {
+    const statusInfo = getVoucherInboxStatusInfo(voucher);
+    const invoiceNumber = normalizeInvoiceNumber(voucher.invoiceNumber);
+    if (!invoiceNumber || statusInfo.status !== "matched") {
+      items.push(createOverviewCheckItem({
+        group: "voucher",
+        title: invoiceNumber ? "發票號碼尚未完整配帳" : "憑證暫存缺發票號碼",
+        date: voucher.date,
+        subject: voucher.item || voucher.counterparty || voucher.sourceFileName,
+        detail: invoiceNumber
+          ? `總額 NT$ ${formatNumber(voucher.totalAmount || 0)}，目前${statusInfo.label}。`
+          : "行政憑證已進暫存池，但還沒補上發票號碼。",
+        targetView: "vouchers",
+        recordId: voucher.id,
+        priority: invoiceNumber ? 76 : 84,
+        status: invoiceNumber ? "待配帳" : "待補號碼",
+      }));
+    }
+  });
+
+  activeBank.forEach((transaction) => {
+    const formallyMatched = isBankTransactionFormallyMatched(transaction);
+    const classifiedOnly = isBankTransactionClassified(transaction);
+    const ignored = transaction.status === "不入帳";
+    if (!formallyMatched && !classifiedOnly && !ignored) {
+      items.push(createOverviewCheckItem({
+        group: "cashflow",
+        title: "銀行交易未配對",
+        date: transaction.date,
+        subject: transaction.description || transaction.sourceFile || "銀行交易",
+        detail: "銀行資料已匯入，但還沒配到收入、支出、平台撥款或代墊還款。",
+        targetView: "cashflow",
+        priority: 86,
+        status: "待核對",
+      }));
+    }
+    if (classifiedOnly) {
+      items.push(createOverviewCheckItem({
+        group: "cashflow",
+        title: "銀行已分類但未配帳務",
+        date: transaction.date,
+        subject: transaction.description || transaction.sourceFile || "銀行交易",
+        detail: "目前只有分類，還沒有正式連到某筆收入或支出。",
+        targetView: "cashflow",
+        priority: 70,
+        status: "待配帳務",
+      }));
+    }
+  });
+
+  buildDuplicateRecordChecks(activeRecords).forEach((item) => items.push(item));
+
+  return dedupeOverviewCheckItems(items)
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || String(a.date || "").localeCompare(String(b.date || "")));
+}
+
+function createOverviewCheckItem(item) {
+  return {
+    group: "pending",
+    title: "",
+    date: "",
+    subject: "",
+    detail: "",
+    targetView: "pending",
+    targetType: "",
+    recordId: "",
+    priority: 20,
+    status: "待處理",
+    ...item,
+  };
+}
+
+function recordLooksLikePurchaseInventory(record) {
+  if (record.type !== "expense") return false;
+  const text = [record.major, record.middle, record.minor, record.item, record.note]
+    .filter(Boolean)
+    .join(" ");
+  return /進貨|存貨|卡盒|卡片|包材/.test(text);
+}
+
+function hasInventoryEntryForLedger(ledgerId) {
+  return inventoryCache.some((record) => !record.deletedAt && record.action !== "out" && record.linkedLedgerId === ledgerId);
+}
+
+function getInventoryLinkSourceId(link) {
+  if (!link || typeof link !== "object") return "";
+  return link.sourceInventoryId || link.inventoryId || link.sourceId || link.lotId || link.id || "";
+}
+
+function buildDuplicateRecordChecks(records) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const key = [
+      record.type,
+      record.date,
+      normalizeInvoiceNumber(record.invoiceNumber),
+      String(Number(record.amount || 0)),
+      normalizeLooseText(record.counterparty),
+      normalizeLooseText(record.item),
+    ].join("|");
+    groups.set(key, [...(groups.get(key) || []), record]);
+  });
+
+  return Array.from(groups.values())
+    .filter((group) => group.length > 1)
+    .map((group) => {
+      const record = group[0];
+      return createOverviewCheckItem({
+        group: "duplicate",
+        title: "疑似重複資料",
+        date: record.date,
+        subject: record.item,
+        detail: `同日期、對象、項目與金額共有 ${formatNumber(group.length)} 筆，請確認是否為重複匯入。`,
+        targetView: "ledger",
+        targetType: record.type,
+        recordId: record.id,
+        priority: 80,
+        status: "疑似重複",
+      });
+    });
+}
+
+function normalizeLooseText(value) {
+  return String(value || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function dedupeOverviewCheckItems(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = [item.group, item.title, item.recordId, item.date, item.subject].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getOverviewCheckGroupClass(group) {
+  if (["voucher", "cashflow", "inventory", "settlement", "duplicate", "lineDraft"].includes(group)) return group;
+  return "pending";
 }
 
 function renderVoucherCenter() {
