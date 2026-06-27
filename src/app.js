@@ -221,6 +221,7 @@ let editingRecordId = null;
 let editingInventoryId = null;
 let recycleBinCache = [];
 let auditLogCache = [];
+let secondaryDataLoadPromise = null;
 
 const recycleCollections = [
   { name: "ledgerRecords", label: "流水帳" },
@@ -879,6 +880,7 @@ ledgerForm.addEventListener("submit", async (event) => {
 
 async function handleAuthState(user) {
   currentUser = user;
+  secondaryDataLoadPromise = null;
 
   if (!user) {
     authStatus.textContent = "尚未登入";
@@ -901,10 +903,28 @@ async function handleAuthState(user) {
 
   await loadSharedOptions();
   loadRecords();
-  loadInventoryRecords();
-  loadBankTransactions();
-  loadLineDrafts();
-  loadVoucherInbox();
+  window.setTimeout(loadSecondaryData, 800);
+}
+
+function loadSecondaryData() {
+  if (!isConfigured || !currentUser || !db) return Promise.resolve();
+  if (secondaryDataLoadPromise) return secondaryDataLoadPromise;
+
+  secondaryDataLoadPromise = Promise.allSettled([
+    loadInventoryRecords(),
+    loadBankTransactions(),
+    loadLineDrafts(),
+    loadVoucherInbox(),
+  ]).then((results) => {
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) {
+      console.warn("Secondary data load failed", failed.reason);
+      showToast("部分資料稍後載入失敗，請重新整理後再試。");
+    }
+    return results;
+  });
+
+  return secondaryDataLoadPromise;
 }
 
 function setDefaultDate() {
@@ -1071,6 +1091,9 @@ function showView(view) {
   currentView = view;
   document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`)?.classList.add("active");
+  if (["reports", "cashflow", "settlement", "inventory", "pending", "vouchers"].includes(view)) {
+    loadSecondaryData();
+  }
   if (view === "reports") renderCustomReport();
   if (view === "cashflow") renderCashflow();
   if (view === "settlement") renderSettlementCenter();
@@ -3529,6 +3552,12 @@ async function loadBankTransactions() {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   renderBankTransactions();
   renderPendingCenter();
+  if (document.querySelector("#reportsView")?.classList.contains("active")) {
+    renderCustomReport();
+  }
+  if (document.querySelector("#cashflowView")?.classList.contains("active")) {
+    renderCashflow();
+  }
 }
 
 function renderBankTransactions() {
