@@ -2968,41 +2968,83 @@ function renderBankReconciliationReport(transactions) {
     return `<div class="record-group-empty">此區間尚無銀行資料。</div>`;
   }
 
-  const matched = transactions.filter(isBankTransactionFormallyMatched);
-  const classified = transactions.filter(isBankTransactionClassified);
-  const ignored = transactions.filter((transaction) => transaction.status === "不入帳");
-  const unmatched = transactions.filter((transaction) =>
+  const sortedTransactions = sortBankTransactionsForReview(transactions);
+  const matched = sortedTransactions.filter(isBankTransactionFormallyMatched);
+  const classified = sortedTransactions.filter(isBankTransactionClassified);
+  const ignored = sortedTransactions.filter((transaction) => transaction.status === "不入帳");
+  const unmatched = sortedTransactions.filter((transaction) =>
     !isBankTransactionFormallyMatched(transaction)
     && !isBankTransactionClassified(transaction)
     && transaction.status !== "不入帳"
   );
+  const needsAction = [...unmatched, ...classified].sort(compareBankTransactionsForReview);
 
   return `
     <div class="bank-reconcile-summary">
       <article>
-        <span>正式配帳務</span>
+        <span>已完成配帳</span>
         <strong>${formatNumber(matched.length)} 筆</strong>
+        <small>銀行資料已連到正式收入／支出</small>
       </article>
       <article>
-        <span>已分類未配帳務</span>
+        <span>只分類，未選帳務</span>
         <strong>${formatNumber(classified.length)} 筆</strong>
+        <small>知道用途，但還沒選哪筆帳</small>
       </article>
       <article>
-        <span>未配對</span>
+        <span>未處理銀行交易</span>
         <strong>${formatNumber(unmatched.length)} 筆</strong>
+        <small>需要先判斷收入、支出或不入帳</small>
       </article>
       <article>
         <span>不入帳</span>
         <strong>${formatNumber(ignored.length)} 筆</strong>
+        <small>已排除，不列入正式帳務</small>
       </article>
     </div>
-    <div class="bank-reconcile-columns">
-      ${renderBankReconciliationGroup("正式配帳務", matched, "matched")}
-      ${renderBankReconciliationGroup("已分類未配帳務", classified, "classified")}
-      ${renderBankReconciliationGroup("未配對", unmatched, "unmatched")}
-      ${renderBankReconciliationGroup("不入帳", ignored, "ignored")}
+    <div class="bank-reconcile-workbench">
+      <section class="bank-reconcile-group action">
+        <div class="bank-reconcile-group-title">
+          <div>
+            <h4>需要處理</h4>
+            <p>先處理未配對，再處理已分類但還沒選帳務的銀行交易。</p>
+          </div>
+          <strong>${formatNumber(needsAction.length)} 筆</strong>
+        </div>
+        ${
+          needsAction.length
+            ? needsAction.map(renderBankReconciliationItem).join("")
+            : `<div class="record-group-empty">目前沒有需要處理的銀行資料</div>`
+        }
+      </section>
+      <details class="bank-reconcile-group matched" open>
+        <summary>
+          <span>已完成配帳</span>
+          <strong>${formatNumber(matched.length)} 筆</strong>
+        </summary>
+        ${renderBankReconciliationGroupBody(matched)}
+      </details>
+      <details class="bank-reconcile-group ignored">
+        <summary>
+          <span>不入帳</span>
+          <strong>${formatNumber(ignored.length)} 筆</strong>
+        </summary>
+        ${renderBankReconciliationGroupBody(ignored)}
+      </details>
     </div>
   `;
+}
+
+function sortBankTransactionsForReview(transactions) {
+  return [...transactions].sort(compareBankTransactionsForReview);
+}
+
+function compareBankTransactionsForReview(a, b) {
+  const dateCompare = String(b.date || "").localeCompare(String(a.date || ""));
+  if (dateCompare) return dateCompare;
+  const amountCompare = getBankTransactionAmount(b) - getBankTransactionAmount(a);
+  if (amountCompare) return amountCompare;
+  return String(a.description || a.sourceFile || "").localeCompare(String(b.description || b.sourceFile || ""), "zh-Hant");
 }
 
 function isBankTransactionFormallyMatched(transaction) {
@@ -3025,18 +3067,22 @@ function renderBankReconciliationGroup(title, transactions, tone) {
   return `
     <section class="bank-reconcile-group ${tone}">
       <h4>${title}</h4>
-      ${
-        transactions.length
-          ? transactions.map(renderBankReconciliationItem).join("")
-          : `<div class="record-group-empty">目前沒有資料</div>`
-      }
+      ${renderBankReconciliationGroupBody(transactions)}
     </section>
   `;
+}
+
+function renderBankReconciliationGroupBody(transactions) {
+  return transactions.length
+    ? transactions.map(renderBankReconciliationItem).join("")
+    : `<div class="record-group-empty">目前沒有資料</div>`;
 }
 
 function renderBankReconciliationItem(transaction) {
   const amount = Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
   const sign = Number(transaction.deposit || 0) ? "+" : "-";
+  const status = transaction.status || "待核對";
+  const statusTone = getBankReconciliationTone(transaction);
   const ledgerText = transaction.matchedLedgerItem
     ? `配對帳務：${transaction.matchedLedgerItem}`
     : transaction.matchedLedgerId
@@ -3047,18 +3093,20 @@ function renderBankReconciliationItem(transaction) {
   const differenceText = transaction.matchDifference
     ? `差額：NT$ ${formatNumber(transaction.matchDifference)} · ${transaction.differenceHandling || "待確認"}`
     : "";
+  const reasonText = transaction.pendingReason ? `提醒：${transaction.pendingReason}` : "";
 
   return `
     <article class="bank-reconcile-item">
-      <div>
-        <strong>${escapeHtml(transaction.date)}</strong>
-        <span>${escapeHtml(transaction.description || transaction.sourceFile || "銀行資料")}</span>
+      <span class="bank-reconcile-status ${statusTone}">${escapeHtml(status)}</span>
+      <div class="bank-reconcile-main">
+        <strong>${escapeHtml(transaction.description || transaction.sourceFile || "銀行資料")}</strong>
+        <span>${escapeHtml(transaction.date)} · ${escapeHtml(transaction.account || "未指定帳戶")}</span>
         <small>${escapeHtml(ledgerText)}</small>
         ${differenceText ? `<small>${escapeHtml(differenceText)}</small>` : ""}
+        ${reasonText ? `<small>${escapeHtml(reasonText)}</small>` : ""}
       </div>
-      <div>
+      <div class="bank-reconcile-side">
         <strong>${sign} NT$ ${formatNumber(amount)}</strong>
-        <span>${escapeHtml(transaction.status || "待核對")}</span>
         <div class="bank-reconcile-actions">
           ${isBankTransactionFormallyMatched(transaction)
             ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">重新配帳</button>`
@@ -3286,6 +3334,13 @@ function renderAuditLogItem(log) {
       </div>
     </article>
   `;
+}
+
+function getBankReconciliationTone(transaction) {
+  if (isBankTransactionFormallyMatched(transaction)) return "matched";
+  if (transaction.status === "不入帳") return "ignored";
+  if (isBankTransactionClassified(transaction)) return "classified";
+  return "unmatched";
 }
 
 function getAuditActionLabel(action) {

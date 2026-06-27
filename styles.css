@@ -958,15 +958,53 @@ textarea:focus {
   font-size: 22px;
 }
 
-.bank-reconcile-columns {
+.bank-reconcile-summary small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.bank-reconcile-workbench {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
+.bank-reconcile-group {
+  display: grid;
+  gap: 10px;
+}
+
 .bank-reconcile-group h4 {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 16px;
+}
+
+.bank-reconcile-group-title,
+.bank-reconcile-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.bank-reconcile-group-title p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.bank-reconcile-group summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.bank-reconcile-group summary::-webkit-details-marker {
+  color: var(--accent);
+}
+
+.bank-reconcile-group.action {
+  border-color: #f0d09a;
+  background: #fffdf7;
 }
 
 .bank-reconcile-group.matched {
@@ -987,20 +1025,118 @@ textarea:focus {
 
 .bank-reconcile-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 126px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  padding: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+
+.bank-reconcile-group.action .bank-reconcile-item {
+  background: #fffefa;
+}
+
+.bank-reconcile-group details .bank-reconcile-item,
+.bank-reconcile-group.matched .bank-reconcile-item,
+.bank-reconcile-group.ignored .bank-reconcile-item {
+  background: #fbfdfd;
+}
+
+.bank-reconcile-status {
+  border-radius: 999px;
+  padding: 7px 10px;
+  text-align: center;
+  font-weight: 900;
+}
+
+.bank-reconcile-status.matched {
+  background: #e5f4f1;
+  color: var(--accent);
+}
+
+.bank-reconcile-status.classified {
+  background: #e8f0ff;
+  color: #1d4ed8;
+}
+
+.bank-reconcile-status.unmatched {
+  background: #fff0d2;
+  color: #9a6700;
+}
+
+.bank-reconcile-status.ignored {
+  background: #eef3f2;
+  color: var(--muted);
+}
+
+.bank-reconcile-main {
+  min-width: 0;
+}
+
+.bank-reconcile-main strong,
+.bank-reconcile-main span,
+.bank-reconcile-main small {
+  display: block;
+}
+
+.bank-reconcile-main strong {
+  overflow-wrap: anywhere;
+}
+
+.bank-reconcile-side {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 170px;
+}
+
+.bank-reconcile-side > strong {
+  font-size: 18px;
+}
+
+.bank-reconcile-group details .bank-reconcile-item + .bank-reconcile-item,
+.bank-reconcile-group.matched .bank-reconcile-item + .bank-reconcile-item,
+.bank-reconcile-group.ignored .bank-reconcile-item + .bank-reconcile-item {
+  margin-top: 10px;
+}
+
+.bank-reconcile-group:not(.action) .bank-reconcile-item:first-of-type {
+  margin-top: 10px;
+}
+
+.bank-reconcile-item + .bank-reconcile-item {
+  margin-top: 0;
+}
+
+.bank-reconcile-item.legacy {
   border-top: 1px solid var(--line);
 }
 
 .bank-reconcile-item:first-of-type {
-  border-top: 0;
+  border-top: 1px solid var(--line);
 }
 
 .bank-reconcile-item span,
 .bank-reconcile-item small {
   display: block;
+  color: var(--muted);
+}
+
+.bank-reconcile-item .bank-reconcile-status.matched {
+  color: var(--accent);
+}
+
+.bank-reconcile-item .bank-reconcile-status.classified {
+  color: #1d4ed8;
+}
+
+.bank-reconcile-item .bank-reconcile-status.unmatched {
+  color: #9a6700;
+}
+
+.bank-reconcile-item .bank-reconcile-status.ignored {
   color: var(--muted);
 }
 
