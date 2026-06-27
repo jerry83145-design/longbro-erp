@@ -1854,6 +1854,37 @@ textarea:focus {
   opacity: 0.65;
 }
 
+.restore-confirm-box {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #edd28d;
+  border-radius: 8px;
+  background: #fff8e7;
+  color: #614000;
+  padding: 14px 16px;
+}
+
+.restore-confirm-box strong {
+  color: var(--text);
+}
+
+.restore-confirm-box p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.restore-confirm-box input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d8c28b;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
 .restore-plan {
   display: grid;
   gap: 14px;

@@ -7188,6 +7188,11 @@ function renderRestorePlan(plan) {
         </div>
         ${totals.add
           ? `
+            <div class="restore-confirm-box">
+              <strong>正式還原前確認</strong>
+              <p>這一步只會新增缺少資料，不會覆蓋或刪除現有資料。若確認要執行，請輸入「確認還原」。</p>
+              <input type="text" data-restore-confirm-text placeholder="輸入：確認還原" autocomplete="off" />
+            </div>
             <div class="restore-preview-actions">
               <button type="button" data-confirm-restore>確認還原 ${formatNumber(totals.add)} 筆</button>
             </div>
@@ -7212,6 +7217,12 @@ async function confirmRestoreBackup() {
   const totalToAdd = restoreBackupPlan.reduce((sum, item) => sum + (item.recordsToAdd?.length || 0), 0);
   if (!totalToAdd) {
     showToast("沒有可新增的資料。");
+    return;
+  }
+
+  const confirmText = restoreBackupPreview?.querySelector("[data-restore-confirm-text]")?.value?.trim() || "";
+  if (confirmText !== "確認還原") {
+    showToast("請先輸入「確認還原」，避免誤按造成資料寫入。");
     return;
   }
 
