@@ -112,6 +112,7 @@ const countSummaryLabel = document.querySelector("#countSummaryLabel");
 const pendingSummaryLabel = document.querySelector("#pendingSummaryLabel");
 const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
+const ledgerImportPreview = document.querySelector("#ledgerImportPreview");
 const pendingSummary = document.querySelector("#pendingSummary");
 const pendingList = document.querySelector("#pendingList");
 const overviewCheckSummary = document.querySelector("#overviewCheckSummary");
@@ -222,6 +223,7 @@ let editingInventoryId = null;
 let recycleBinCache = [];
 let auditLogCache = [];
 let secondaryDataLoadPromise = null;
+let pendingLedgerImportPreview = null;
 
 const recycleCollections = [
   { name: "ledgerRecords", label: "流水帳" },
@@ -495,11 +497,48 @@ importLedgerInput.addEventListener("change", async () => {
   if (!file) return;
 
   try {
-    await importLedgerFile(file);
+    pendingLedgerImportPreview = await buildLedgerImportPreview(file);
+    if (!pendingLedgerImportPreview) return;
+    renderLedgerImportPreview(pendingLedgerImportPreview);
   } catch (error) {
     showToast(`匯入失敗：${error.message}`);
   } finally {
     importLedgerInput.value = "";
+  }
+});
+
+ledgerImportPreview?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-ledger-import-action]");
+  if (!button || !pendingLedgerImportPreview) return;
+
+  const action = button.dataset.ledgerImportAction;
+  if (action === "cancel") {
+    clearLedgerImportPreview();
+    return;
+  }
+
+  const recordsToImport = action === "import-all"
+    ? [...pendingLedgerImportPreview.cleanItems, ...pendingLedgerImportPreview.duplicateItems.map((item) => item.record)]
+    : pendingLedgerImportPreview.cleanItems;
+
+  if (!recordsToImport.length) {
+    showToast("沒有可匯入的資料。");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "匯入中...";
+
+  try {
+    await saveImportedLedgerRecords(recordsToImport);
+    const duplicateSkipped = action === "import-clean" ? pendingLedgerImportPreview.duplicateItems.length : 0;
+    const skippedMessage = duplicateSkipped ? `，略過 ${duplicateSkipped} 筆疑似重複` : "";
+    showToast(`已匯入 ${recordsToImport.length} 筆資料${skippedMessage}。`);
+    clearLedgerImportPreview();
+  } catch (error) {
+    showToast(`匯入失敗：${error.message}`);
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -2159,6 +2198,24 @@ function formatImportSource(item) {
 }
 
 async function importLedgerFile(file) {
+  const preview = await buildLedgerImportPreview(file);
+  if (!preview) return;
+  const { approvedItems, skippedCount } = await reviewDuplicateImports("ledger", [
+    ...preview.cleanItems,
+    ...preview.duplicateItems.map((item) => item.record),
+  ]);
+  if (!approvedItems.length) {
+    showToast("匯入已取消，沒有新增資料。");
+    return;
+  }
+
+  await saveImportedLedgerRecords(approvedItems);
+
+  const skippedMessage = skippedCount ? `，略過 ${skippedCount} 筆疑似重複資料` : "";
+  showToast(`已匯入 ${approvedItems.length} 筆資料${skippedMessage}。`);
+}
+
+async function buildLedgerImportPreview(file) {
   if (!window.XLSX) {
     throw new Error("Excel 套件尚未載入，請確認網路可連線後重試。");
   }
@@ -2172,20 +2229,153 @@ async function importLedgerFile(file) {
   const sheetName = workbook.SheetNames.includes("每日流水帳") ? "每日流水帳" : workbook.SheetNames[0];
   const firstSheet = workbook.Sheets[sheetName];
   const rows = readLedgerRows(firstSheet);
-  const parsed = rows.map((row) => parseImportRow(row.values, row.sourceRow)).filter(Boolean);
+  const parsedItems = [];
+  const invalidItems = [];
 
-  if (!parsed.length) {
-    showToast("沒有可匯入的資料。");
-    return;
+  rows.forEach((row) => {
+    const parsed = parseImportRow(row.values, row.sourceRow);
+    if (parsed) {
+      parsedItems.push(parsed);
+    } else {
+      invalidItems.push({
+        sourceRow: row.sourceRow,
+        reason: getLedgerImportMissingReason(row.values),
+      });
+    }
+  });
+
+  const cleanItems = [];
+  const duplicateItems = [];
+  parsedItems.forEach((record) => {
+    const duplicate = findImportDuplicate("ledger", record);
+    if (duplicate) {
+      duplicateItems.push({ record, duplicate });
+    } else {
+      cleanItems.push(record);
+    }
+  });
+
+  return {
+    fileName: file.name,
+    sheetName,
+    totalRows: rows.length,
+    cleanItems,
+    duplicateItems,
+    invalidItems,
+  };
+}
+
+function getLedgerImportMissingReason(row) {
+  const date = normalizeImportDate(pickValue(row, ["日期", "交易日期", "date"]));
+  const incomeAmount = parseAmount(pickValue(row, ["收入金額", "收入", "收款金額", "營收", "商品收入", "淨銷售額"]));
+  const expenseAmount = parseAmount(pickValue(row, ["支出金額", "支出", "付款金額"]));
+  const genericAmount = parseAmount(pickValue(row, ["金額", "amount"]));
+  const item = String(pickValue(row, ["項目", "摘要", "項目／摘要", "item"]) || "").trim();
+  const reasons = [];
+  if (!date) reasons.push("缺日期");
+  if (!(incomeAmount || expenseAmount || genericAmount)) reasons.push("缺金額");
+  if (!item) reasons.push("缺項目");
+  return reasons.length ? reasons.join("、") : "欄位格式不符合";
+}
+
+function renderLedgerImportPreview(preview) {
+  if (!ledgerImportPreview) return;
+
+  const cleanCount = preview.cleanItems.length;
+  const duplicateCount = preview.duplicateItems.length;
+  const invalidCount = preview.invalidItems.length;
+  const importAllCount = cleanCount + duplicateCount;
+
+  ledgerImportPreview.hidden = false;
+  ledgerImportPreview.innerHTML = `
+    <div class="import-preview-heading">
+      <div>
+        <p class="eyebrow">IMPORT PREVIEW</p>
+        <h3>匯入前檢查</h3>
+        <p>${escapeHtml(preview.fileName)} · ${escapeHtml(preview.sheetName)} · 共讀到 ${preview.totalRows} 列</p>
+      </div>
+      <button class="secondary-button" type="button" data-ledger-import-action="cancel">取消</button>
+    </div>
+    <div class="import-preview-summary">
+      ${renderImportSummaryCard("可直接匯入", cleanCount, "good")}
+      ${renderImportSummaryCard("疑似重複", duplicateCount, "warn")}
+      ${renderImportSummaryCard("無法匯入", invalidCount, "danger")}
+    </div>
+    <div class="import-preview-columns">
+      ${renderImportPreviewList("可匯入資料", preview.cleanItems, renderLedgerImportRecordPreview)}
+      ${renderImportPreviewList("疑似重複資料", preview.duplicateItems, renderLedgerDuplicatePreview)}
+      ${renderImportPreviewList("缺資料或格式不符", preview.invalidItems, renderLedgerInvalidPreview)}
+    </div>
+    <div class="import-preview-actions">
+      <button class="secondary-button" type="button" data-ledger-import-action="import-clean" ${cleanCount ? "" : "disabled"}>只匯入可新增資料</button>
+      <button type="button" data-ledger-import-action="import-all" ${importAllCount ? "" : "disabled"}>全部仍然匯入</button>
+    </div>
+  `;
+}
+
+function renderImportSummaryCard(label, count, tone) {
+  return `
+    <article class="import-summary-card ${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${count} 筆</strong>
+    </article>
+  `;
+}
+
+function renderImportPreviewList(title, items, renderer) {
+  const visibleItems = items.slice(0, 5);
+  const moreCount = Math.max(items.length - visibleItems.length, 0);
+  return `
+    <section class="import-preview-list">
+      <h4>${escapeHtml(title)}</h4>
+      ${visibleItems.length
+        ? visibleItems.map(renderer).join("")
+        : `<div class="import-preview-empty">目前沒有資料</div>`}
+      ${moreCount ? `<p class="muted-text">另有 ${moreCount} 筆，確認後會一起處理。</p>` : ""}
+    </section>
+  `;
+}
+
+function renderLedgerImportRecordPreview(record) {
+  return `
+    <article>
+      <strong>${escapeHtml(record.item || "未命名項目")}</strong>
+      <span>${escapeHtml(record.date)} · ${escapeHtml(typeLabel(record.type))} · NT$ ${formatNumber(record.amount)}</span>
+      <small>${escapeHtml(record.counterparty || "未填交易對象")} / ${escapeHtml(record.major || "未分類")}</small>
+    </article>
+  `;
+}
+
+function renderLedgerDuplicatePreview(item) {
+  return `
+    <article class="duplicate">
+      <strong>${escapeHtml(item.record.item || "未命名項目")}</strong>
+      <span>${escapeHtml(item.record.date)} · NT$ ${formatNumber(item.record.amount)}</span>
+      <small>像既有資料：${escapeHtml(item.duplicate.item || "未命名項目")} / ${escapeHtml(item.duplicate.date || "")}</small>
+    </article>
+  `;
+}
+
+function renderLedgerInvalidPreview(item) {
+  return `
+    <article class="invalid">
+      <strong>第 ${item.sourceRow} 列</strong>
+      <span>${escapeHtml(item.reason)}</span>
+      <small>這列不會寫入，請先回 Excel 補資料。</small>
+    </article>
+  `;
+}
+
+function clearLedgerImportPreview() {
+  pendingLedgerImportPreview = null;
+  if (ledgerImportPreview) {
+    ledgerImportPreview.hidden = true;
+    ledgerImportPreview.innerHTML = "";
   }
+}
 
-  const { approvedItems, skippedCount } = await reviewDuplicateImports("ledger", parsed);
-  if (!approvedItems.length) {
-    showToast("匯入已取消，沒有新增資料。");
-    return;
-  }
-
-  for (const record of approvedItems) {
+async function saveImportedLedgerRecords(records) {
+  for (const record of records) {
     await saveCleanRecord(record);
   }
 
@@ -2202,10 +2392,6 @@ async function importLedgerFile(file) {
     renderPendingCenter();
     renderSettlementCenter();
   }
-
-  const importedCount = approvedItems.length;
-  const skippedMessage = skippedCount ? `，略過 ${skippedCount} 筆疑似重複資料` : "";
-  showToast(`已匯入 ${importedCount} 筆資料${skippedMessage}。`);
 }
 
 function parseImportRow(row, sourceRow) {
