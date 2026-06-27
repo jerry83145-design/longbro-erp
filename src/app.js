@@ -124,6 +124,7 @@ const voucherOcrStatus = document.querySelector("#voucherOcrStatus");
 const voucherOcrResults = document.querySelector("#voucherOcrResults");
 const voucherOcrInput = document.querySelector("#voucherOcrInput");
 const voucherInboxList = document.querySelector("#voucherInboxList");
+const voucherAdjustmentPanel = document.querySelector("#voucherAdjustmentPanel");
 const voucherInboxFilter = document.querySelector("#voucherInboxFilter");
 const voucherInboxFields = {
   invoiceNumber: document.querySelector("#voucherInboxInvoiceInput"),
@@ -654,7 +655,7 @@ voucherList?.addEventListener("click", (event) => {
   navigateToViewTarget(button.dataset.pendingTarget, button.dataset.pendingType, button.dataset.recordId);
 });
 
-voucherInboxList?.addEventListener("click", (event) => {
+function handleVoucherInboxActionClick(event) {
   const saveEditButton = event.target.closest("[data-voucher-save-edit]");
   if (saveEditButton) {
     saveVoucherInboxEdit(saveEditButton.dataset.voucherId);
@@ -688,7 +689,10 @@ voucherInboxList?.addEventListener("click", (event) => {
     matchVoucherInbox(matchButton.dataset.voucherId);
     return;
   }
-});
+}
+
+voucherInboxList?.addEventListener("click", handleVoucherInboxActionClick);
+voucherAdjustmentPanel?.addEventListener("click", handleVoucherInboxActionClick);
 
 voucherInboxFilter?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-voucher-filter]");
@@ -2683,9 +2687,11 @@ function renderCustomReport() {
   }
 
   const records = recordsCache.filter((record) => record.date >= start && record.date <= end);
-  const expense = sumByType(records, "expense");
-  const income = sumByType(records, "income");
-  const soldCost = buildSoldCostSummary(records);
+  const adjustmentSummary = buildLedgerAdjustmentSummary(records);
+  const adjustedRecords = applyLedgerAdjustments(records, adjustmentSummary);
+  const expense = sumByType(adjustedRecords, "expense");
+  const income = sumByType(adjustedRecords, "income");
+  const soldCost = buildSoldCostSummary(adjustedRecords, adjustmentSummary);
   const salesIncome = soldCost.salesIncome;
   const productCost = soldCost.productCost;
   const bankDirectCost = sumBankSalesDirectCosts(start, end);
@@ -2694,11 +2700,11 @@ function renderCustomReport() {
   const costOfGoodsSold = productCost + logisticsCost + packagingCost;
   const pending = records.filter((record) => record.pendingReason).length;
   const grossProfit = salesIncome - productCost - logisticsCost - packagingCost;
-  const operatingExpense = sumOperatingExpense(records);
+  const operatingExpense = sumOperatingExpense(adjustedRecords);
   const net = grossProfit - operatingExpense;
   const grossMargin = salesIncome ? grossProfit / salesIncome : null;
   const netMargin = salesIncome ? net / salesIncome : null;
-  const breakdown = buildCategoryBreakdown(records);
+  const breakdown = buildCategoryBreakdown(adjustedRecords);
   lastReportRows = records;
   lastReportSummary = {
     start,
@@ -2720,6 +2726,7 @@ function renderCustomReport() {
     pending,
     count: records.length,
     breakdown,
+    adjustmentSummary,
   };
   exportReportButton.disabled = records.length === 0;
 
@@ -4804,6 +4811,7 @@ function renderVoucherCenter() {
 
   const rows = buildVoucherRows();
   renderVoucherInbox();
+  renderVoucherAdjustments();
   const uploadedCount = rows.reduce((sum, row) => sum + Number(row.voucherCount || 0), 0);
   const linkedCount = rows.filter((row) => row.status === "已核實").length;
   const waitingCount = rows.filter((row) => ["LINE待覆核", "待補憑證", "待補發票號碼"].includes(row.status)).length;
@@ -4966,9 +4974,12 @@ async function syncDriveVoucherInbox() {
 function normalizeDriveVoucherInbox(voucher) {
   const amount = parseAmount(voucher.totalAmount || voucher.amount || 0);
   const type = resolveVoucherRecordType(voucher);
+  const documentMeta = resolveVoucherDocumentMeta(voucher);
   return {
     type,
     invoiceNumber: normalizeInvoiceNumber(voucher.invoiceNumber),
+    originalInvoiceNumber: normalizeInvoiceNumber(voucher.originalInvoiceNumber),
+    adjustmentNumber: String(voucher.adjustmentNumber || voucher.returnNumber || "").trim(),
     date: normalizeImportDate(voucher.date) || toDateValue(new Date()),
     counterparty: String(voucher.counterparty || "").trim(),
     item: String(voucher.item || "").trim(),
@@ -4983,7 +4994,9 @@ function normalizeDriveVoucherInbox(voucher) {
     sourceFileName: voucher.sourceFileName || "",
     sourceWorkbook: voucher.sourceWorkbook || "",
     sourceRow: voucher.sourceRow || "",
-    voucherType: voucher.voucherType || "",
+    voucherType: documentMeta.label || voucher.voucherType || "",
+    documentType: documentMeta.documentType,
+    adjustmentKind: documentMeta.adjustmentKind,
     processResult: voucher.processResult || "",
     note: voucher.note || "",
     matches: [],
@@ -5022,10 +5035,12 @@ async function importVoucherInboxFile(file) {
   }
 
   const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-  const sheetName = workbook.SheetNames[0];
-  const rows = readAdminVoucherRows(workbook.Sheets[sheetName]);
-  const vouchers = rows
-    .map((row) => parseAdminVoucherRow(row.values, row.sourceRow, file.name))
+  const vouchers = workbook.SheetNames
+    .flatMap((sheetName) => {
+      const rows = readAdminVoucherRows(workbook.Sheets[sheetName]);
+      const sourceWorkbook = workbook.SheetNames.length > 1 ? `${file.name}／${sheetName}` : file.name;
+      return rows.map((row) => parseAdminVoucherRow(row.values, row.sourceRow, sourceWorkbook));
+    })
     .filter(Boolean);
 
   if (!vouchers.length) {
@@ -5059,10 +5074,10 @@ function readAdminVoucherRows(sheet) {
   const matrix = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
   const headerIndex = matrix.findIndex((row) => {
     const headers = row.map(normalizeHeader);
-    const hasVoucherSignal = ["發票日期", "發票號碼", "供應商名稱", "新檔名"].some((name) =>
+    const hasVoucherSignal = ["發票日期", "單據日期", "發票號碼", "原發票號碼", "折讓單號 / 退貨單號", "單據類型", "供應商名稱", "新檔名"].some((name) =>
       headers.includes(normalizeHeader(name)),
     );
-    const hasAmount = ["含稅價", "支出金額", "未稅總價", "稅金"].some((name) =>
+    const hasAmount = ["含稅價", "含稅金額", "支出金額", "未稅總價", "未稅金額", "稅金"].some((name) =>
       headers.includes(normalizeHeader(name)),
     );
     return hasVoucherSignal && hasAmount;
@@ -5082,8 +5097,10 @@ function readAdminVoucherRows(sheet) {
 
 function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
   const invoiceNumber = normalizeInvoiceNumber(pickValue(row, ["發票號碼", "憑證號碼"]));
-  const date = normalizeImportDate(pickValue(row, ["發票日期", "日期"]));
-  const counterparty = String(pickValue(row, ["供應商名稱", "供應商", "交易對象", "廠商"]) || "").trim();
+  const originalInvoiceNumber = normalizeInvoiceNumber(pickValue(row, ["原發票號碼", "原憑證號碼"]));
+  const adjustmentNumber = String(pickValue(row, ["折讓單號 / 退貨單號", "折讓單號", "退貨單號", "退出單號"]) || "").trim();
+  const date = normalizeImportDate(pickValue(row, ["發票日期", "單據日期", "日期"]));
+  const counterparty = String(pickValue(row, ["供應商名稱", "供應商", "交易對象", "廠商", "交易對象系統編碼"]) || "").trim();
   const item = String(pickValue(row, ["品項", "項目", "摘要"]) || "").trim();
   const quantity = parseAmount(pickValue(row, ["數量"]));
   const unitPrice = parseAmount(pickValue(row, ["單價"]));
@@ -5093,16 +5110,25 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
   const expenseAmount = parseAmount(pickValue(row, ["支出金額", "金額"]));
   const amount = grossAmount || expenseAmount || netAmount + taxAmount || netAmount;
   const sourceFileName = String(pickValue(row, ["新檔名", "檔名", "憑證檔名"]) || "").trim();
-  const voucherType = String(pickValue(row, ["發票型式", "憑證型式"]) || "").trim();
+  const rawVoucherType = String(pickValue(row, ["單據類型", "發票型式", "憑證型式"]) || "").trim();
   const processResult = String(pickValue(row, ["處理結果"]) || "").trim();
   const rawNote = String(pickValue(row, ["備註"]) || "").trim();
   const link = String(pickValue(row, ["憑證連結", "檔案連結", "Google Drive", "連結"]) || "").trim();
+  const documentMeta = resolveVoucherDocumentMeta({
+    voucherType: rawVoucherType,
+    processResult,
+    sourceWorkbook,
+    sourceFileName,
+    note: rawNote,
+  });
 
   if (!amount || (!invoiceNumber && !sourceFileName && !counterparty && !item)) return null;
 
   return {
-    type: "expense",
+    type: documentMeta.recordType || "expense",
     invoiceNumber,
+    originalInvoiceNumber,
+    adjustmentNumber,
     date: date || toDateValue(new Date()),
     counterparty,
     item,
@@ -5117,10 +5143,15 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
     sourceFileName,
     sourceWorkbook,
     sourceRow,
-    voucherType,
+    voucherType: documentMeta.label || rawVoucherType,
+    documentType: documentMeta.documentType,
+    adjustmentKind: documentMeta.adjustmentKind,
     processResult,
     note: [
       item,
+      documentMeta.label,
+      originalInvoiceNumber ? `原發票：${originalInvoiceNumber}` : "",
+      adjustmentNumber ? `單號：${adjustmentNumber}` : "",
       processResult,
       rawNote,
       sourceFileName ? `檔名：${sourceFileName}` : "",
@@ -5135,18 +5166,64 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
   };
 }
 
+function isVoucherAdjustment(voucher) {
+  const documentType = voucher.documentType || resolveVoucherDocumentMeta(voucher).documentType;
+  return ["purchaseAllowance", "purchaseReturn", "salesAllowance", "salesReturn"].includes(documentType);
+}
+
+function getRegularVoucherInboxItems() {
+  return voucherInboxCache.filter((voucher) => !isVoucherAdjustment(voucher));
+}
+
+function getVoucherAdjustmentItems() {
+  return voucherInboxCache
+    .filter((voucher) => !voucher.deletedAt && isVoucherAdjustment(voucher))
+    .sort(compareRecordsByDateAndCreatedTime);
+}
+
+function renderVoucherAdjustments() {
+  if (!voucherAdjustmentPanel) return;
+
+  const adjustments = getVoucherAdjustmentItems();
+  if (!adjustments.length) {
+    voucherAdjustmentPanel.className = "voucher-adjustment-panel empty-state";
+    voucherAdjustmentPanel.textContent = "目前沒有折讓／退出單。";
+    return;
+  }
+
+  const openCount = adjustments.filter((voucher) => getVoucherInboxStatusInfo(voucher).status !== "matched").length;
+  const matchedCount = adjustments.length - openCount;
+  voucherAdjustmentPanel.className = "voucher-adjustment-panel";
+  voucherAdjustmentPanel.innerHTML = `
+    <div class="voucher-adjustment-head">
+      <div>
+        <strong>折讓／退出配帳</strong>
+        <span>進貨折讓／退出只配支出；銷貨折讓／退回只配收入。</span>
+      </div>
+      <div class="voucher-adjustment-counts">
+        <span>待配 ${formatNumber(openCount)} 筆</span>
+        <span>已配 ${formatNumber(matchedCount)} 筆</span>
+      </div>
+    </div>
+    <div class="voucher-adjustment-list">
+      ${adjustments.map(renderVoucherInboxRow).join("")}
+    </div>
+  `;
+}
+
 function renderVoucherInbox() {
   if (!voucherInboxList) return;
 
   updateVoucherInboxFilter();
 
-  if (!voucherInboxCache.length) {
+  const regularVouchers = getRegularVoucherInboxItems();
+  if (!regularVouchers.length) {
     voucherInboxList.className = "voucher-inbox-list empty-state";
     voucherInboxList.textContent = "目前沒有暫存憑證。";
     return;
   }
 
-  const visibleVouchers = voucherInboxCache.filter((voucher) => shouldShowVoucherInboxItem(voucher));
+  const visibleVouchers = regularVouchers.filter((voucher) => shouldShowVoucherInboxItem(voucher));
 
   if (!visibleVouchers.length) {
     voucherInboxList.className = "voucher-inbox-list empty-state";
@@ -5166,10 +5243,15 @@ function renderVoucherInboxRow(voucher) {
   const statusInfo = getVoucherInboxStatusInfo(voucher);
   const tone = statusInfo.status === "matched" ? "income" : statusInfo.status === "partial" || statusInfo.status === "overmatched" ? "pending" : "";
   const voucherType = resolveVoucherRecordType(voucher);
-  const voucherTypeLabel = voucherType === "income" ? "銷項收入憑證" : "進項支出憑證";
+  const documentMeta = resolveVoucherDocumentMeta(voucher);
+  const voucherTypeLabel = documentMeta.label || (voucherType === "income" ? "銷項收入憑證" : "進項支出憑證");
   const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : [];
   const matchPanel = activeVoucherMatchId === voucher.id ? renderVoucherMatchPanel(voucher, remainingAmount) : "";
   const editPanel = activeVoucherEditId === voucher.id ? renderVoucherEditPanel(voucher) : "";
+  const referenceText = [
+    voucher.originalInvoiceNumber ? `原發票 ${voucher.originalInvoiceNumber}` : "",
+    voucher.adjustmentNumber ? `折讓／退回單號 ${voucher.adjustmentNumber}` : "",
+  ].filter(Boolean).join(" · ");
 
   return `
     <article class="voucher-inbox-item ${escapeHtml(statusInfo.status)}">
@@ -5177,6 +5259,7 @@ function renderVoucherInboxRow(voucher) {
       <div class="voucher-inbox-main">
         <strong>${escapeHtml(voucher.invoiceNumber || "未填發票號碼")}</strong>
         <span>${escapeHtml(voucherTypeLabel)} · ${escapeHtml(voucher.date || "")} · ${escapeHtml(voucher.counterparty || "未填交易對象")}</span>
+        ${referenceText ? `<span>${escapeHtml(referenceText)}</span>` : ""}
         <span>${escapeHtml(voucher.item || "未填品項")}</span>
         <div class="voucher-amount-grid">
           <span><small>總額</small><strong>NT$ ${formatNumber(voucher.totalAmount)}</strong></span>
@@ -5210,11 +5293,32 @@ function renderVoucherInfoHint(voucher) {
 
 function renderVoucherEditPanel(voucher) {
   const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean).join("\n") : "";
+  const currentDocumentType = voucher.documentType || resolveVoucherDocumentMeta(voucher).documentType || "invoice";
   return `
     <div class="voucher-edit-panel" data-voucher-edit-panel="${escapeHtml(voucher.id)}">
       <label>
         <span>發票號碼</span>
         <input type="text" value="${escapeHtml(voucher.invoiceNumber || "")}" data-voucher-edit-field="invoiceNumber" placeholder="例如：ZX04555853" />
+      </label>
+      <label>
+        <span>單據類型</span>
+        <select data-voucher-edit-field="documentType">
+          ${[
+            ["invoice", "一般發票／收據"],
+            ["purchaseAllowance", "進貨折讓單"],
+            ["purchaseReturn", "進貨退出單"],
+            ["salesAllowance", "銷貨折讓單"],
+            ["salesReturn", "銷貨退回單"],
+          ].map(([value, label]) => `<option value="${value}" ${currentDocumentType === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        <span>原發票號碼</span>
+        <input type="text" value="${escapeHtml(voucher.originalInvoiceNumber || "")}" data-voucher-edit-field="originalInvoiceNumber" placeholder="折讓／退回時填寫" />
+      </label>
+      <label>
+        <span>折讓／退回單號</span>
+        <input type="text" value="${escapeHtml(voucher.adjustmentNumber || "")}" data-voucher-edit-field="adjustmentNumber" placeholder="例如：IA2026..." />
       </label>
       <label>
         <span>憑證日期</span>
@@ -5301,8 +5405,9 @@ function updateVoucherInboxFilter() {
 }
 
 function getVoucherInboxFilterCounts() {
-  const counts = { open: 0, unmatched: 0, partial: 0, overmatched: 0, matched: 0, all: voucherInboxCache.length };
-  voucherInboxCache.forEach((voucher) => {
+  const regularVouchers = getRegularVoucherInboxItems();
+  const counts = { open: 0, unmatched: 0, partial: 0, overmatched: 0, matched: 0, all: regularVouchers.length };
+  regularVouchers.forEach((voucher) => {
     const status = getVoucherInboxStatusInfo(voucher).status;
     counts[status] += 1;
     if (status !== "matched") counts.open += 1;
@@ -5388,9 +5493,69 @@ function renderVoucherMatchCandidate(record, remainingAmount) {
   `;
 }
 
+function resolveVoucherDocumentMeta(voucher) {
+  const text = [
+    voucher?.documentType,
+    voucher?.voucherType,
+    voucher?.processResult,
+    voucher?.sourceWorkbook,
+    voucher?.sourceFileName,
+    voucher?.note,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (/進貨折讓/.test(text)) {
+    return { recordType: "expense", documentType: "purchaseAllowance", adjustmentKind: "allowance", label: "進貨折讓單" };
+  }
+  if (/進貨退|進貨退出|退出單/.test(text)) {
+    return { recordType: "expense", documentType: "purchaseReturn", adjustmentKind: "return", label: "進貨退出單" };
+  }
+  if (/銷貨折讓/.test(text)) {
+    return { recordType: "income", documentType: "salesAllowance", adjustmentKind: "allowance", label: "銷貨折讓單" };
+  }
+  if (/銷貨退|銷貨退回|退回單/.test(text)) {
+    return { recordType: "income", documentType: "salesReturn", adjustmentKind: "return", label: "銷貨退回單" };
+  }
+  return { recordType: "", documentType: "invoice", adjustmentKind: "", label: "" };
+}
+
+function buildVoucherDocumentFields(documentType, voucher = {}) {
+  const labels = {
+    invoice: voucher.voucherType || "",
+    purchaseAllowance: "進貨折讓單",
+    purchaseReturn: "進貨退出單",
+    salesAllowance: "銷貨折讓單",
+    salesReturn: "銷貨退回單",
+  };
+  const types = {
+    purchaseAllowance: "expense",
+    purchaseReturn: "expense",
+    salesAllowance: "income",
+    salesReturn: "income",
+  };
+  const adjustmentKinds = {
+    purchaseAllowance: "allowance",
+    salesAllowance: "allowance",
+    purchaseReturn: "return",
+    salesReturn: "return",
+  };
+  const normalizedType = documentType || "invoice";
+
+  return {
+    documentType: normalizedType,
+    adjustmentKind: adjustmentKinds[normalizedType] || "",
+    voucherType: labels[normalizedType] || voucher.voucherType || "",
+    type: types[normalizedType] || resolveVoucherRecordType(voucher),
+  };
+}
+
 function resolveVoucherRecordType(voucher) {
   if (voucher?.type === "income" || voucher?.recordType === "income" || voucher?.voucherDirection === "income") return "income";
   if (voucher?.type === "expense" || voucher?.recordType === "expense" || voucher?.voucherDirection === "expense") return "expense";
+
+  const documentMeta = resolveVoucherDocumentMeta(voucher);
+  if (documentMeta.recordType) return documentMeta.recordType;
 
   const text = [
     voucher?.voucherType,
@@ -5421,7 +5586,7 @@ function matchVoucherInbox(voucherId) {
 
 async function applyVoucherMatches(voucherId) {
   const voucher = voucherInboxCache.find((item) => item.id === voucherId);
-  const panel = voucherInboxList?.querySelector(`[data-voucher-match-panel="${CSS.escape(voucherId)}"]`);
+  const panel = document.querySelector(`[data-voucher-match-panel="${CSS.escape(voucherId)}"]`);
   if (!voucher || !panel) return;
 
   const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - getVoucherMatchedAmount(voucher));
@@ -5458,11 +5623,18 @@ async function applyVoucherMatches(voucherId) {
   }
 
   const now = new Date();
+  const documentMeta = resolveVoucherDocumentMeta(voucher);
   const newMatches = selected.map((match) => ({
     voucherId,
     ledgerId: match.recordId,
     amount: match.amount,
     invoiceNumber: voucher.invoiceNumber || "",
+    originalInvoiceNumber: voucher.originalInvoiceNumber || "",
+    adjustmentNumber: voucher.adjustmentNumber || "",
+    documentType: voucher.documentType || documentMeta.documentType || "invoice",
+    adjustmentKind: voucher.adjustmentKind || documentMeta.adjustmentKind || "",
+    voucherType: documentMeta.label || voucher.voucherType || "",
+    isAdjustment: isVoucherAdjustment(voucher),
     matchedAt: now,
     matchedBy: currentUser?.email || "local-preview",
   }));
@@ -5499,7 +5671,7 @@ function normalizeVoucherInboxAfterMatch(voucher, newMatches) {
 
 async function saveVoucherInboxEdit(voucherId) {
   const voucher = voucherInboxCache.find((item) => item.id === voucherId);
-  const panel = voucherInboxList?.querySelector(`[data-voucher-edit-panel="${CSS.escape(voucherId)}"]`);
+  const panel = document.querySelector(`[data-voucher-edit-panel="${CSS.escape(voucherId)}"]`);
   if (!voucher || !panel) return;
 
   const getFieldValue = (fieldName) => panel.querySelector(`[data-voucher-edit-field="${fieldName}"]`)?.value || "";
@@ -5519,6 +5691,9 @@ async function saveVoucherInboxEdit(voucherId) {
   const updatedVoucher = {
     ...voucher,
     invoiceNumber: normalizeInvoiceNumber(getFieldValue("invoiceNumber")),
+    originalInvoiceNumber: normalizeInvoiceNumber(getFieldValue("originalInvoiceNumber")),
+    adjustmentNumber: getFieldValue("adjustmentNumber").trim(),
+    ...buildVoucherDocumentFields(getFieldValue("documentType"), voucher),
     date: getFieldValue("date") || voucher.date || toDateValue(new Date()),
     counterparty: getFieldValue("counterparty").trim(),
     item: getFieldValue("item").trim(),
@@ -6860,7 +7035,7 @@ const backupFields = {
   ledgerRecords: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "settlementStatus", "dueDate", "settledDate", "major", "middle", "minor", "invoiceNumber", "invoiceStatus", "hasVoucher", "pendingReason", "deletedAt", "createdBy"],
   bankTransactions: ["id", "date", "account", "description", "counterparty", "deposit", "withdrawal", "amount", "balance", "status", "linkedType", "linkedRecordId", "sourceFile", "deletedAt", "createdBy"],
   inventoryRecords: ["id", "date", "type", "action", "source", "name", "quantity", "remainingQuantity", "unitCost", "totalCost", "reference", "linkedLedgerId", "deletedAt", "createdBy"],
-  voucherInbox: ["id", "invoiceNumber", "date", "type", "counterparty", "item", "totalAmount", "matchedAmount", "remainingAmount", "status", "source", "sourceWorkbook", "sourceFileName", "sourceRow", "deletedAt", "createdBy"],
+  voucherInbox: ["id", "invoiceNumber", "originalInvoiceNumber", "adjustmentNumber", "documentType", "adjustmentKind", "voucherType", "date", "type", "counterparty", "item", "totalAmount", "matchedAmount", "remainingAmount", "status", "source", "sourceWorkbook", "sourceFileName", "sourceRow", "deletedAt", "createdBy"],
   lineDrafts: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "major", "middle", "minor", "status", "needsReview", "source", "createdBy"],
   recycleBin: ["collectionName", "id", "date", "type", "item", "description", "amount", "deletedAt", "deletedBy", "rawJson"],
   auditLogs: ["id", "action", "collectionName", "recordId", "createdAt", "createdBy", "rawJson"],
@@ -7925,12 +8100,14 @@ function buildDailySheet() {
     ["日期", "銷售收入", "商品銷貨成本", "營業費用", "金流／物流／平台成本", "交易筆數"],
     ...days.map((date) => {
       const records = lastReportRows.filter((record) => record.date === date);
-      const soldCost = buildSoldCostSummary(records);
+      const adjustmentSummary = buildLedgerAdjustmentSummary(records);
+      const adjustedRecords = applyLedgerAdjustments(records, adjustmentSummary);
+      const soldCost = buildSoldCostSummary(adjustedRecords, adjustmentSummary);
       return [
         date,
         soldCost.salesIncome,
         soldCost.productCost,
-        sumOperatingExpense(records),
+        sumOperatingExpense(adjustedRecords),
         soldCost.logisticsCost,
         records.length,
       ];
@@ -8150,6 +8327,85 @@ function sumField(records, field) {
   return records.reduce((total, record) => total + Number(record[field] || 0), 0);
 }
 
+function buildLedgerAdjustmentSummary(records) {
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const byLedgerId = new Map();
+  const summary = {
+    byLedgerId,
+    incomeReduction: 0,
+    expenseReduction: 0,
+    productCostReduction: 0,
+    logisticsCostReduction: 0,
+    packagingCostReduction: 0,
+    operatingExpenseReduction: 0,
+  };
+
+  voucherInboxCache
+    .filter((voucher) => !voucher.deletedAt && isVoucherAdjustment(voucher))
+    .forEach((voucher) => {
+      const voucherType = resolveVoucherRecordType(voucher);
+      (Array.isArray(voucher.matches) ? voucher.matches : []).forEach((match) => {
+        const record = recordsById.get(match.ledgerId);
+        if (!record || record.type !== voucherType) return;
+
+        const amount = Number(match.amount || 0);
+        if (!amount) return;
+
+        const current = byLedgerId.get(record.id) || {
+          incomeReduction: 0,
+          expenseReduction: 0,
+          productCostReduction: 0,
+          logisticsCostReduction: 0,
+          packagingCostReduction: 0,
+          operatingExpenseReduction: 0,
+        };
+
+        if (record.type === "income") {
+          current.incomeReduction += amount;
+          summary.incomeReduction += amount;
+        } else {
+          current.expenseReduction += amount;
+          summary.expenseReduction += amount;
+          if (isOperatingExpenseRecord(record)) {
+            current.operatingExpenseReduction += amount;
+            summary.operatingExpenseReduction += amount;
+          } else if (isPackagingRecord(record)) {
+            current.packagingCostReduction += amount;
+            summary.packagingCostReduction += amount;
+          } else if (isLogisticsCostRecord(record)) {
+            current.logisticsCostReduction += amount;
+            summary.logisticsCostReduction += amount;
+          } else {
+            current.productCostReduction += amount;
+            summary.productCostReduction += amount;
+          }
+        }
+
+        byLedgerId.set(record.id, current);
+      });
+    });
+
+  return summary;
+}
+
+function getLedgerAdjustment(record, adjustmentSummary) {
+  return adjustmentSummary?.byLedgerId?.get(record.id) || {};
+}
+
+function getAdjustedLedgerAmount(record, adjustmentSummary) {
+  const adjustment = getLedgerAdjustment(record, adjustmentSummary);
+  const reduction = record.type === "income" ? adjustment.incomeReduction : adjustment.expenseReduction;
+  return Math.max(0, Number(record.amount || 0) - Number(reduction || 0));
+}
+
+function applyLedgerAdjustments(records, adjustmentSummary) {
+  return records.map((record) => ({
+    ...record,
+    originalAmount: Number(record.amount || 0),
+    amount: getAdjustedLedgerAmount(record, adjustmentSummary),
+  }));
+}
+
 function sumBankSalesDirectCosts(start, end) {
   return bankTransactionsCache
     .filter((transaction) => transaction.date >= start && transaction.date <= end)
@@ -8157,8 +8413,8 @@ function sumBankSalesDirectCosts(start, end) {
     .reduce((total, transaction) => total + Math.abs(Number(transaction.matchDifference || 0)), 0);
 }
 
-function buildSoldCostSummary(records) {
-  return records
+function buildSoldCostSummary(records, adjustmentSummary = null) {
+  const summary = records
     .filter(isSalesRevenueRecord)
     .reduce(
       (summary, record) => {
@@ -8183,6 +8439,14 @@ function buildSoldCostSummary(records) {
       },
       { salesIncome: 0, productCost: 0, logisticsCost: 0, packagingCost: 0 },
     );
+
+  if (adjustmentSummary) {
+    summary.productCost = Math.max(0, summary.productCost - Number(adjustmentSummary.productCostReduction || 0));
+    summary.logisticsCost = Math.max(0, summary.logisticsCost - Number(adjustmentSummary.logisticsCostReduction || 0));
+    summary.packagingCost = Math.max(0, summary.packagingCost - Number(adjustmentSummary.packagingCostReduction || 0));
+  }
+
+  return summary;
 }
 
 function isSalesRevenueRecord(record) {
@@ -8193,6 +8457,10 @@ function isSalesRevenueRecord(record) {
     Number(record.productCost || 0) > 0 ||
     Number(record.logisticsCost || 0) > 0
   );
+}
+
+function isOperatingExpenseRecord(record) {
+  return record.type === "expense" && record.major === "營業費用";
 }
 
 function sumOperatingExpense(records) {
@@ -8210,6 +8478,11 @@ function sumPackagingCost(records) {
 function isPackagingRecord(record) {
   const text = [record.item, record.major, record.middle, record.minor, record.note].join(" ");
   return /包材|包裝|紙箱|氣泡|膠帶|紙袋|信封|耗材/.test(text);
+}
+
+function isLogisticsCostRecord(record) {
+  const text = [record.item, record.major, record.middle, record.minor, record.note].join(" ");
+  return /金流|物流|運費|平台|手續費|刷卡/.test(text);
 }
 
 function getDateRange(start, end) {

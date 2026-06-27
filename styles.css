@@ -1545,6 +1545,63 @@ textarea:focus {
   box-shadow: 0 8px 18px rgba(15, 94, 84, 0.1);
 }
 
+.voucher-adjustment-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d6c8a3;
+  border-radius: 14px;
+  background: #fffdf5;
+  padding: 16px;
+  margin: 18px 0;
+}
+
+.voucher-adjustment-panel.empty-state {
+  display: block;
+  color: var(--muted);
+}
+
+.voucher-adjustment-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.voucher-adjustment-head strong,
+.voucher-adjustment-head span {
+  display: block;
+}
+
+.voucher-adjustment-head strong {
+  font-size: 18px;
+}
+
+.voucher-adjustment-head span {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.voucher-adjustment-counts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.voucher-adjustment-counts span {
+  border: 1px solid #ead7ad;
+  border-radius: 999px;
+  background: #fff7df;
+  color: #8a5d00;
+  padding: 6px 10px;
+  font-weight: 900;
+}
+
+.voucher-adjustment-list {
+  display: grid;
+  gap: 12px;
+}
+
 .voucher-inbox-item {
   display: grid;
   grid-template-columns: 150px 1fr auto;

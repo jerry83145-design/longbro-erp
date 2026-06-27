@@ -1,10 +1,10 @@
-const CONFIG = {
+﻿const CONFIG = {
   projectId: "longbroerp",
   databaseId: "(default)",
   rootFolderName: "\u9686\u535aERP\u6191\u8b49",
   adminVoucherListFolderId: "1POTpxGEPNQB3xDp4gkzjPQ-nYLuQAFsZ",
   adminVoucherImageFolderId: "1oCzWPjoL5lIwaJJxpnAx_hQ0x2m5yHfI",
-  sharedSecret: "74185296",
+  sharedSecret: "CHANGE_ME_SHARED_SECRET",
 };
 
 function doGet(event) {
@@ -230,7 +230,8 @@ function readAdminVoucherFolders(payload) {
     try {
       const rows = readVoucherRowsFromDriveFile(file);
       rows.forEach(function (row) {
-        const voucher = parseAdminVoucherRow(row.values, row.sourceRow, file.name, imageIndex, payload);
+        const sourceWorkbook = row.sourceSheet ? file.name + " / " + row.sourceSheet : file.name;
+        const voucher = parseAdminVoucherRow(row.values, row.sourceRow, sourceWorkbook, imageIndex, payload);
         if (voucher) vouchers.push(voucher);
       });
       files.push({ id: file.id, name: file.name, rowCount: rows.length, ok: true });
@@ -324,10 +325,10 @@ function readVoucherRowsFromSpreadsheet(spreadsheetId) {
 function readAdminVoucherRowsFromMatrix(matrix) {
   const headerIndex = matrix.findIndex(function (row) {
     const headers = row.map(normalizeAdminHeader);
-    const hasVoucherSignal = ["發票日期", "發票號碼", "供應商名稱", "新檔名"].some(function (name) {
+    const hasVoucherSignal = ["\u767c\u7968\u65e5\u671f", "\u55ae\u64da\u65e5\u671f", "\u767c\u7968\u865f\u78bc", "\u539f\u767c\u7968\u865f\u78bc", "\u6298\u8b93\u55ae\u865f / \u9000\u8ca8\u55ae\u865f", "\u55ae\u64da\u985e\u578b", "\u4f9b\u61c9\u5546\u540d\u7a31", "\u65b0\u6a94\u540d"].some(function (name) {
       return headers.indexOf(normalizeAdminHeader(name)) >= 0;
     });
-    const hasAmount = ["含稅價", "支出金額", "未稅總價", "稅金"].some(function (name) {
+    const hasAmount = ["\u542b\u7a05\u50f9", "\u542b\u7a05\u91d1\u984d", "\u652f\u51fa\u91d1\u984d", "\u672a\u7a05\u7e3d\u50f9", "\u672a\u7a05\u91d1\u984d", "\u7a05\u91d1"].some(function (name) {
       return headers.indexOf(normalizeAdminHeader(name)) >= 0;
     });
     return hasVoucherSignal && hasAmount;
@@ -346,21 +347,24 @@ function readAdminVoucherRowsFromMatrix(matrix) {
 }
 
 function parseAdminVoucherRow(row, sourceRow, sourceWorkbook, imageIndex, payload) {
-  const invoiceNumber = normalizeAdminInvoiceNumber(pickAdminValue(row, ["發票號碼", "憑證號碼"]));
-  const date = normalizeAdminDate(pickAdminValue(row, ["發票日期", "日期"]));
-  const counterparty = String(pickAdminValue(row, ["供應商名稱", "供應商", "交易對象", "廠商"]) || "").trim();
-  const item = String(pickAdminValue(row, ["品項", "項目", "摘要"]) || "").trim();
-  const quantity = parseAdminAmount(pickAdminValue(row, ["數量"]));
-  const unitPrice = parseAdminAmount(pickAdminValue(row, ["單價"]));
-  const netAmount = parseAdminAmount(pickAdminValue(row, ["未稅總價", "未稅金額"]));
-  const taxAmount = parseAdminAmount(pickAdminValue(row, ["稅金", "稅額"]));
-  const grossAmount = parseAdminAmount(pickAdminValue(row, ["含稅價", "含稅金額", "總金額"]));
-  const expenseAmount = parseAdminAmount(pickAdminValue(row, ["支出金額", "金額"]));
+  const invoiceNumber = normalizeAdminInvoiceNumber(pickAdminValue(row, ["\u767c\u7968\u865f\u78bc", "\u6191\u8b49\u865f\u78bc"]));
+  const originalInvoiceNumber = normalizeAdminInvoiceNumber(pickAdminValue(row, ["\u539f\u767c\u7968\u865f\u78bc", "\u539f\u6191\u8b49\u865f\u78bc"]));
+  const adjustmentNumber = String(pickAdminValue(row, ["\u6298\u8b93\u55ae\u865f / \u9000\u8ca8\u55ae\u865f", "\u6298\u8b93\u55ae\u865f", "\u9000\u8ca8\u55ae\u865f", "\u9000\u51fa\u55ae\u865f"]) || "").trim();
+  const date = normalizeAdminDate(pickAdminValue(row, ["\u767c\u7968\u65e5\u671f", "\u55ae\u64da\u65e5\u671f", "\u65e5\u671f"]));
+  const counterparty = String(pickAdminValue(row, ["\u4f9b\u61c9\u5546\u540d\u7a31", "\u4f9b\u61c9\u5546", "\u4ea4\u6613\u5c0d\u8c61", "\u5ee0\u5546", "\u4ea4\u6613\u5c0d\u8c61\u7cfb\u7d71\u7de8\u78bc"]) || "").trim();
+  const item = String(pickAdminValue(row, ["\u54c1\u9805", "\u9805\u76ee", "\u6458\u8981"]) || "").trim();
+  const quantity = parseAdminAmount(pickAdminValue(row, ["\u6578\u91cf"]));
+  const unitPrice = parseAdminAmount(pickAdminValue(row, ["\u55ae\u50f9"]));
+  const netAmount = parseAdminAmount(pickAdminValue(row, ["\u672a\u7a05\u7e3d\u50f9", "\u672a\u7a05\u91d1\u984d"]));
+  const taxAmount = parseAdminAmount(pickAdminValue(row, ["\u7a05\u91d1", "\u7a05\u984d"]));
+  const grossAmount = parseAdminAmount(pickAdminValue(row, ["\u542b\u7a05\u50f9", "\u542b\u7a05\u91d1\u984d", "\u7e3d\u91d1\u984d"]));
+  const expenseAmount = parseAdminAmount(pickAdminValue(row, ["\u652f\u51fa\u91d1\u984d", "\u91d1\u984d"]));
   const amount = grossAmount || expenseAmount || netAmount + taxAmount || netAmount;
-  const sourceFileName = String(pickAdminValue(row, ["新檔名", "檔名", "憑證檔名"]) || "").trim();
-  const voucherType = String(pickAdminValue(row, ["發票型式", "憑證型式"]) || "").trim();
-  const processResult = String(pickAdminValue(row, ["處理結果"]) || "").trim();
-  const rawNote = String(pickAdminValue(row, ["備註"]) || "").trim();
+  const sourceFileName = String(pickAdminValue(row, ["\u65b0\u6a94\u540d", "\u6a94\u540d", "\u6191\u8b49\u6a94\u540d"]) || "").trim();
+  const voucherType = String(pickAdminValue(row, ["\u55ae\u64da\u985e\u578b", "\u767c\u7968\u578b\u5f0f", "\u6191\u8b49\u578b\u5f0f"]) || "").trim();
+  const processResult = String(pickAdminValue(row, ["\u8655\u7406\u7d50\u679c"]) || "").trim();
+  const rawNote = String(pickAdminValue(row, ["\u5099\u8a3b"]) || "").trim();
+  const documentMeta = resolveAdminVoucherDocumentMeta([voucherType, processResult, sourceWorkbook, sourceFileName, rawNote].join(" "));
 
   if (!amount || (!invoiceNumber && !sourceFileName && !counterparty && !item)) return null;
 
@@ -368,7 +372,10 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook, imageIndex, payloa
   const voucherLinks = imageFile ? [imageFile.url] : [];
   return {
     invoiceNumber: invoiceNumber,
+    originalInvoiceNumber: originalInvoiceNumber,
+    adjustmentNumber: adjustmentNumber,
     date: date || Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd"),
+    type: documentMeta.recordType || "expense",
     counterparty: counterparty,
     item: item,
     quantity: quantity,
@@ -382,15 +389,34 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook, imageIndex, payloa
     sourceFileName: sourceFileName,
     sourceWorkbook: sourceWorkbook,
     sourceRow: sourceRow,
-    voucherType: voucherType,
+    voucherType: documentMeta.label || voucherType,
+    documentType: documentMeta.documentType,
+    adjustmentKind: documentMeta.adjustmentKind,
     processResult: processResult,
-    note: [item, processResult, rawNote, sourceFileName ? "檔名：" + sourceFileName : "", "來源：" + sourceWorkbook + " 第 " + sourceRow + " 列"].filter(Boolean).join("｜"),
+    note: [item, documentMeta.label, originalInvoiceNumber ? "Original invoice: " + originalInvoiceNumber : "", adjustmentNumber ? "Adjustment no: " + adjustmentNumber : "", processResult, rawNote, sourceFileName ? "File: " + sourceFileName : "", "Source: " + sourceWorkbook + " row " + sourceRow].filter(Boolean).join(" | "),
     matches: [],
     status: "unmatched",
     source: "admin-drive",
     createdBy: payload.userEmail || "Drive Sync",
     userId: payload.userId || "",
   };
+}
+
+function resolveAdminVoucherDocumentMeta(text) {
+  const value = String(text || "");
+  if (value.indexOf("\u9032\u8ca8\u6298\u8b93") >= 0) {
+    return { recordType: "expense", documentType: "purchaseAllowance", adjustmentKind: "allowance", label: "\u9032\u8ca8\u6298\u8b93\u55ae" };
+  }
+  if (value.indexOf("\u9032\u8ca8\u9000") >= 0 || value.indexOf("\u9032\u8ca8\u9000\u51fa") >= 0 || value.indexOf("\u9000\u51fa\u55ae") >= 0) {
+    return { recordType: "expense", documentType: "purchaseReturn", adjustmentKind: "return", label: "\u9032\u8ca8\u9000\u51fa\u55ae" };
+  }
+  if (value.indexOf("\u92b7\u8ca8\u6298\u8b93") >= 0) {
+    return { recordType: "income", documentType: "salesAllowance", adjustmentKind: "allowance", label: "\u92b7\u8ca8\u6298\u8b93\u55ae" };
+  }
+  if (value.indexOf("\u92b7\u8ca8\u9000") >= 0 || value.indexOf("\u92b7\u8ca8\u9000\u56de") >= 0 || value.indexOf("\u9000\u56de\u55ae") >= 0) {
+    return { recordType: "income", documentType: "salesReturn", adjustmentKind: "return", label: "\u92b7\u8ca8\u9000\u56de\u55ae" };
+  }
+  return { recordType: "", documentType: "invoice", adjustmentKind: "", label: "" };
 }
 
 function findAdminVoucherImage(imageIndex, sourceFileName, invoiceNumber) {
@@ -421,7 +447,7 @@ function pickAdminValue(row, names) {
 }
 
 function normalizeAdminHeader(value) {
-  return String(value || "").replace(/[\s*＊:：]/g, "").toLowerCase();
+  return String(value || "").replace(/[\s*:\uFF1A\/\uFF0F]+/g, "").toLowerCase();
 }
 
 function normalizeAdminKey(value) {
@@ -460,7 +486,7 @@ function scanInvoiceNumbersFromPayload(payload) {
     const fileId = file.id || extractDriveFileId(file.url || file.webViewLink || "");
     const name = file.name || file.originalName || fileId || "voucher";
     try {
-      if (!fileId) throw new Error("找不到 Google Drive 檔案 ID");
+      if (!fileId) throw new Error("Missing Google Drive file ID");
       const text = extractTextFromDriveFile(fileId, name);
       return {
         id: fileId,
@@ -494,7 +520,7 @@ function scanInvoiceNumbersFromPayload(payload) {
 
 function extractTextFromDriveFile(fileId, fallbackName) {
   if (typeof Drive === "undefined" || !Drive.Files) {
-    throw new Error("請先在 Apps Script 左側「服務」啟用 Drive API，才能掃描已上傳憑證");
+    throw new Error("Drive API is not enabled in Apps Script services");
   }
 
   const sourceFile = DriveApp.getFileById(fileId);

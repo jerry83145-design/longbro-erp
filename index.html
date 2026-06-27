@@ -492,7 +492,7 @@
                 <button id="syncDriveVoucherInboxButton" type="button">同步 Drive 行政清單</button>
                 <button id="importVoucherInboxButton" class="secondary-button" type="button">匯入行政憑證清單</button>
                 <input id="importVoucherInboxInput" type="file" accept=".xlsx,.xls,.csv" hidden />
-                <small>支援欄位：發票日期、發票號碼、供應商名稱、品項、未稅總價、稅金、含稅價、支出金額、新檔名、處理結果、備註。</small>
+                <small>支援欄位：發票／單據日期、發票號碼、折讓單號、退貨單號、供應商名稱、品項、未稅金額、稅金、含稅金額、新檔名、處理結果、備註。</small>
               </div>
               <div class="voucher-inbox-grid">
                 <label>
@@ -523,6 +523,7 @@
               <button id="saveVoucherInboxButton" type="button">加入暫存池</button>
             </div>
             <div id="voucherSummary" class="pending-summary"></div>
+            <div id="voucherAdjustmentPanel" class="voucher-adjustment-panel empty-state">目前沒有折讓／退出單。</div>
             <div id="voucherInboxFilter" class="voucher-filter" role="group" aria-label="憑證暫存池篩選">
               <button class="active" type="button" data-voucher-filter="open">待處理</button>
               <button type="button" data-voucher-filter="unmatched">待配帳</button>
