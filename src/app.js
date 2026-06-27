@@ -224,6 +224,7 @@ let recycleBinCache = [];
 let auditLogCache = [];
 let secondaryDataLoadPromise = null;
 let pendingLedgerImportPreview = null;
+let pendingBankImportPreview = null;
 
 const recycleCollections = [
   { name: "ledgerRecords", label: "流水帳" },
@@ -467,11 +468,48 @@ bankImportInput.addEventListener("change", async () => {
   if (!file) return;
 
   try {
-    await importBankFile(file);
+    pendingBankImportPreview = await buildBankImportPreview(file);
+    if (!pendingBankImportPreview) return;
+    renderBankImportPreview(pendingBankImportPreview);
   } catch (error) {
     showToast(`銀行匯入失敗：${error.message}`);
   } finally {
     bankImportInput.value = "";
+  }
+});
+
+bankImportPreview?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-bank-import-action]");
+  if (!button || !pendingBankImportPreview) return;
+
+  const action = button.dataset.bankImportAction;
+  if (action === "cancel") {
+    clearBankImportPreview();
+    return;
+  }
+
+  const recordsToImport = action === "import-all"
+    ? [...pendingBankImportPreview.cleanItems, ...pendingBankImportPreview.duplicateItems.map((item) => item.record)]
+    : pendingBankImportPreview.cleanItems;
+
+  if (!recordsToImport.length) {
+    showToast("沒有可匯入的銀行資料。");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "匯入中...";
+
+  try {
+    await saveImportedBankTransactions(recordsToImport);
+    const duplicateSkipped = action === "import-clean" ? pendingBankImportPreview.duplicateItems.length : 0;
+    const skippedMessage = duplicateSkipped ? `，略過 ${duplicateSkipped} 筆疑似重複` : "";
+    showToast(`已匯入 ${recordsToImport.length} 筆銀行資料${skippedMessage}。`);
+    clearBankImportPreview();
+  } catch (error) {
+    showToast(`銀行匯入失敗：${error.message}`);
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -3509,6 +3547,24 @@ function normalizeKeyText(value) {
 }
 
 async function importBankFile(file) {
+  const preview = await buildBankImportPreview(file);
+  if (!preview) return;
+  const { approvedItems, skippedCount } = await reviewDuplicateImports("bank", [
+    ...preview.cleanItems,
+    ...preview.duplicateItems.map((item) => item.record),
+  ]);
+  if (!approvedItems.length) {
+    showToast("匯入已取消，沒有新增銀行資料。");
+    return;
+  }
+
+  await saveImportedBankTransactions(approvedItems);
+
+  const skippedMessage = skippedCount ? `，略過 ${skippedCount} 筆疑似重複資料` : "";
+  showToast(`已匯入 ${approvedItems.length} 筆銀行資料${skippedMessage}。`);
+}
+
+async function buildBankImportPreview(file) {
   if (!window.XLSX) {
     throw new Error("Excel 套件尚未載入，請確認網路可連線後重試。");
   }
@@ -3519,11 +3575,25 @@ async function importBankFile(file) {
   }
 
   const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
   const rows = readBankRows(sheet);
-  const parsed = rows.map((row) => parseBankRow(row.values, row.sourceRow, file.name)).filter(Boolean);
+  const parsedItems = [];
+  const invalidItems = [];
 
-  if (!parsed.length) {
+  rows.forEach((row) => {
+    const parsed = parseBankRow(row.values, row.sourceRow, file.name);
+    if (parsed) {
+      parsedItems.push(parsed);
+    } else {
+      invalidItems.push({
+        sourceRow: row.sourceRow,
+        reason: getBankImportMissingReason(row.values),
+      });
+    }
+  });
+
+  if (!parsedItems.length && !invalidItems.length) {
     showToast("沒有可匯入的銀行資料。");
     return;
   }
@@ -3531,37 +3601,155 @@ async function importBankFile(file) {
   if (isConfigured) await loadBankTransactions();
 
   const currentImportKeys = new Set();
-  const importUniqueTransactions = parsed.filter((transaction) => {
+  const importUniqueTransactions = parsedItems.filter((transaction) => {
     const key = getBankTransactionKey(transaction);
     if (currentImportKeys.has(key)) return false;
     currentImportKeys.add(key);
     transaction.importKey = key;
     return true;
   });
-  const { approvedItems: uniqueTransactions } = await reviewDuplicateImports(
-    "bank",
-    importUniqueTransactions,
-  );
+  const duplicateInsideFileCount = parsedItems.length - importUniqueTransactions.length;
+  const cleanItems = [];
+  const duplicateItems = [];
 
-  if (!uniqueTransactions.length) {
-    showToast("匯入已取消，沒有新增銀行資料。");
-    return;
+  importUniqueTransactions.forEach((record) => {
+    const duplicate = findImportDuplicate("bank", record);
+    if (duplicate) {
+      duplicateItems.push({ record, duplicate });
+    } else {
+      cleanItems.push(record);
+    }
+  });
+
+  if (duplicateInsideFileCount) {
+    invalidItems.push({
+      sourceRow: "同檔重複",
+      reason: `檔案內有 ${duplicateInsideFileCount} 筆完全相同銀行資料，預覽已先排除。`,
+    });
   }
 
-  for (const transaction of uniqueTransactions) {
+  return {
+    fileName: file.name,
+    sheetName,
+    totalRows: rows.length,
+    cleanItems,
+    duplicateItems,
+    invalidItems,
+  };
+}
+
+function getBankImportMissingReason(row) {
+  const date = normalizeImportDate(pickValue(row, ["日期", "交易日期", "入帳日", "交易日", "帳務日", "date"]));
+  const description = [
+    pickValue(row, ["摘要", "說明", "交易說明", "交易明細", "交易內容", "備註", "description"]),
+    pickValue(row, ["匯款人／收款人", "匯款人/收款人", "匯款人", "收款人", "交易對象", "counterparty"]),
+  ].filter(Boolean).join(" · ");
+  const deposit = parseAmount(pickValue(row, ["存入", "收入", "貸方", "貸", "入金", "匯入", "轉入", "存款金額", "收入金額", "收方", "右方", "deposit", "credit"]));
+  const withdrawal = parseAmount(pickValue(row, ["提出", "支出", "借方", "借", "扣款", "匯出", "轉出", "提款金額", "支出金額", "付方", "左方", "withdrawal", "debit"]));
+  const signedAmount = parseSignedAmount(pickValue(row, ["金額", "交易金額", "收支金額", "amount"]));
+  const balance = parseAmount(pickValue(row, ["餘額", "結餘", "存款餘額", "balance"]));
+  const reasons = [];
+  if (!date) reasons.push("缺日期");
+  if (!(deposit || withdrawal || signedAmount || balance)) reasons.push("缺金額或餘額");
+  if (!description) reasons.push("缺交易說明");
+  return reasons.length ? reasons.join("、") : "欄位格式不符合";
+}
+
+function renderBankImportPreview(preview) {
+  if (!bankImportPreview) return;
+
+  const cleanCount = preview.cleanItems.length;
+  const duplicateCount = preview.duplicateItems.length;
+  const invalidCount = preview.invalidItems.length;
+  const importAllCount = cleanCount + duplicateCount;
+  const incomingCount = [...preview.cleanItems, ...preview.duplicateItems.map((item) => item.record)].filter((item) => Number(item.deposit || 0)).length;
+  const outgoingCount = [...preview.cleanItems, ...preview.duplicateItems.map((item) => item.record)].filter((item) => Number(item.withdrawal || 0)).length;
+
+  bankImportPreview.className = "bank-import-preview ledger-import-preview";
+  bankImportPreview.hidden = false;
+  bankImportPreview.innerHTML = `
+    <div class="import-preview-heading">
+      <div>
+        <p class="eyebrow">BANK IMPORT PREVIEW</p>
+        <h3>銀行匯入前檢查</h3>
+        <p>${escapeHtml(preview.fileName)} · ${escapeHtml(preview.sheetName)} · 共讀到 ${preview.totalRows} 列 · 流入 ${incomingCount} 筆 · 流出 ${outgoingCount} 筆</p>
+      </div>
+      <button class="secondary-button" type="button" data-bank-import-action="cancel">取消</button>
+    </div>
+    <div class="import-preview-summary">
+      ${renderImportSummaryCard("可直接匯入", cleanCount, "good")}
+      ${renderImportSummaryCard("疑似重複", duplicateCount, "warn")}
+      ${renderImportSummaryCard("無法匯入", invalidCount, "danger")}
+    </div>
+    <div class="import-preview-columns">
+      ${renderImportPreviewList("可匯入銀行資料", preview.cleanItems, renderBankImportRecordPreview)}
+      ${renderImportPreviewList("疑似重複銀行資料", preview.duplicateItems, renderBankDuplicatePreview)}
+      ${renderImportPreviewList("缺資料或格式不符", preview.invalidItems, renderBankInvalidPreview)}
+    </div>
+    <div class="import-preview-actions">
+      <button class="secondary-button" type="button" data-bank-import-action="import-clean" ${cleanCount ? "" : "disabled"}>只匯入可新增資料</button>
+      <button type="button" data-bank-import-action="import-all" ${importAllCount ? "" : "disabled"}>全部仍然匯入</button>
+    </div>
+  `;
+}
+
+function renderBankImportRecordPreview(record) {
+  const direction = Number(record.deposit || 0) ? "流入" : Number(record.withdrawal || 0) ? "流出" : "待辨識";
+  const amount = Number(record.deposit || record.withdrawal || 0);
+  return `
+    <article>
+      <strong>${escapeHtml(record.description || "未填交易說明")}</strong>
+      <span>${escapeHtml(record.date)} · ${escapeHtml(record.account || "未填帳戶")} · ${escapeHtml(direction)} NT$ ${formatNumber(amount)}</span>
+      <small>${record.balance ? `餘額 NT$ ${formatNumber(record.balance)} · ` : ""}${escapeHtml(formatImportSource(record))}</small>
+    </article>
+  `;
+}
+
+function renderBankDuplicatePreview(item) {
+  const amount = Number(item.record.deposit || item.record.withdrawal || 0);
+  return `
+    <article class="duplicate">
+      <strong>${escapeHtml(item.record.description || "未填交易說明")}</strong>
+      <span>${escapeHtml(item.record.date)} · NT$ ${formatNumber(amount)}</span>
+      <small>像既有銀行資料：${escapeHtml(item.duplicate.description || "未填交易說明")} / ${escapeHtml(item.duplicate.date || "")}</small>
+    </article>
+  `;
+}
+
+function renderBankInvalidPreview(item) {
+  return `
+    <article class="invalid">
+      <strong>第 ${escapeHtml(item.sourceRow)} 列</strong>
+      <span>${escapeHtml(item.reason)}</span>
+      <small>這列不會寫入，請先回 Excel 補資料或調整欄位名稱。</small>
+    </article>
+  `;
+}
+
+function clearBankImportPreview() {
+  pendingBankImportPreview = null;
+  if (bankImportPreview) {
+    bankImportPreview.className = "bank-import-preview muted-text";
+    bankImportPreview.hidden = false;
+    bankImportPreview.textContent = "尚未匯入銀行資料。";
+  }
+}
+
+async function saveImportedBankTransactions(records) {
+  for (const transaction of records) {
     await saveBankTransaction(transaction);
   }
 
-  if (isConfigured) await loadBankTransactions();
-  else {
+  if (isConfigured) {
+    await loadBankTransactions();
+  } else {
     saveLocalBankTransactions();
     renderBankTransactions();
+    renderCashflow();
     renderPendingCenter();
+    renderSettlementCenter();
+    renderCustomReport();
   }
-
-  const skippedCount = parsed.length - uniqueTransactions.length;
-  bankImportPreview.textContent = `已新增 ${uniqueTransactions.length} 筆銀行資料，略過 ${skippedCount} 筆已存在資料：${file.name}`;
-  showToast(`已新增 ${uniqueTransactions.length} 筆銀行資料，略過 ${skippedCount} 筆已存在資料。`);
 }
 
 async function registerBankPhotos(files) {
@@ -3602,6 +3790,7 @@ async function registerBankPhotos(files) {
     renderPendingCenter();
   }
 
+  bankImportPreview.className = "bank-import-preview muted-text";
   bankImportPreview.textContent = `已登記 ${records.length} 張存摺照片待辨識。`;
   showToast(`已登記 ${records.length} 張存摺照片。`);
 }
