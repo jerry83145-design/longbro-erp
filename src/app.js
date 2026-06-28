@@ -63,6 +63,8 @@ const settlementStatuses = {
 
 const setupNotice = document.querySelector("#setupNotice");
 const authStatus = document.querySelector("#authStatus");
+const sidebarStatusTitle = document.querySelector("#sidebarStatusTitle");
+const sidebarStatusDetail = document.querySelector("#sidebarStatusDetail");
 const signInButton = document.querySelector("#signInButton");
 const signOutButton = document.querySelector("#signOutButton");
 const ledgerForm = document.querySelector("#ledgerForm");
@@ -965,6 +967,8 @@ async function handleAuthState(user) {
 
   if (!user) {
     authStatus.textContent = "尚未登入";
+    sidebarStatusTitle.textContent = "前端預覽模式";
+    sidebarStatusDetail.textContent = "登入後會同步 Firebase 雲端資料";
     signInButton.hidden = false;
     signOutButton.hidden = true;
     saveButton.disabled = true;
@@ -973,6 +977,10 @@ async function handleAuthState(user) {
 
   const allowed = allowedEmails.includes(user.email);
   authStatus.textContent = allowed ? user.email : `${user.email} 未授權`;
+  sidebarStatusTitle.textContent = allowed ? "雲端同步模式" : "登入未授權";
+  sidebarStatusDetail.textContent = allowed
+    ? "已使用 Firebase 儲存與讀取資料"
+    : "此帳號目前無法讀寫雲端資料";
   signInButton.hidden = true;
   signOutButton.hidden = false;
   saveButton.disabled = !allowed;
