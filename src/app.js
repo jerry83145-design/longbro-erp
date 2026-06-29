@@ -5599,9 +5599,11 @@ function getVoucherInboxStatusInfo(voucher) {
 function renderVoucherMatchPanel(voucher, remainingAmount) {
   const voucherType = resolveVoucherRecordType(voucher);
   const voucherTypeLabel = voucherType === "income" ? "收入" : "支出";
+  const adjustmentVoucher = isVoucherAdjustment(voucher);
   const candidates = recordsCache
     .filter((record) => !record.deletedAt && record.type === voucherType && Number(record.amount || 0) > 0)
     .filter((record) => !hasVoucherMatch(record, voucher.id))
+    .filter((record) => adjustmentVoucher || !isLedgerVoucherVerified(record))
     .slice(0, 40);
 
   if (!remainingAmount) {
@@ -5726,6 +5728,14 @@ function hasVoucherMatch(record, voucherId) {
   return (Array.isArray(record.voucherMatches) ? record.voucherMatches : []).some((match) => match.voucherId === voucherId);
 }
 
+function hasRegularVoucherMatch(record) {
+  return (Array.isArray(record.voucherMatches) ? record.voucherMatches : []).some((match) => !match.isAdjustment);
+}
+
+function isLedgerVoucherVerified(record) {
+  return hasRegularVoucherMatch(record) || (hasAttachedVoucher(record) && Boolean(normalizeInvoiceNumber(record.invoiceNumber)));
+}
+
 function matchVoucherInbox(voucherId) {
   activeVoucherMatchId = activeVoucherMatchId === voucherId ? "" : voucherId;
   renderVoucherCenter();
@@ -5767,6 +5777,17 @@ async function applyVoucherMatches(voucherId) {
   if (hasWrongType) {
     showToast(`這張憑證只能配${voucherType === "income" ? "收入" : "支出"}帳務。`);
     return;
+  }
+
+  if (!isVoucherAdjustment(voucher)) {
+    const alreadyVerified = selected.some((match) => {
+      const record = recordsCache.find((item) => item.id === match.recordId);
+      return record && isLedgerVoucherVerified(record);
+    });
+    if (alreadyVerified) {
+      showToast("已核實的帳務不需要再配一般憑證。");
+      return;
+    }
   }
 
   const now = new Date();
