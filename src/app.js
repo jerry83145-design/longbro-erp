@@ -5393,7 +5393,6 @@ function renderVoucherInboxRow(voucher) {
   const documentMeta = resolveVoucherDocumentMeta(voucher);
   const voucherTypeLabel = documentMeta.label || (voucherType === "income" ? "銷項收入憑證" : "進項支出憑證");
   const links = Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : [];
-  const matchPanel = activeVoucherMatchId === voucher.id ? renderVoucherMatchPanel(voucher, remainingAmount) : "";
   const editPanel = activeVoucherEditId === voucher.id ? renderVoucherEditPanel(voucher) : "";
   const referenceText = [
     voucher.originalInvoiceNumber ? `原發票 ${voucher.originalInvoiceNumber}` : "",
@@ -5419,10 +5418,9 @@ function renderVoucherInboxRow(voucher) {
       </div>
       <div class="voucher-actions">
         <button type="button" data-voucher-edit data-voucher-id="${escapeHtml(voucher.id)}">${activeVoucherEditId === voucher.id ? "收合編輯" : "編輯"}</button>
-        <button type="button" data-voucher-match data-voucher-id="${escapeHtml(voucher.id)}">${activeVoucherMatchId === voucher.id ? "收合配帳" : "配帳"}</button>
+        <button type="button" data-voucher-match data-voucher-id="${escapeHtml(voucher.id)}">配帳</button>
       </div>
       ${editPanel}
-      ${matchPanel}
     </article>
   `;
 }
@@ -5599,12 +5597,7 @@ function getVoucherInboxStatusInfo(voucher) {
 function renderVoucherMatchPanel(voucher, remainingAmount) {
   const voucherType = resolveVoucherRecordType(voucher);
   const voucherTypeLabel = voucherType === "income" ? "收入" : "支出";
-  const adjustmentVoucher = isVoucherAdjustment(voucher);
-  const candidates = recordsCache
-    .filter((record) => !record.deletedAt && record.type === voucherType && Number(record.amount || 0) > 0)
-    .filter((record) => !hasVoucherMatch(record, voucher.id))
-    .filter((record) => adjustmentVoucher || !isLedgerVoucherVerified(record))
-    .slice(0, 40);
+  const candidates = getVoucherMatchCandidates(voucher);
 
   if (!remainingAmount) {
     return `<div class="voucher-match-panel"><div class="empty-state">這張憑證已經配完。</div></div>`;
@@ -5626,6 +5619,16 @@ function renderVoucherMatchPanel(voucher, remainingAmount) {
       <button type="button" data-voucher-apply-match data-voucher-id="${escapeHtml(voucher.id)}">套用配帳</button>
     </div>
   `;
+}
+
+function getVoucherMatchCandidates(voucher) {
+  const voucherType = resolveVoucherRecordType(voucher);
+  const adjustmentVoucher = isVoucherAdjustment(voucher);
+  return recordsCache
+    .filter((record) => !record.deletedAt && record.type === voucherType && Number(record.amount || 0) > 0)
+    .filter((record) => !hasVoucherMatch(record, voucher.id))
+    .filter((record) => adjustmentVoucher || !isLedgerVoucherVerified(record))
+    .slice(0, 40);
 }
 
 function renderVoucherMatchCandidate(record, remainingAmount) {
@@ -5736,15 +5739,102 @@ function isLedgerVoucherVerified(record) {
   return hasRegularVoucherMatch(record) || (hasAttachedVoucher(record) && Boolean(normalizeInvoiceNumber(record.invoiceNumber)));
 }
 
-function matchVoucherInbox(voucherId) {
-  activeVoucherMatchId = activeVoucherMatchId === voucherId ? "" : voucherId;
+async function matchVoucherInbox(voucherId) {
+  const voucher = voucherInboxCache.find((item) => item.id === voucherId);
+  if (!voucher) return;
+
+  const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - getVoucherMatchedAmount(voucher));
+  const voucherType = resolveVoucherRecordType(voucher);
+  const voucherTypeLabel = voucherType === "income" ? "收入" : "支出";
+  const candidates = getVoucherMatchCandidates(voucher);
+
+  if (!remainingAmount) {
+    showToast("這張憑證已經配完。");
+    return;
+  }
+
+  if (!candidates.length) {
+    showToast(`目前沒有可配對的${voucherTypeLabel}。`);
+    return;
+  }
+
+  activeVoucherEditId = "";
+  activeVoucherMatchId = "";
   renderVoucherCenter();
+  await openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTypeLabel);
 }
 
-async function applyVoucherMatches(voucherId) {
+function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTypeLabel) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "match-dialog-overlay voucher-match-overlay";
+    overlay.innerHTML = `
+      <div class="match-dialog voucher-match-dialog" role="dialog" aria-modal="true" aria-label="憑證配帳">
+        <div class="match-dialog-header">
+          <div>
+            <p class="eyebrow">VOUCHER MATCH</p>
+            <h3>選擇要核實的${escapeHtml(voucherTypeLabel)}帳務</h3>
+            <p>${escapeHtml(voucher.invoiceNumber || "未填發票號碼")} · ${escapeHtml(voucher.date || "")} · NT$ ${formatNumber(voucher.totalAmount)}</p>
+          </div>
+          <button type="button" data-voucher-dialog-close>×</button>
+        </div>
+        <div class="match-dialog-summary">
+          <span>憑證剩餘 <strong>NT$ ${formatNumber(remainingAmount)}</strong></span>
+          <span>已選合計 <strong data-voucher-match-total>NT$ 0</strong></span>
+          <span>可配餘額 <strong data-voucher-match-left>NT$ ${formatNumber(remainingAmount)}</strong></span>
+        </div>
+        <div class="voucher-match-panel" data-voucher-match-panel="${escapeHtml(voucher.id)}">
+          <div class="match-dialog-list voucher-match-dialog-list">
+            ${candidates.map((record) => renderVoucherMatchCandidate(record, remainingAmount)).join("")}
+          </div>
+        </div>
+        <div class="match-dialog-actions">
+          <button type="button" class="secondary-button" data-voucher-dialog-cancel>取消</button>
+          <button type="button" data-voucher-apply-match data-voucher-id="${escapeHtml(voucher.id)}">套用配帳</button>
+        </div>
+      </div>
+    `;
+
+    const close = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    const updateTotal = () => {
+      const checkedBoxes = Array.from(overlay.querySelectorAll("[data-match-record-id]:checked"));
+      const total = checkedBoxes.reduce((sum, checkbox) => {
+        const recordId = checkbox.dataset.matchRecordId;
+        const amountInput = overlay.querySelector(`[data-match-amount-for="${CSS.escape(recordId)}"]`);
+        return sum + parseAmount(amountInput?.value || 0);
+      }, 0);
+      overlay.querySelector("[data-voucher-match-total]").textContent = `NT$ ${formatNumber(total)}`;
+      overlay.querySelector("[data-voucher-match-left]").textContent = `NT$ ${formatNumber(remainingAmount - total)}`;
+    };
+
+    overlay.addEventListener("input", updateTotal);
+    overlay.addEventListener("change", updateTotal);
+    overlay.querySelector("[data-voucher-dialog-close]").addEventListener("click", () => close(false));
+    overlay.querySelector("[data-voucher-dialog-cancel]").addEventListener("click", () => close(false));
+    overlay.querySelector("[data-voucher-apply-match]").addEventListener("click", async (event) => {
+      event.currentTarget.disabled = true;
+      const applied = await applyVoucherMatches(voucher.id, overlay);
+      if (applied) {
+        close(true);
+        return;
+      }
+      event.currentTarget.disabled = false;
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+
+    document.body.appendChild(overlay);
+  });
+}
+
+async function applyVoucherMatches(voucherId, root = document) {
   const voucher = voucherInboxCache.find((item) => item.id === voucherId);
-  const panel = document.querySelector(`[data-voucher-match-panel="${CSS.escape(voucherId)}"]`);
-  if (!voucher || !panel) return;
+  const panel = root.querySelector(`[data-voucher-match-panel="${CSS.escape(voucherId)}"]`);
+  if (!voucher || !panel) return false;
 
   const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - getVoucherMatchedAmount(voucher));
   const selected = Array.from(panel.querySelectorAll("[data-match-record-id]:checked"))
@@ -5760,13 +5850,13 @@ async function applyVoucherMatches(voucherId) {
 
   if (!selected.length) {
     showToast("請先勾選要配帳的交易。");
-    return;
+    return false;
   }
 
   const totalSelected = selected.reduce((sum, match) => sum + match.amount, 0);
   if (totalSelected > remainingAmount) {
     showToast(`分配金額超過憑證剩餘 NT$ ${formatNumber(remainingAmount)}。`);
-    return;
+    return false;
   }
 
   const voucherType = resolveVoucherRecordType(voucher);
@@ -5776,7 +5866,7 @@ async function applyVoucherMatches(voucherId) {
   });
   if (hasWrongType) {
     showToast(`這張憑證只能配${voucherType === "income" ? "收入" : "支出"}帳務。`);
-    return;
+    return false;
   }
 
   if (!isVoucherAdjustment(voucher)) {
@@ -5786,7 +5876,7 @@ async function applyVoucherMatches(voucherId) {
     });
     if (alreadyVerified) {
       showToast("已核實的帳務不需要再配一般憑證。");
-      return;
+      return false;
     }
   }
 
@@ -5820,6 +5910,7 @@ async function applyVoucherMatches(voucherId) {
   renderRecords(recordsCache);
   updateSummary(recordsCache);
   showToast("憑證已配到帳務。");
+  return true;
 }
 
 function normalizeVoucherInboxAfterMatch(voucher, newMatches) {

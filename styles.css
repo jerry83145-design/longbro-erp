@@ -2226,6 +2226,17 @@ textarea:focus {
   gap: 10px;
 }
 
+.voucher-match-dialog .voucher-match-panel {
+  min-height: 0;
+  border-top: 0;
+  padding-top: 0;
+  overflow: hidden;
+}
+
+.voucher-match-dialog-list {
+  max-height: min(460px, 48vh);
+}
+
 .voucher-match-candidate {
   display: grid;
   grid-template-columns: auto 1fr 140px;
@@ -2235,6 +2246,17 @@ textarea:focus {
   border-radius: 10px;
   padding: 12px;
   background: #f8fbfa;
+}
+
+.voucher-match-candidate:has(input:checked) {
+  border-color: #8fcfc7;
+  background: #f0faf8;
+}
+
+.voucher-match-candidate input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
 }
 
 .voucher-match-candidate span strong,
