@@ -2054,6 +2054,13 @@ async function reviewDuplicateImports(kind, items) {
   let bulkAction = "";
 
   for (const item of items) {
+    const batchDuplicate = approvedItems.find((existing) => isImportDuplicate(kind, existing, item));
+    if (batchDuplicate) {
+      duplicateCount += 1;
+      skippedCount += 1;
+      continue;
+    }
+
     const duplicate = findImportDuplicate(kind, item);
     if (!duplicate) {
       approvedItems.push(item);
@@ -2080,6 +2087,13 @@ function findImportDuplicate(kind, incoming) {
   if (kind === "bank") return bankTransactionsCache.find((existing) => isBankImportDuplicate(existing, incoming));
   if (kind === "voucher") return voucherInboxCache.find((existing) => isVoucherImportDuplicate(existing, incoming));
   return null;
+}
+
+function isImportDuplicate(kind, existing, incoming) {
+  if (kind === "ledger") return isLedgerImportDuplicate(existing, incoming);
+  if (kind === "bank") return isBankImportDuplicate(existing, incoming);
+  if (kind === "voucher") return isVoucherImportDuplicate(existing, incoming);
+  return false;
 }
 
 function isLedgerImportDuplicate(existing, incoming) {
@@ -2115,6 +2129,11 @@ function isVoucherImportDuplicate(existing, incoming) {
   const incomingInvoice = normalizeInvoiceNumber(incoming.invoiceNumber);
   if (existingInvoice && incomingInvoice && existingInvoice === incomingInvoice) return true;
   if (buildVoucherInboxDedupeKey(existing) === buildVoucherInboxDedupeKey(incoming)) return true;
+  if (
+    normalizeVoucherMergeText(existing.sourceFileName) &&
+    normalizeVoucherMergeText(existing.sourceFileName) === normalizeVoucherMergeText(incoming.sourceFileName) &&
+    sameMoney(existing.totalAmount, incoming.totalAmount)
+  ) return true;
 
   return (
     String(existing.date || "") === String(incoming.date || "") &&
@@ -5187,7 +5206,6 @@ function mergeAdminVoucherRows(vouchers) {
 }
 
 function buildAdminVoucherMergeKey(voucher) {
-  const sourceWorkbook = String(voucher.sourceWorkbook || "").trim();
   const sourceFileName = normalizeVoucherMergeText(voucher.sourceFileName);
   const documentType = voucher.documentType || resolveVoucherDocumentMeta(voucher).documentType || "invoice";
   const date = normalizeImportDate(voucher.date) || voucher.date || "";
@@ -5198,12 +5216,11 @@ function buildAdminVoucherMergeKey(voucher) {
   ].find(Boolean);
 
   if (sourceFileName) {
-    return ["file", sourceWorkbook, sourceFileName, documentType].join("|");
+    return ["file", sourceFileName, primaryNumber || date, documentType].join("|");
   }
 
   return [
     "number",
-    sourceWorkbook,
     primaryNumber || normalizeVoucherMergeText(voucher.counterparty),
     date,
     documentType,
