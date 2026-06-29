@@ -4955,7 +4955,7 @@ async function syncDriveVoucherInbox() {
     });
     const vouchers = Array.isArray(result.vouchers) ? result.vouchers : [];
     let importedCount = 0;
-    const normalizedVouchers = vouchers.map((voucher) => normalizeDriveVoucherInbox(voucher)).filter(Boolean);
+    const normalizedVouchers = mergeAdminVoucherRows(vouchers.map((voucher) => normalizeDriveVoucherInbox(voucher)).filter(Boolean));
     const { approvedItems, skippedCount } = await reviewDuplicateImports("voucher", normalizedVouchers);
 
     for (const normalizedVoucher of approvedItems) {
@@ -5043,13 +5043,13 @@ async function importVoucherInboxFile(file) {
   }
 
   const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-  const vouchers = workbook.SheetNames
+  const vouchers = mergeAdminVoucherRows(workbook.SheetNames
     .flatMap((sheetName) => {
       const rows = readAdminVoucherRows(workbook.Sheets[sheetName]);
       const sourceWorkbook = workbook.SheetNames.length > 1 ? `${file.name}／${sheetName}` : file.name;
       return rows.map((row) => parseAdminVoucherRow(row.values, row.sourceRow, sourceWorkbook));
     })
-    .filter(Boolean);
+    .filter(Boolean));
 
   if (!vouchers.length) {
     showToast("沒有找到可匯入的憑證資料。");
@@ -5172,6 +5172,128 @@ function parseAdminVoucherRow(row, sourceRow, sourceWorkbook) {
     createdBy: currentUser?.email || "local-preview",
     userId: currentUser?.uid || "local-preview",
   };
+}
+
+function mergeAdminVoucherRows(vouchers) {
+  const groups = new Map();
+
+  vouchers.forEach((voucher) => {
+    const key = buildAdminVoucherMergeKey(voucher);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(voucher);
+  });
+
+  return Array.from(groups.values()).map((group) => mergeAdminVoucherGroup(group));
+}
+
+function buildAdminVoucherMergeKey(voucher) {
+  const sourceWorkbook = String(voucher.sourceWorkbook || "").trim();
+  const sourceFileName = normalizeVoucherMergeText(voucher.sourceFileName);
+  const documentType = voucher.documentType || resolveVoucherDocumentMeta(voucher).documentType || "invoice";
+  const date = normalizeImportDate(voucher.date) || voucher.date || "";
+  const primaryNumber = [
+    normalizeInvoiceNumber(voucher.invoiceNumber),
+    normalizeInvoiceNumber(voucher.originalInvoiceNumber),
+    String(voucher.adjustmentNumber || "").trim(),
+  ].find(Boolean);
+
+  if (sourceFileName) {
+    return ["file", sourceWorkbook, sourceFileName, documentType].join("|");
+  }
+
+  return [
+    "number",
+    sourceWorkbook,
+    primaryNumber || normalizeVoucherMergeText(voucher.counterparty),
+    date,
+    documentType,
+  ].join("|");
+}
+
+function mergeAdminVoucherGroup(group) {
+  if (group.length <= 1) return group[0];
+
+  const base = group[0];
+  const sourceFileAmount = parseAmountFromVoucherFileName(base.sourceFileName);
+  const lineAmountTotal = group.reduce((sum, voucher) => sum + Number(voucher.totalAmount || 0), 0);
+  const totalAmount = sourceFileAmount || lineAmountTotal;
+  const detailItems = group.map((voucher) => ({
+    item: voucher.item || "",
+    quantity: Number(voucher.quantity || 0),
+    unitPrice: Number(voucher.unitPrice || 0),
+    netAmount: Number(voucher.netAmount || 0),
+    taxAmount: Number(voucher.taxAmount || 0),
+    totalAmount: Number(voucher.totalAmount || 0),
+    sourceRow: voucher.sourceRow || "",
+  }));
+  const itemSummary = uniqueNonEmpty(group.map((voucher) => voucher.item)).join("、");
+  const processResults = uniqueNonEmpty(group.map((voucher) => voucher.processResult)).join("、");
+  const sourceRows = uniqueNonEmpty(group.map((voucher) => voucher.sourceRow)).join(", ");
+  const detailSummary = detailItems
+    .map((item) => {
+      const amountText = item.totalAmount ? `NT$ ${formatNumber(item.totalAmount)}` : "";
+      const quantityText = item.quantity ? ` x ${formatNumber(item.quantity)}` : "";
+      return [item.item, quantityText, amountText ? `（${amountText}）` : ""].filter(Boolean).join("");
+    })
+    .filter(Boolean)
+    .join("；");
+  const amountNote = sourceFileAmount && lineAmountTotal && sourceFileAmount !== lineAmountTotal
+    ? `檔名總額 NT$ ${formatNumber(sourceFileAmount)}；明細列合計 NT$ ${formatNumber(lineAmountTotal)}`
+    : "";
+  const originalInvoiceNumber = uniqueNonEmpty(group.map((voucher) => voucher.originalInvoiceNumber))[0] || base.originalInvoiceNumber;
+  const adjustmentNumber = uniqueNonEmpty(group.map((voucher) => voucher.adjustmentNumber))[0] || base.adjustmentNumber;
+
+  return {
+    ...base,
+    counterparty: uniqueNonEmpty(group.map((voucher) => voucher.counterparty))[0] || base.counterparty,
+    item: itemSummary || base.item,
+    quantity: group.reduce((sum, voucher) => sum + Number(voucher.quantity || 0), 0),
+    unitPrice: 0,
+    netAmount: group.reduce((sum, voucher) => sum + Number(voucher.netAmount || 0), 0),
+    taxAmount: group.reduce((sum, voucher) => sum + Number(voucher.taxAmount || 0), 0),
+    totalAmount,
+    matchedAmount: 0,
+    remainingAmount: totalAmount,
+    voucherLinks: uniqueNonEmpty(group.flatMap((voucher) => voucher.voucherLinks || [])),
+    originalInvoiceNumber,
+    adjustmentNumber,
+    processResult: processResults || base.processResult,
+    sourceRow: sourceRows,
+    sourceRows,
+    detailItems,
+    note: [
+      itemSummary || base.item,
+      base.voucherType,
+      originalInvoiceNumber ? `原發票：${originalInvoiceNumber}` : "",
+      adjustmentNumber ? `單號：${adjustmentNumber}` : "",
+      processResults,
+      detailSummary ? `明細：${detailSummary}` : "",
+      amountNote,
+      base.sourceFileName ? `檔名：${base.sourceFileName}` : "",
+      `來源：${base.sourceWorkbook} 第 ${sourceRows} 列`,
+    ].filter(Boolean).join("｜"),
+  };
+}
+
+function parseAmountFromVoucherFileName(fileName) {
+  const cleanName = String(fileName || "").replace(/\.[^.]+$/, "");
+  const candidates = cleanName
+    .split(/[_\s-]+/)
+    .map((part) => part.replace(/,/g, ""))
+    .filter((part) => /^\d+(\.\d+)?$/.test(part))
+    .filter((part) => !/^20\d{6}$/.test(part))
+    .filter((part) => part.length < 8)
+    .map((part) => Number(part))
+    .filter((amount) => amount > 0);
+  return candidates.length ? candidates[candidates.length - 1] : 0;
+}
+
+function normalizeVoucherMergeText(value) {
+  return String(value || "").replace(/\s+/g, "").trim().toLowerCase();
+}
+
+function uniqueNonEmpty(values) {
+  return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
 }
 
 function isVoucherAdjustment(voucher) {
