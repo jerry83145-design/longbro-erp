@@ -658,6 +658,12 @@ voucherList?.addEventListener("click", (event) => {
 });
 
 function handleVoucherInboxActionClick(event) {
+  const removeMatchButton = event.target.closest("[data-voucher-remove-match]");
+  if (removeMatchButton) {
+    removeVoucherLedgerMatch(removeMatchButton.dataset.voucherId, removeMatchButton.dataset.ledgerId);
+    return;
+  }
+
   const saveEditButton = event.target.closest("[data-voucher-save-edit]");
   if (saveEditButton) {
     saveVoucherInboxEdit(saveEditButton.dataset.voucherId);
@@ -5525,6 +5531,9 @@ function renderVoucherLedgerMatchRow(match) {
   const date = record?.date || "";
   const counterparty = record?.counterparty || "未填交易對象";
   const amount = Number(match.amount || 0);
+  const removeButton = match.voucherId && match.ledgerId
+    ? `<button type="button" data-voucher-remove-match data-voucher-id="${escapeHtml(match.voucherId)}" data-ledger-id="${escapeHtml(match.ledgerId)}">移除</button>`
+    : "";
 
   return `
     <div class="voucher-ledger-row ${record ? "" : "missing"}">
@@ -5533,6 +5542,7 @@ function renderVoucherLedgerMatchRow(match) {
         <small>${escapeHtml(date)} · ${escapeHtml(type)} · ${escapeHtml(counterparty)}</small>
       </span>
       <b>NT$ ${formatNumber(amount)}</b>
+      ${removeButton}
     </div>
   `;
 }
@@ -5915,6 +5925,10 @@ async function applyVoucherMatches(voucherId, root = document) {
 
 function normalizeVoucherInboxAfterMatch(voucher, newMatches) {
   const matches = [...(Array.isArray(voucher.matches) ? voucher.matches : []), ...newMatches];
+  return normalizeVoucherInboxWithMatches(voucher, matches);
+}
+
+function normalizeVoucherInboxWithMatches(voucher, matches) {
   const matchedAmount = matches.reduce((sum, match) => sum + Number(match.amount || 0), 0);
   const remainingAmount = Math.max(0, Number(voucher.totalAmount || 0) - matchedAmount);
   return {
@@ -5926,6 +5940,39 @@ function normalizeVoucherInboxAfterMatch(voucher, newMatches) {
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
     updatedBy: currentUser?.email || "local-preview",
   };
+}
+
+async function removeVoucherLedgerMatch(voucherId, ledgerId) {
+  const voucher = voucherInboxCache.find((item) => item.id === voucherId);
+  const record = recordsCache.find((item) => item.id === ledgerId);
+  if (!voucher || !record) {
+    showToast("找不到要移除的配帳資料，請重新整理後再試。");
+    return;
+  }
+
+  const matches = Array.isArray(voucher.matches) ? voucher.matches : [];
+  const targetMatch = matches.find((match) => match.ledgerId === ledgerId);
+  if (!targetMatch) {
+    showToast("這筆配帳已不存在。");
+    return;
+  }
+
+  const ok = window.confirm(`確定要移除這筆配帳嗎？\n\n憑證：${voucher.invoiceNumber || voucher.item || "未填發票號碼"}\n帳務：${record.item || "未命名交易"}\n金額：NT$ ${formatNumber(targetMatch.amount)}`);
+  if (!ok) return;
+
+  const updatedVoucher = normalizeVoucherInboxWithMatches(
+    voucher,
+    matches.filter((match) => match.ledgerId !== ledgerId),
+  );
+
+  await saveVoucherInboxUpdate(voucher, updatedVoucher);
+  await saveLedgerVoucherUnmatch(record, voucher, ledgerId);
+
+  activeVoucherMatchId = "";
+  renderVoucherCenter();
+  renderRecords(recordsCache);
+  updateSummary(recordsCache);
+  showToast("已移除這筆憑證配帳。");
 }
 
 async function saveVoucherInboxEdit(voucherId) {
@@ -6000,6 +6047,49 @@ async function saveLedgerVoucherMatch(record, voucher, match) {
     voucherMatches,
     voucherLinks,
     hasVoucher: Boolean(voucherLinks.length || record.hasVoucher),
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
+  updatedRecord.pendingReason = resolveVoucherPendingReason(updatedRecord);
+
+  await writeAuditLog("update", "ledgerRecords", record.id, record, updatedRecord);
+  if (isConfigured) {
+    const { id, ...payload } = updatedRecord;
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), payload);
+    await loadRecords();
+    return;
+  }
+
+  recordsCache = recordsCache.map((item) => (item.id === record.id ? updatedRecord : item));
+  saveLocalRecords();
+}
+
+async function saveLedgerVoucherUnmatch(record, voucher, ledgerId) {
+  const remainingMatches = (Array.isArray(record.voucherMatches) ? record.voucherMatches : [])
+    .filter((match) => !(match.voucherId === voucher.id && match.ledgerId === ledgerId));
+  const voucherLinksToRemove = new Set(Array.isArray(voucher.voucherLinks) ? voucher.voucherLinks.filter(Boolean) : []);
+  const hasSameVoucherRemaining = remainingMatches.some((match) => match.voucherId === voucher.id);
+  const voucherLinks = hasSameVoucherRemaining
+    ? (Array.isArray(record.voucherLinks) ? record.voucherLinks : [])
+    : (Array.isArray(record.voucherLinks) ? record.voucherLinks.filter((url) => !voucherLinksToRemove.has(url)) : []);
+  const regularMatches = remainingMatches.filter((match) => !match.isAdjustment);
+  const shouldClearInvoice = Boolean(
+    voucher.invoiceNumber &&
+      normalizeInvoiceNumber(record.invoiceNumber) === normalizeInvoiceNumber(voucher.invoiceNumber) &&
+      !regularMatches.length,
+  );
+  const updatedRecord = {
+    ...record,
+    invoiceNumber: shouldClearInvoice ? "" : record.invoiceNumber,
+    voucherMatches: remainingMatches,
+    voucherLinks,
+    hasVoucher: Boolean(
+      voucherLinks.length ||
+        getVoucherNames(record).length ||
+        record.voucherFiles?.length ||
+        record.voucher ||
+        regularMatches.length,
+    ),
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
     updatedBy: currentUser?.email || "local-preview",
   };

@@ -1712,7 +1712,7 @@ textarea:focus {
 
 .voucher-ledger-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: center;
   border-top: 1px solid rgba(18, 93, 83, 0.12);
@@ -1737,6 +1737,17 @@ textarea:focus {
 .voucher-ledger-row b {
   color: var(--text);
   white-space: nowrap;
+}
+
+.voucher-ledger-row button {
+  min-height: 34px;
+  border: 1px solid #f0c2bd;
+  border-radius: 8px;
+  background: #fff7f6;
+  color: #9f2d20;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0 12px;
 }
 
 .voucher-ledger-row.missing b,
