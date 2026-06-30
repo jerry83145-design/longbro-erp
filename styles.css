@@ -206,6 +206,13 @@ button:disabled {
   background: var(--soft);
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   color: var(--accent);
@@ -1957,6 +1964,38 @@ textarea:focus {
   opacity: 0.65;
 }
 
+.cleanup-preview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cleanup-preview-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid #d69317;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.cleanup-preview-item strong,
+.cleanup-preview-item small {
+  display: block;
+}
+
+.cleanup-preview-item small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cleanup-preview-item b {
+  white-space: nowrap;
+}
+
 .restore-confirm-box {
   display: grid;
   gap: 8px;
@@ -3164,7 +3203,8 @@ textarea:focus {
   .voucher-match-candidate,
   .pending-item,
   .cashflow-row,
-  .cashflow-row.detail {
+  .cashflow-row.detail,
+  .cleanup-preview-item {
     grid-template-columns: 1fr;
   }
 

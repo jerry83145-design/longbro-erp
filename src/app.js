@@ -174,6 +174,9 @@ const restoreBackupPreview = document.querySelector("#restoreBackupPreview");
 const runSystemCheckButton = document.querySelector("#runSystemCheckButton");
 const systemCheckSummary = document.querySelector("#systemCheckSummary");
 const systemCheckList = document.querySelector("#systemCheckList");
+const previewShareholderAdvanceCleanupButton = document.querySelector("#previewShareholderAdvanceCleanupButton");
+const applyShareholderAdvanceCleanupButton = document.querySelector("#applyShareholderAdvanceCleanupButton");
+const shareholderAdvanceCleanupPreview = document.querySelector("#shareholderAdvanceCleanupPreview");
 const duplicateImportModal = document.querySelector("#duplicateImportModal");
 const duplicateImportTitle = document.querySelector("#duplicateImportTitle");
 const duplicateImportSubtitle = document.querySelector("#duplicateImportSubtitle");
@@ -228,6 +231,7 @@ let editingRecordId = null;
 let editingInventoryId = null;
 let recycleBinCache = [];
 let auditLogCache = [];
+let shareholderAdvanceCleanupPlan = [];
 let secondaryDataLoadPromise = null;
 let pendingLedgerImportPreview = null;
 let pendingBankImportPreview = null;
@@ -470,6 +474,8 @@ restoreBackupPreview?.addEventListener("click", async (event) => {
   }
 });
 runSystemCheckButton?.addEventListener("click", runSystemCheck);
+previewShareholderAdvanceCleanupButton?.addEventListener("click", previewShareholderAdvanceCleanup);
+applyShareholderAdvanceCleanupButton?.addEventListener("click", applyShareholderAdvanceCleanup);
 
 recycleBinList?.addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-recycle-restore]");
@@ -2838,7 +2844,7 @@ async function loadRecords() {
     firebaseApi.query(
       firebaseApi.collection(db, "ledgerRecords"),
       firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(100),
+      firebaseApi.limit(1000),
     ),
   );
   recordsCache = snapshot.docs
@@ -4172,7 +4178,7 @@ async function loadBankTransactions() {
     firebaseApi.query(
       firebaseApi.collection(db, "bankTransactions"),
       firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(200),
+      firebaseApi.limit(1000),
     ),
   );
   bankTransactionsCache = snapshot.docs
@@ -7833,6 +7839,184 @@ function renderSystemCheckItem(check) {
       <b>${escapeHtml(check.value || "")}</b>
     </article>
   `;
+}
+
+function previewShareholderAdvanceCleanup() {
+  if (!shareholderAdvanceCleanupPreview) return;
+
+  const plan = buildShareholderAdvanceCleanupPlan();
+  shareholderAdvanceCleanupPlan = plan.targets;
+
+  if (applyShareholderAdvanceCleanupButton) {
+    applyShareholderAdvanceCleanupButton.disabled = !plan.targets.length;
+  }
+
+  if (!plan.activeExpenseCount) {
+    shareholderAdvanceCleanupPreview.className = "restore-preview empty-state";
+    shareholderAdvanceCleanupPreview.textContent = "目前沒有支出流水帳可整理。";
+    return;
+  }
+
+  if (!plan.targets.length) {
+    shareholderAdvanceCleanupPreview.className = "restore-preview empty-state";
+    shareholderAdvanceCleanupPreview.textContent = "目前沒有需要改成股東代墊未沖的支出。";
+    return;
+  }
+
+  const sampleRows = plan.targets.slice(0, 25).map((record) => `
+    <article class="cleanup-preview-item">
+      <div>
+        <strong>${escapeHtml(record.item || "未填摘要")}</strong>
+        <small>${escapeHtml(record.date || "未填日期")} · ${escapeHtml(record.counterparty || "未填對象")} · ${escapeHtml(record.account || "未填帳戶")} · ${escapeHtml(record.settlementStatus || "未填狀態")}</small>
+      </div>
+      <b>NT$ ${formatNumber(record.amount)}</b>
+    </article>
+  `).join("");
+
+  shareholderAdvanceCleanupPreview.className = "restore-preview";
+  shareholderAdvanceCleanupPreview.innerHTML = `
+    <div class="restore-preview-meta">
+      <article>
+        <span>支出總數</span>
+        <strong>${formatNumber(plan.activeExpenseCount)} 筆</strong>
+      </article>
+      <article>
+        <span>保留公司付款</span>
+        <strong>${formatNumber(plan.companyPaid.length)} 筆</strong>
+      </article>
+      <article>
+        <span>已是股東代墊</span>
+        <strong>${formatNumber(plan.alreadyAdvance.length)} 筆</strong>
+      </article>
+      <article>
+        <span>準備整理</span>
+        <strong>${formatNumber(plan.targets.length)} 筆</strong>
+      </article>
+    </div>
+    <div class="restore-preview-note warn">
+      將把下列支出的「帳戶」改為股東代墊、「付款狀態」改為股東代墊未沖；不會改金額、不刪資料、不動已完成銀行配帳的公司付款。
+      準備整理金額合計 NT$ ${formatNumber(plan.targetAmount)}。
+    </div>
+    <div class="cleanup-preview-list">
+      ${sampleRows}
+    </div>
+    ${plan.targets.length > 25 ? `<div class="restore-preview-note">另有 ${formatNumber(plan.targets.length - 25)} 筆未顯示，套用時會一起整理。</div>` : ""}
+  `;
+}
+
+function buildShareholderAdvanceCleanupPlan() {
+  const activeExpenses = recordsCache.filter((record) => record.type === "expense" && !record.deletedAt);
+  const companyPaid = activeExpenses.filter(isCompanyDirectPaidLedgerRecord);
+  const alreadyAdvance = activeExpenses.filter((record) =>
+    !isCompanyDirectPaidLedgerRecord(record) &&
+    record.account === "股東代墊" &&
+    record.settlementStatus === "股東代墊未沖",
+  );
+  const targets = activeExpenses.filter(shouldMarkAsShareholderAdvance);
+
+  return {
+    activeExpenseCount: activeExpenses.length,
+    companyPaid,
+    alreadyAdvance,
+    targets,
+    targetAmount: targets.reduce((sum, record) => sum + Number(record.amount || 0), 0),
+  };
+}
+
+function shouldMarkAsShareholderAdvance(record) {
+  if (!record || record.type !== "expense" || record.deletedAt) return false;
+  if (isCompanyDirectPaidLedgerRecord(record)) return false;
+  return !(record.account === "股東代墊" && record.settlementStatus === "股東代墊未沖");
+}
+
+function isCompanyDirectPaidLedgerRecord(record) {
+  return Boolean(
+    record.bankTransactionId ||
+    record.bankMatchedDate ||
+    record.bankMatchedDescription ||
+    Number(record.bankMatchedAmount || 0) > 0,
+  );
+}
+
+async function applyShareholderAdvanceCleanup() {
+  if (!shareholderAdvanceCleanupPlan.length) {
+    previewShareholderAdvanceCleanup();
+    return;
+  }
+
+  if (isConfigured && (!currentUser || !db)) {
+    showToast("請先登入後再套用股東代墊整理。");
+    return;
+  }
+
+  const totalAmount = shareholderAdvanceCleanupPlan.reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const confirmed = window.confirm(
+    `確定要整理 ${shareholderAdvanceCleanupPlan.length} 筆支出為「股東代墊未沖」嗎？\n\n合計：NT$ ${formatNumber(totalAmount)}\n\n這不會刪資料，也不會修改金額。`,
+  );
+  if (!confirmed) return;
+
+  const originalText = applyShareholderAdvanceCleanupButton?.textContent || "套用整理";
+  if (applyShareholderAdvanceCleanupButton) {
+    applyShareholderAdvanceCleanupButton.disabled = true;
+    applyShareholderAdvanceCleanupButton.textContent = "整理中";
+  }
+
+  try {
+    let updatedCount = 0;
+    for (const record of shareholderAdvanceCleanupPlan) {
+      const updates = buildShareholderAdvanceCleanupUpdates();
+      const updatedRecord = { ...record, ...updates };
+      await writeAuditLog("update", "ledgerRecords", record.id, record, updatedRecord);
+
+      if (isConfigured) {
+        await firebaseApi.updateDoc(firebaseApi.doc(db, "ledgerRecords", record.id), updates);
+      } else {
+        recordsCache = recordsCache.map((item) => (item.id === record.id ? { ...item, ...updates } : item));
+      }
+      updatedCount += 1;
+    }
+
+    if (isConfigured) {
+      await loadRecords();
+    } else {
+      saveLocalRecords();
+      renderRecords(recordsCache);
+      updateSummary(recordsCache);
+      renderCustomReport();
+      renderCashflow();
+      renderPendingCenter();
+      renderSettlementCenter();
+    }
+
+    shareholderAdvanceCleanupPlan = [];
+    if (shareholderAdvanceCleanupPreview) {
+      shareholderAdvanceCleanupPreview.className = "restore-preview";
+      shareholderAdvanceCleanupPreview.innerHTML = `
+        <div class="restore-preview-note pass">
+          已完成股東代墊整理：${formatNumber(updatedCount)} 筆，合計 NT$ ${formatNumber(totalAmount)}。現在可回到收付款核對，用「已配代墊還款」去配這些帳。
+        </div>
+      `;
+    }
+    showToast(`已整理 ${formatNumber(updatedCount)} 筆股東代墊。`);
+  } catch (error) {
+    showToast(`股東代墊整理失敗：${error.message || error}`);
+  } finally {
+    if (applyShareholderAdvanceCleanupButton) {
+      applyShareholderAdvanceCleanupButton.textContent = originalText;
+      applyShareholderAdvanceCleanupButton.disabled = !shareholderAdvanceCleanupPlan.length;
+    }
+  }
+}
+
+function buildShareholderAdvanceCleanupUpdates() {
+  return {
+    account: "股東代墊",
+    settlementStatus: "股東代墊未沖",
+    settledDate: "",
+    pendingReason: "股東先代墊，等待銀行代墊還款配帳。",
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
 }
 
 async function exportFullBackup() {
