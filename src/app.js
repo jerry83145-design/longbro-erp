@@ -112,6 +112,8 @@ const expenseSummaryLabel = document.querySelector("#expenseSummaryLabel");
 const incomeSummaryLabel = document.querySelector("#incomeSummaryLabel");
 const countSummaryLabel = document.querySelector("#countSummaryLabel");
 const pendingSummaryLabel = document.querySelector("#pendingSummaryLabel");
+const summaryMonthInput = document.querySelector("#summaryMonthInput");
+const summaryMonthCurrentButton = document.querySelector("#summaryMonthCurrentButton");
 const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
 const ledgerImportPreview = document.querySelector("#ledgerImportPreview");
@@ -220,6 +222,7 @@ let currentVoucherOcrRecordId = "";
 let activeVoucherMatchId = "";
 let activeVoucherEditId = "";
 let voucherInboxStatusFilter = "open";
+let selectedSummaryMonth = "";
 let duplicateImportDecisionResolver = null;
 let editingRecordId = null;
 let editingInventoryId = null;
@@ -312,6 +315,14 @@ restoreOrder(".sidebar-nav", ".nav-item", "sidebarNavOrder", getNavKey);
 restoreOrder(".summary-grid", ".summary-card", "summaryCardOrder", (item) => item.dataset.cardId);
 enableDragSort(".sidebar-nav", ".nav-item", ".drag-handle", "sidebarNavOrder", getNavKey);
 enableDragSort(".summary-grid", ".summary-card", ".card-drag-handle", "summaryCardOrder", (item) => item.dataset.cardId);
+summaryMonthInput?.addEventListener("change", () => {
+  selectedSummaryMonth = normalizeSummaryMonth(summaryMonthInput.value);
+  updateSummary(recordsCache);
+});
+summaryMonthCurrentButton?.addEventListener("click", () => {
+  selectedSummaryMonth = getCurrentSummaryMonth();
+  updateSummary(recordsCache);
+});
 updatePageMeta("overview");
 renderAllOptions();
 renderOptionsEditor();
@@ -891,6 +902,11 @@ inventoryList.addEventListener("click", async (event) => {
 
   const record = inventoryCache.find((item) => item.id === button.dataset.inventoryId);
   if (!record) return;
+
+  if (button.dataset.inventoryAction === "details") {
+    showInventoryDetailDialog(record);
+    return;
+  }
 
   if (button.dataset.inventoryAction === "edit") {
     startEditingInventoryRecord(record);
@@ -7346,11 +7362,74 @@ function renderInventoryRecord(record) {
       <span>NT$ ${formatNumber(record.totalCost)}</span>
       <span>${escapeHtml(record.date)} · ${inventoryActionLabels[record.action]}</span>
       <div class="record-actions">
+        <button type="button" data-inventory-action="details" data-inventory-id="${escapeHtml(record.id)}">看明細</button>
         <button type="button" data-inventory-action="edit" data-inventory-id="${escapeHtml(record.id)}">修改</button>
         <button type="button" class="danger" data-inventory-action="delete" data-inventory-id="${escapeHtml(record.id)}">刪除</button>
       </div>
     </article>
   `;
+}
+
+function showInventoryDetailDialog(record) {
+  const unit = inventoryUnitLabels[record.type] || "件";
+  const linkedLedger = recordsCache.find((item) => item.id === record.linkedLedgerId);
+  const sourceInventory = inventoryCache.find((item) => item.id === record.sourceInventoryId);
+  const detailRows = [
+    ["庫存類型", inventoryTypeLabels[record.type] || record.type || "未填"],
+    ["品名 / 卡名", record.name || "未填"],
+    ["動作", inventoryActionLabels[record.action] || record.action || "未填"],
+    ["日期", record.date || "未填"],
+    ["數量", `${record.action === "out" ? "-" : "+"}${formatNumber(record.quantity)} ${unit}`],
+    ["單位成本", `NT$ ${formatNumber(record.unitCost)}`],
+    ["總成本", `NT$ ${formatNumber(record.totalCost)}`],
+    ["來源", record.source || "未填"],
+    ["關聯說明", record.reference || "無關聯來源"],
+    ["來源庫存", sourceInventory ? `${sourceInventory.name}（${formatNumber(sourceInventory.quantity)} ${unit}）` : "無"],
+    ["關聯帳務", linkedLedger ? formatLinkedLedgerDetail(linkedLedger) : "無"],
+    ["備註", record.note || "無"],
+  ];
+
+  const overlay = document.createElement("div");
+  overlay.className = "match-dialog-overlay";
+  overlay.innerHTML = `
+    <div class="match-dialog" role="dialog" aria-modal="true" aria-label="庫存明細">
+      <div class="match-dialog-header">
+        <div>
+          <p class="eyebrow">INVENTORY DETAIL</p>
+          <h3>${escapeHtml(record.name || "庫存明細")}</h3>
+          <p>${escapeHtml(record.date || "未填日期")} · ${escapeHtml(inventoryTypeLabels[record.type] || "庫存")}</p>
+        </div>
+        <button type="button" data-inventory-detail-close>×</button>
+      </div>
+      <div class="match-dialog-list">
+        <div class="inventory-detail-list">
+          ${detailRows.map(([label, value]) => `
+            <div class="inventory-detail-item">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(value)}</strong>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="match-dialog-actions">
+        <button type="button" class="secondary-button" data-inventory-detail-close>關閉</button>
+      </div>
+    </div>
+  `;
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-inventory-detail-close]")) {
+      overlay.remove();
+    }
+  });
+  document.body.appendChild(overlay);
+}
+
+function formatLinkedLedgerDetail(record) {
+  const amount = `NT$ ${formatNumber(record.amount)}`;
+  const invoice = record.invoiceNumber && record.invoiceNumber !== "無" ? ` · 發票 ${record.invoiceNumber}` : "";
+  const ledgerType = record.type === "income" ? "收入" : record.type === "expense" ? "支出" : record.type || "帳務";
+  return `${record.date || "未填日期"} · ${ledgerType} · ${record.counterparty || "未填對象"} · ${record.item || "未填摘要"} · ${amount}${invoice}`;
 }
 
 async function runSystemCheck() {
@@ -9273,12 +9352,16 @@ function renderInventoryMatchOption(lot) {
 }
 
 function updateSummary(records) {
-  const summaryMonth = pickSummaryMonth(records);
+  const summaryMonth = selectedSummaryMonth || pickSummaryMonth(records);
   const monthRecords = summaryMonth ? records.filter((record) => record.month === summaryMonth) : [];
   const expense = sumByType(monthRecords, "expense");
   const income = sumByType(monthRecords, "income");
   const pending = monthRecords.filter(hasReportablePendingReason).length;
-  const label = summaryMonth ? `${summaryMonth.slice(0, 4)}/${summaryMonth.slice(4, 6)}` : "本月";
+  const label = formatSummaryMonthLabel(summaryMonth);
+
+  if (summaryMonthInput) {
+    summaryMonthInput.value = formatSummaryMonthInput(summaryMonth);
+  }
 
   expenseSummaryLabel.textContent = `${label}支出`;
   incomeSummaryLabel.textContent = `${label}收入`;
@@ -9290,10 +9373,29 @@ function updateSummary(records) {
   document.querySelector("#pendingVoucher").textContent = `${pending} 筆`;
 }
 
-function pickSummaryMonth(records) {
-  if (!records.length) return toDateValue(new Date()).slice(0, 7).replace("-", "");
+function normalizeSummaryMonth(value) {
+  const compact = String(value || "").replace("-", "");
+  return /^\d{6}$/.test(compact) ? compact : "";
+}
 
-  const currentMonth = toDateValue(new Date()).slice(0, 7).replace("-", "");
+function formatSummaryMonthInput(month) {
+  const compact = normalizeSummaryMonth(month);
+  return compact ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}` : "";
+}
+
+function formatSummaryMonthLabel(month) {
+  const compact = normalizeSummaryMonth(month);
+  return compact ? `${compact.slice(0, 4)}/${compact.slice(4, 6)}` : "本月";
+}
+
+function getCurrentSummaryMonth() {
+  return toDateValue(new Date()).slice(0, 7).replace("-", "");
+}
+
+function pickSummaryMonth(records) {
+  if (!records.length) return getCurrentSummaryMonth();
+
+  const currentMonth = getCurrentSummaryMonth();
   if (records.some((record) => record.month === currentMonth)) return currentMonth;
 
   return records

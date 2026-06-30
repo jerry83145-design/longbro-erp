@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260630-voucher-match-search-fix" />
+    <link rel="stylesheet" href="./styles.css?v=20260630-summary-month-inventory-detail" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -94,7 +94,15 @@
           </div>
         </header>
 
-        <section class="summary-grid" aria-label="本月統計">
+        <section class="summary-toolbar" aria-label="統計月份">
+          <label>
+            <span>統計月份</span>
+            <input id="summaryMonthInput" type="month" />
+          </label>
+          <button id="summaryMonthCurrentButton" class="secondary-button" type="button">本月</button>
+        </section>
+
+        <section class="summary-grid" aria-label="月份統計">
           <article class="summary-card primary" data-card-id="expense" data-summary-type="expense">
             <span class="card-drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
             <span id="expenseSummaryLabel">本月支出</span>
@@ -673,6 +681,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260630-split-expense-inventory"></script>
+    <script type="module" src="./src/app.js?v=20260630-summary-month-inventory-detail"></script>
   </body>
 </html>

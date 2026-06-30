@@ -274,6 +274,41 @@ h2 {
   gap: 12px;
 }
 
+.summary-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: -6px 0 16px;
+}
+
+.summary-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.summary-toolbar span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.summary-toolbar input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.summary-toolbar button {
+  min-height: 44px;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr 1fr;
@@ -2377,7 +2412,7 @@ textarea:focus {
 
 .inventory-row {
   display: grid;
-  grid-template-columns: 100px 1fr 130px 140px 180px 120px;
+  grid-template-columns: 100px 1fr 130px 140px 180px 190px;
   gap: 14px;
   align-items: center;
 }
@@ -2534,6 +2569,7 @@ textarea:focus {
 .record-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2556,6 +2592,31 @@ textarea:focus {
 .record-actions button.danger:hover {
   border-color: #b91c1c;
   color: #b91c1c;
+}
+
+.inventory-detail-list {
+  display: grid;
+  gap: 12px;
+}
+
+.inventory-detail-item {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+
+.inventory-detail-item span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.inventory-detail-item strong {
+  font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .voucher-links {
@@ -2929,6 +2990,10 @@ textarea:focus {
     padding-top: 22px;
   }
 
+  .summary-toolbar {
+    justify-content: stretch;
+  }
+
   .summary-grid,
   .options-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3010,7 +3075,16 @@ textarea:focus {
     padding-right: 18px;
   }
 
+  .summary-toolbar label {
+    min-width: 0;
+  }
+
+  .inventory-detail-item {
+    grid-template-columns: 1fr;
+  }
+
   .content-header,
+  .summary-toolbar,
   .panel-heading,
   .section-heading,
   .form-footer {
