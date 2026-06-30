@@ -1466,6 +1466,16 @@ function normalizeInvoiceNumber(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function isNoInvoiceNumber(value) {
+  const normalized = normalizeInvoiceNumber(value).replace(/\s+/g, "");
+  return ["無", "沒有", "無發票", "免發票", "免開發票", "不用發票", "N/A", "NA", "NONE", "NO"].includes(normalized);
+}
+
+function hasInvoiceNumberValue(value) {
+  const normalized = normalizeInvoiceNumber(value);
+  return Boolean(normalized && !isNoInvoiceNumber(normalized));
+}
+
 function hasAttachedVoucher(record) {
   return Boolean(
     getVoucherLinks(record).length ||
@@ -1477,6 +1487,7 @@ function hasAttachedVoucher(record) {
 }
 
 function recordNeedsVoucher(record) {
+  if (isNoInvoiceNumber(record.invoiceNumber)) return false;
   return Boolean(
     record.invoiceRequired === true ||
       record.type === "expense" ||
@@ -1487,11 +1498,16 @@ function recordNeedsVoucher(record) {
 }
 
 function resolveVoucherPendingReason(record) {
+  if (isNoInvoiceNumber(record.invoiceNumber)) return "";
   if (!recordNeedsVoucher(record)) return record.pendingReason || "";
   if (!hasAttachedVoucher(record)) return "待補憑證";
-  if (!normalizeInvoiceNumber(record.invoiceNumber)) return "待補發票號碼";
+  if (!hasInvoiceNumberValue(record.invoiceNumber)) return "待補發票號碼";
   if (record.pendingReason && !/發票|收據|憑證/.test(record.pendingReason)) return record.pendingReason;
   return "";
+}
+
+function hasReportablePendingReason(record) {
+  return Boolean(record.pendingReason && !isNoInvoiceNumber(record.invoiceNumber));
 }
 
 function findPossibleDuplicate(record) {
@@ -2107,7 +2123,7 @@ function isLedgerImportDuplicate(existing, incoming) {
   const sameType = existing.type === incoming.type;
   const sameDate = String(existing.date || "") === String(incoming.date || "");
   const sameAmount = sameMoney(existing.amount, incoming.amount);
-  const sameInvoice = normalizeInvoiceNumber(existing.invoiceNumber) && normalizeInvoiceNumber(existing.invoiceNumber) === normalizeInvoiceNumber(incoming.invoiceNumber);
+  const sameInvoice = hasInvoiceNumberValue(existing.invoiceNumber) && normalizeInvoiceNumber(existing.invoiceNumber) === normalizeInvoiceNumber(incoming.invoiceNumber);
   const sameCoreText = sameLooseText(existing.counterparty, incoming.counterparty) && sameLooseText(existing.item, incoming.item);
   const sameAccount = sameLooseText(existing.account, incoming.account);
 
@@ -2133,7 +2149,7 @@ function isVoucherImportDuplicate(existing, incoming) {
   if (!existing || existing.deletedAt) return false;
   const existingInvoice = normalizeInvoiceNumber(existing.invoiceNumber);
   const incomingInvoice = normalizeInvoiceNumber(incoming.invoiceNumber);
-  if (existingInvoice && incomingInvoice && existingInvoice === incomingInvoice) return true;
+  if (hasInvoiceNumberValue(existing.invoiceNumber) && hasInvoiceNumberValue(incoming.invoiceNumber) && existingInvoice === incomingInvoice) return true;
   if (buildVoucherInboxDedupeKey(existing) === buildVoucherInboxDedupeKey(incoming)) return true;
   if (
     normalizeVoucherMergeText(existing.sourceFileName) &&
@@ -2731,7 +2747,7 @@ function renderCustomReport() {
   const logisticsCost = soldCost.logisticsCost + bankDirectCost;
   const packagingCost = soldCost.packagingCost;
   const costOfGoodsSold = productCost + logisticsCost + packagingCost;
-  const pending = records.filter((record) => record.pendingReason).length;
+  const pending = records.filter(hasReportablePendingReason).length;
   const grossProfit = salesIncome - productCost - logisticsCost - packagingCost;
   const operatingExpense = sumOperatingExpense(adjustedRecords);
   const net = grossProfit - operatingExpense;
@@ -4602,9 +4618,10 @@ function buildOverviewCheckItems(pendingItems = []) {
 
   activeRecords.forEach((record) => {
     const hasVoucher = hasAttachedVoucher(record);
-    const invoiceNumber = normalizeInvoiceNumber(record.invoiceNumber);
+    const hasInvoiceNumber = hasInvoiceNumberValue(record.invoiceNumber);
+    if (isNoInvoiceNumber(record.invoiceNumber)) return;
 
-    if (hasVoucher && !invoiceNumber) {
+    if (hasVoucher && !hasInvoiceNumber) {
       items.push(createOverviewCheckItem({
         group: "voucher",
         title: "有憑證但缺發票號碼",
@@ -4619,7 +4636,7 @@ function buildOverviewCheckItems(pendingItems = []) {
       }));
     }
 
-    if (invoiceNumber && !hasVoucher) {
+    if (hasInvoiceNumber && !hasVoucher) {
       items.push(createOverviewCheckItem({
         group: "voucher",
         title: "有發票號碼但缺憑證",
@@ -4700,20 +4717,20 @@ function buildOverviewCheckItems(pendingItems = []) {
 
   activeVouchers.forEach((voucher) => {
     const statusInfo = getVoucherInboxStatusInfo(voucher);
-    const invoiceNumber = normalizeInvoiceNumber(voucher.invoiceNumber);
-    if (!invoiceNumber || statusInfo.status !== "matched") {
+    const hasInvoiceNumber = hasInvoiceNumberValue(voucher.invoiceNumber);
+    if (!hasInvoiceNumber || statusInfo.status !== "matched") {
       items.push(createOverviewCheckItem({
         group: "voucher",
-        title: invoiceNumber ? "發票號碼尚未完整配帳" : "憑證暫存缺發票號碼",
+        title: hasInvoiceNumber ? "發票號碼尚未完整配帳" : "憑證暫存缺發票號碼",
         date: voucher.date,
         subject: voucher.item || voucher.counterparty || voucher.sourceFileName,
-        detail: invoiceNumber
+        detail: hasInvoiceNumber
           ? `總額 NT$ ${formatNumber(voucher.totalAmount || 0)}，目前${statusInfo.label}。`
           : "行政憑證已進暫存池，但還沒補上發票號碼。",
         targetView: "vouchers",
         recordId: voucher.id,
-        priority: invoiceNumber ? 76 : 84,
-        status: invoiceNumber ? "待配帳" : "待補號碼",
+        priority: hasInvoiceNumber ? 76 : 84,
+        status: hasInvoiceNumber ? "待配帳" : "待補號碼",
       }));
     }
   });
@@ -5746,7 +5763,7 @@ function hasRegularVoucherMatch(record) {
 }
 
 function isLedgerVoucherVerified(record) {
-  return hasRegularVoucherMatch(record) || (hasAttachedVoucher(record) && Boolean(normalizeInvoiceNumber(record.invoiceNumber)));
+  return hasRegularVoucherMatch(record) || (hasAttachedVoucher(record) && hasInvoiceNumberValue(record.invoiceNumber));
 }
 
 async function matchVoucherInbox(voucherId) {
@@ -6115,9 +6132,10 @@ function buildVoucherRows() {
     const names = getVoucherNames(record);
     const hasVoucher = hasAttachedVoucher(record);
     const needsVoucher = recordNeedsVoucher(record);
-    const hasInvoiceNumber = Boolean(normalizeInvoiceNumber(record.invoiceNumber));
+    const hasInvoiceNumber = hasInvoiceNumberValue(record.invoiceNumber);
 
     if (!needsVoucher && !hasVoucher) return;
+    if (isNoInvoiceNumber(record.invoiceNumber)) return;
 
     if (hasVoucher && hasInvoiceNumber) {
       rows.push({
@@ -6533,7 +6551,7 @@ function buildPendingItems() {
     });
 
   recordsCache.forEach((record) => {
-    if (record.pendingReason) {
+    if (hasReportablePendingReason(record)) {
       items.push(createPendingItem("voucher", record.pendingReason, record.date, record.item, record.pendingReason, "回收入／支出紀錄補上發票、收據或發票號碼。", "ledger", record.type, record.id));
     }
 
@@ -8560,7 +8578,7 @@ function buildReportIssues() {
   const inRange = (date) => date && (!start || !end || (date >= start && date <= end));
 
   lastReportRows.forEach((record) => {
-    if (record.pendingReason) {
+    if (hasReportablePendingReason(record)) {
       issues.push({
         type: "待補憑證",
         date: record.date,
@@ -9069,7 +9087,7 @@ function updateSummary(records) {
   const monthRecords = summaryMonth ? records.filter((record) => record.month === summaryMonth) : [];
   const expense = sumByType(monthRecords, "expense");
   const income = sumByType(monthRecords, "income");
-  const pending = monthRecords.filter((record) => record.pendingReason).length;
+  const pending = monthRecords.filter(hasReportablePendingReason).length;
   const label = summaryMonth ? `${summaryMonth.slice(0, 4)}/${summaryMonth.slice(4, 6)}` : "本月";
 
   expenseSummaryLabel.textContent = `${label}支出`;
