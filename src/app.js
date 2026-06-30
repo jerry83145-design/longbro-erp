@@ -5825,6 +5825,12 @@ async function matchVoucherInbox(voucherId) {
 function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTypeLabel) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
+    const defaultSearchTerm = getDefaultVoucherMatchSearchTerm(voucher, candidates);
+    const originalInvoiceHint = voucher.originalInvoiceNumber
+      ? defaultSearchTerm
+        ? `已用原發票 ${voucher.originalInvoiceNumber} 篩選`
+        : `原發票 ${voucher.originalInvoiceNumber} 未在支出發票欄找到，可改搜品項／金額`
+      : "可用品項、對象、日期、金額搜尋";
     overlay.className = "match-dialog-overlay voucher-match-overlay";
     overlay.innerHTML = `
       <div class="match-dialog voucher-match-dialog" role="dialog" aria-modal="true" aria-label="憑證配帳">
@@ -5842,8 +5848,10 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
           <span>可配餘額 <strong data-voucher-match-left>NT$ ${formatNumber(remainingAmount)}</strong></span>
         </div>
         <div class="voucher-match-search">
-          <input type="search" data-voucher-match-search-input placeholder="搜尋原發票、品項、對象、日期、金額" value="${escapeHtml(voucher.originalInvoiceNumber || "")}" />
+          <input type="search" data-voucher-match-search-input placeholder="搜尋原發票、品項、對象、日期、金額" value="${escapeHtml(defaultSearchTerm)}" />
+          <button type="button" class="secondary-button" data-voucher-match-clear>清除</button>
           <span data-voucher-match-search-count>${formatNumber(candidates.length)} 筆可選</span>
+          <small>${escapeHtml(originalInvoiceHint)}</small>
         </div>
         <div class="voucher-match-panel" data-voucher-match-panel="${escapeHtml(voucher.id)}">
           <div class="match-dialog-list voucher-match-dialog-list">
@@ -5894,6 +5902,10 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
     overlay.addEventListener("change", updateTotal);
     overlay.querySelector("[data-voucher-dialog-close]").addEventListener("click", () => close(false));
     overlay.querySelector("[data-voucher-dialog-cancel]").addEventListener("click", () => close(false));
+    overlay.querySelector("[data-voucher-match-clear]").addEventListener("click", () => {
+      overlay.querySelector("[data-voucher-match-search-input]").value = "";
+      applySearch();
+    });
     overlay.querySelector("[data-voucher-apply-match]").addEventListener("click", async (event) => {
       event.currentTarget.disabled = true;
       const applied = await applyVoucherMatches(voucher.id, overlay);
@@ -5910,6 +5922,14 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
     document.body.appendChild(overlay);
     applySearch();
   });
+}
+
+function getDefaultVoucherMatchSearchTerm(voucher, candidates) {
+  const originalInvoiceNumber = normalizeInvoiceNumber(voucher.originalInvoiceNumber);
+  if (!originalInvoiceNumber) return "";
+  return candidates.some((record) => getVoucherMatchSearchText(record).includes(normalizeVoucherMergeText(originalInvoiceNumber)))
+    ? voucher.originalInvoiceNumber
+    : "";
 }
 
 async function applyVoucherMatches(voucherId, root = document) {

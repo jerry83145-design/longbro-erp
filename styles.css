@@ -2250,11 +2250,12 @@ textarea:focus {
 
 .voucher-match-search {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
-  padding: 14px 24px 0;
+  padding: 14px 24px;
   background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .voucher-match-search input {
@@ -2269,6 +2270,20 @@ textarea:focus {
   color: var(--muted);
   font-weight: 800;
   white-space: nowrap;
+}
+
+.voucher-match-search button {
+  min-height: 42px;
+}
+
+.voucher-match-search small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.voucher-match-candidate[hidden],
+.voucher-match-empty[hidden] {
+  display: none !important;
 }
 
 .voucher-match-candidate {
@@ -2723,6 +2738,10 @@ textarea:focus {
   background: #fff;
   box-shadow: 0 22px 54px rgba(9, 47, 47, 0.2);
   overflow: hidden;
+}
+
+.voucher-match-dialog {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
 .match-dialog-header {
