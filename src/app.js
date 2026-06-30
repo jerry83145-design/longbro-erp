@@ -4527,12 +4527,17 @@ function getBankLedgerCandidates(transaction, direction) {
     candidates = candidates.filter(isShareholderAdvanceLedgerRecord);
   }
 
-  return candidates.sort((a, b) => {
-    const aAmountScore = Number(a.amount || 0) === direction.amount ? 1 : 0;
-    const bAmountScore = Number(b.amount || 0) === direction.amount ? 1 : 0;
-    if (aAmountScore !== bAmountScore) return bAmountScore - aAmountScore;
-    return getDateDistance(a.date, transaction.date) - getDateDistance(b.date, transaction.date);
-  });
+  return candidates.sort(compareLedgerMatchCandidatesByDate);
+}
+
+function compareLedgerMatchCandidatesByDate(a, b) {
+  const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+  if (dateCompare) return dateCompare;
+
+  const timeCompare = getRecordTimeValue(a) - getRecordTimeValue(b);
+  if (timeCompare) return timeCompare;
+
+  return String(a.item || "").localeCompare(String(b.item || ""), "zh-Hant");
 }
 
 function isShareholderRepaymentBankTransaction(transaction) {
