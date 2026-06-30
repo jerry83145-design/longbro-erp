@@ -4328,7 +4328,8 @@ async function reconcileBankTransaction(transaction) {
 
   const candidates = getBankLedgerCandidates(workingTransaction, direction);
   if (!candidates.length) {
-    showToast(`找不到可配對的${direction.type === "income" ? "收入" : "支出"}紀錄。`);
+    const scopeText = direction.candidateScope === "shareholderAdvance" ? "股東代墊未沖帳務" : `${direction.type === "income" ? "收入" : "支出"}紀錄`;
+    showToast(`找不到可配對的${scopeText}。`);
     return;
   }
 
@@ -4456,20 +4457,51 @@ function getBankTransactionDirection(transaction) {
   const deposit = Number(transaction.deposit || 0);
   const withdrawal = Number(transaction.withdrawal || 0);
   if (deposit > 0) return { type: "income", amount: deposit, status: "已配收入", settlementStatus: "已收款" };
+  if (withdrawal > 0 && isShareholderRepaymentBankTransaction(transaction)) {
+    return { type: "expense", amount: withdrawal, status: "已配代墊還款", settlementStatus: "已付款", candidateScope: "shareholderAdvance" };
+  }
   if (withdrawal > 0) return { type: "expense", amount: withdrawal, status: "已配支出", settlementStatus: "已付款" };
   return null;
 }
 
 function getBankLedgerCandidates(transaction, direction) {
-  return recordsCache
+  let candidates = recordsCache
     .filter((record) => record.type === direction.type)
-    .filter((record) => !record.bankTransactionId || record.bankTransactionId === transaction.id)
-    .sort((a, b) => {
-      const aAmountScore = Number(a.amount || 0) === direction.amount ? 1 : 0;
-      const bAmountScore = Number(b.amount || 0) === direction.amount ? 1 : 0;
-      if (aAmountScore !== bAmountScore) return bAmountScore - aAmountScore;
-      return getDateDistance(a.date, transaction.date) - getDateDistance(b.date, transaction.date);
-    });
+    .filter((record) => !record.bankTransactionId || record.bankTransactionId === transaction.id);
+
+  if (direction.candidateScope === "shareholderAdvance") {
+    candidates = candidates.filter(isShareholderAdvanceLedgerRecord);
+  }
+
+  return candidates.sort((a, b) => {
+    const aAmountScore = Number(a.amount || 0) === direction.amount ? 1 : 0;
+    const bAmountScore = Number(b.amount || 0) === direction.amount ? 1 : 0;
+    if (aAmountScore !== bAmountScore) return bAmountScore - aAmountScore;
+    return getDateDistance(a.date, transaction.date) - getDateDistance(b.date, transaction.date);
+  });
+}
+
+function isShareholderRepaymentBankTransaction(transaction) {
+  const text = [
+    transaction.status,
+    transaction.matchedType,
+    transaction.description,
+    transaction.sourceFile,
+    transaction.pendingReason,
+  ].filter(Boolean).join(" ");
+  return /已配代墊還款|股東代墊|代墊|墊款|墊付|張晟睿/.test(text);
+}
+
+function isShareholderAdvanceLedgerRecord(record) {
+  const text = [
+    record.cashflow,
+    record.account,
+    record.settlementStatus,
+    record.counterparty,
+    record.item,
+    record.note,
+  ].filter(Boolean).join(" ");
+  return classifyCashflowRecord(record) === "shareholderAdvance" || /股東代墊未沖|股東代墊|代墊|墊付|信用卡|刷卡|張晟睿/.test(text);
 }
 
 function getDateDistance(a, b) {
