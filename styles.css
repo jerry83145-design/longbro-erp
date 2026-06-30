@@ -2248,6 +2248,29 @@ textarea:focus {
   max-height: min(460px, 48vh);
 }
 
+.voucher-match-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 24px 0;
+  background: #fff;
+}
+
+.voucher-match-search input {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.voucher-match-search span {
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .voucher-match-candidate {
   display: grid;
   grid-template-columns: auto 1fr 140px;

@@ -5655,17 +5655,48 @@ function getVoucherMatchCandidates(voucher) {
     .filter((record) => !record.deletedAt && record.type === voucherType && Number(record.amount || 0) > 0)
     .filter((record) => !hasVoucherMatch(record, voucher.id))
     .filter((record) => adjustmentVoucher || !isLedgerVoucherVerified(record))
-    .slice(0, 40);
+    .sort((a, b) => getVoucherMatchScore(b, voucher) - getVoucherMatchScore(a, voucher));
+}
+
+function getVoucherMatchScore(record, voucher) {
+  const originalInvoiceNumber = normalizeInvoiceNumber(voucher.originalInvoiceNumber);
+  const invoiceNumber = normalizeInvoiceNumber(voucher.invoiceNumber);
+  let score = 0;
+
+  if (originalInvoiceNumber && normalizeInvoiceNumber(record.invoiceNumber) === originalInvoiceNumber) score += 1000;
+  if (invoiceNumber && normalizeInvoiceNumber(record.invoiceNumber) === invoiceNumber) score += 900;
+  if (sameMoney(record.amount, voucher.totalAmount)) score += 80;
+  if (record.date && voucher.date && record.date === voucher.date) score += 40;
+  if (sameLooseText(record.counterparty, voucher.counterparty)) score += 25;
+  if (sameLooseText(record.item, voucher.item)) score += 20;
+  return score;
+}
+
+function getVoucherMatchSearchText(record) {
+  return normalizeVoucherMergeText([
+    record.date,
+    typeLabel(record.type),
+    record.counterparty,
+    record.item,
+    record.amount,
+    record.invoiceNumber,
+    record.major,
+    record.middle,
+    record.minor,
+    record.cashflow,
+    record.account,
+    record.note,
+  ].filter(Boolean).join(" "));
 }
 
 function renderVoucherMatchCandidate(record, remainingAmount) {
   const suggestedAmount = Math.min(Number(record.amount || 0), remainingAmount);
   return `
-    <label class="voucher-match-candidate">
+    <label class="voucher-match-candidate" data-voucher-match-search="${escapeHtml(getVoucherMatchSearchText(record))}">
       <input type="checkbox" data-match-record-id="${escapeHtml(record.id)}" />
       <span>
         <strong>${escapeHtml(record.item || "未命名交易")}</strong>
-        <small>${escapeHtml(record.date || "")} · ${escapeHtml(typeLabel(record.type))} · ${escapeHtml(record.counterparty || "未填交易對象")} · NT$ ${formatNumber(record.amount)}</small>
+        <small>${escapeHtml(record.date || "")} · ${escapeHtml(typeLabel(record.type))} · ${escapeHtml(record.counterparty || "未填交易對象")} · NT$ ${formatNumber(record.amount)}${record.invoiceNumber ? ` · ${escapeHtml(record.invoiceNumber)}` : ""}</small>
       </span>
       <input type="number" min="0" step="1" value="${escapeHtml(String(suggestedAmount))}" data-match-amount-for="${escapeHtml(record.id)}" />
     </label>
@@ -5810,10 +5841,15 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
           <span>已選合計 <strong data-voucher-match-total>NT$ 0</strong></span>
           <span>可配餘額 <strong data-voucher-match-left>NT$ ${formatNumber(remainingAmount)}</strong></span>
         </div>
+        <div class="voucher-match-search">
+          <input type="search" data-voucher-match-search-input placeholder="搜尋原發票、品項、對象、日期、金額" value="${escapeHtml(voucher.originalInvoiceNumber || "")}" />
+          <span data-voucher-match-search-count>${formatNumber(candidates.length)} 筆可選</span>
+        </div>
         <div class="voucher-match-panel" data-voucher-match-panel="${escapeHtml(voucher.id)}">
           <div class="match-dialog-list voucher-match-dialog-list">
             ${candidates.map((record) => renderVoucherMatchCandidate(record, remainingAmount)).join("")}
           </div>
+          <div class="empty-state voucher-match-empty" data-voucher-match-empty hidden>找不到符合搜尋的帳務。</div>
         </div>
         <div class="match-dialog-actions">
           <button type="button" class="secondary-button" data-voucher-dialog-cancel>取消</button>
@@ -5836,8 +5872,25 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
       overlay.querySelector("[data-voucher-match-total]").textContent = `NT$ ${formatNumber(total)}`;
       overlay.querySelector("[data-voucher-match-left]").textContent = `NT$ ${formatNumber(remainingAmount - total)}`;
     };
+    const applySearch = () => {
+      const keyword = normalizeVoucherMergeText(overlay.querySelector("[data-voucher-match-search-input]")?.value || "");
+      let visibleCount = 0;
+      overlay.querySelectorAll("[data-voucher-match-search]").forEach((item) => {
+        const visible = !keyword || item.dataset.voucherMatchSearch.includes(keyword);
+        item.hidden = !visible;
+        if (visible) visibleCount += 1;
+      });
+      overlay.querySelector("[data-voucher-match-empty]").hidden = visibleCount > 0;
+      overlay.querySelector("[data-voucher-match-search-count]").textContent = `${formatNumber(visibleCount)} 筆符合`;
+    };
 
-    overlay.addEventListener("input", updateTotal);
+    overlay.addEventListener("input", (event) => {
+      if (event.target.matches("[data-voucher-match-search-input]")) {
+        applySearch();
+        return;
+      }
+      updateTotal();
+    });
     overlay.addEventListener("change", updateTotal);
     overlay.querySelector("[data-voucher-dialog-close]").addEventListener("click", () => close(false));
     overlay.querySelector("[data-voucher-dialog-cancel]").addEventListener("click", () => close(false));
@@ -5855,6 +5908,7 @@ function openVoucherMatchDialog(voucher, remainingAmount, candidates, voucherTyp
     });
 
     document.body.appendChild(overlay);
+    applySearch();
   });
 }
 
