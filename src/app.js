@@ -918,6 +918,13 @@ inventoryList.addEventListener("click", async (event) => {
   }
 });
 
+inventorySummary.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-inventory-summary-detail]");
+  if (!button) return;
+
+  showInventoryTypeDetailDialog(button.dataset.inventorySummaryDetail);
+});
+
 ledgerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -7264,14 +7271,17 @@ function renderInventory() {
       <article class="inventory-card">
         <span>卡盒庫存</span>
         <strong>${formatNumber(summary.boxQty)} 盒</strong>
+        <button type="button" data-inventory-summary-detail="box">看明細</button>
       </article>
       <article class="inventory-card">
         <span>卡片庫存</span>
         <strong>${formatNumber(summary.cardQty)} 張</strong>
+        <button type="button" data-inventory-summary-detail="card">看明細</button>
       </article>
       <article class="inventory-card">
         <span>包材庫存</span>
         <strong>${formatNumber(summary.supplyQty)} 件</strong>
+        <button type="button" data-inventory-summary-detail="supply">看明細</button>
       </article>
       <article class="inventory-card">
         <span>庫存成本</span>
@@ -7366,6 +7376,143 @@ function renderInventoryRecord(record) {
         <button type="button" data-inventory-action="edit" data-inventory-id="${escapeHtml(record.id)}">修改</button>
         <button type="button" class="danger" data-inventory-action="delete" data-inventory-id="${escapeHtml(record.id)}">刪除</button>
       </div>
+    </article>
+  `;
+}
+
+function showInventoryTypeDetailDialog(type) {
+  const label = inventoryTypeLabels[type] || "庫存";
+  const unit = inventoryUnitLabels[type] || "件";
+  const rows = buildInventoryTypeDetails(type);
+  const totalQty = rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const totalCost = rows.reduce((sum, row) => sum + Number(row.totalCost || 0), 0);
+  const pendingCount = rows.reduce((sum, row) => sum + Number(row.pendingCount || 0), 0);
+
+  const overlay = document.createElement("div");
+  overlay.className = "match-dialog-overlay";
+  overlay.innerHTML = `
+    <div class="match-dialog inventory-type-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(label)}明細">
+      <div class="match-dialog-header">
+        <div>
+          <p class="eyebrow">INVENTORY SUMMARY</p>
+          <h3>${escapeHtml(label)}明細</h3>
+          <p>依品名 / 規格彙總目前庫存</p>
+        </div>
+        <button type="button" data-inventory-type-close>×</button>
+      </div>
+      <div class="match-dialog-summary">
+        <span>目前數量 <strong>${formatNumber(totalQty)} ${unit}</strong></span>
+        <span>庫存成本 <strong>NT$ ${formatNumber(totalCost)}</strong></span>
+        <span>待成本確認 <strong>${formatNumber(pendingCount)} 筆</strong></span>
+      </div>
+      <div class="match-dialog-list">
+        ${
+          rows.length
+            ? rows.map((row) => renderInventoryTypeDetailRow(row, unit)).join("")
+            : `<div class="empty-state">目前沒有${escapeHtml(label)}庫存明細。</div>`
+        }
+      </div>
+      <div class="match-dialog-actions">
+        <button type="button" class="secondary-button" data-inventory-type-close>關閉</button>
+      </div>
+    </div>
+  `;
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-inventory-type-close]")) {
+      overlay.remove();
+    }
+  });
+  document.body.appendChild(overlay);
+}
+
+function buildInventoryTypeDetails(type) {
+  const opening = getInventoryOpening();
+  const map = new Map();
+
+  if (type === "box" && opening.boxQty) {
+    addInventoryTypeDetail(map, {
+      name: "期初卡盒庫存",
+      quantity: opening.boxQty,
+      totalCost: 0,
+      date: "",
+      source: "期初",
+      reference: "期初數量未指定品項",
+      pendingCost: Boolean(opening.boxQty),
+    });
+  }
+
+  if (type === "card" && opening.cardQty) {
+    addInventoryTypeDetail(map, {
+      name: "期初卡片庫存",
+      quantity: opening.cardQty,
+      totalCost: 0,
+      date: "",
+      source: "期初",
+      reference: "期初數量未指定品項",
+      pendingCost: Boolean(opening.cardQty),
+    });
+  }
+
+  inventoryCache
+    .filter((record) => record.type === type)
+    .forEach((record) => {
+      const direction = record.action === "out" ? -1 : 1;
+      addInventoryTypeDetail(map, {
+        name: record.name || "未填品名",
+        quantity: Number(record.quantity || 0) * direction,
+        totalCost: Number(record.totalCost || 0) * direction,
+        date: record.date || "",
+        source: record.source || "",
+        reference: record.reference || "",
+        pendingCost: !Number(record.totalCost || 0),
+      });
+    });
+
+  return Array.from(map.values()).sort((a, b) => {
+    const qtyDiff = Number(b.quantity || 0) - Number(a.quantity || 0);
+    if (qtyDiff) return qtyDiff;
+    return String(a.name).localeCompare(String(b.name), "zh-Hant");
+  });
+}
+
+function addInventoryTypeDetail(map, entry) {
+  const key = String(entry.name || "未填品名").trim() || "未填品名";
+  const current = map.get(key) || {
+    name: key,
+    quantity: 0,
+    totalCost: 0,
+    movementCount: 0,
+    pendingCount: 0,
+    latestDate: "",
+    sources: new Set(),
+    references: new Set(),
+  };
+
+  current.quantity += Number(entry.quantity || 0);
+  current.totalCost += Number(entry.totalCost || 0);
+  current.movementCount += 1;
+  if (entry.pendingCost) current.pendingCount += 1;
+  if (entry.date && String(entry.date) > String(current.latestDate || "")) current.latestDate = entry.date;
+  if (entry.source) current.sources.add(entry.source);
+  if (entry.reference) current.references.add(entry.reference);
+  map.set(key, current);
+}
+
+function renderInventoryTypeDetailRow(row, unit) {
+  const averageCost = Number(row.quantity || 0) ? Number(row.totalCost || 0) / Number(row.quantity || 0) : 0;
+  const sources = Array.from(row.sources).slice(0, 3).join("、") || "未填來源";
+  const references = Array.from(row.references).slice(0, 2).join("、") || "無關聯說明";
+  return `
+    <article class="inventory-type-row">
+      <div>
+        <strong>${escapeHtml(row.name)}</strong>
+        <span>${escapeHtml(sources)} · ${escapeHtml(references)}</span>
+      </div>
+      <span>${formatNumber(row.quantity)} ${unit}</span>
+      <span>NT$ ${formatNumber(row.totalCost)}</span>
+      <span>均 NT$ ${formatNumber(averageCost)}</span>
+      <small>${formatNumber(row.movementCount)} 筆異動 · ${row.latestDate ? escapeHtml(row.latestDate) : "未填日期"}${row.pendingCount ? ` · ${formatNumber(row.pendingCount)} 筆待成本` : ""}</small>
     </article>
   `;
 }

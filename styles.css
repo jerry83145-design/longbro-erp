@@ -2404,6 +2404,22 @@ textarea:focus {
   font-size: 24px;
 }
 
+.inventory-card button {
+  min-height: 34px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+  font-weight: 900;
+  padding: 0 12px;
+}
+
+.inventory-card button:hover {
+  border-color: var(--accent);
+  background: var(--soft);
+}
+
 .inventory-list {
   display: grid;
   gap: 10px;
@@ -2617,6 +2633,35 @@ textarea:focus {
 .inventory-detail-item strong {
   font-weight: 900;
   overflow-wrap: anywhere;
+}
+
+.inventory-type-dialog {
+  width: min(980px, 100%);
+}
+
+.inventory-type-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 110px 140px 130px minmax(180px, 0.8fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+
+.inventory-type-row div strong,
+.inventory-type-row div span {
+  display: block;
+}
+
+.inventory-type-row div span,
+.inventory-type-row small {
+  color: var(--muted);
+}
+
+.inventory-type-row > span {
+  font-weight: 900;
 }
 
 .voucher-links {
@@ -3080,6 +3125,10 @@ textarea:focus {
   }
 
   .inventory-detail-item {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-type-row {
     grid-template-columns: 1fr;
   }
 
