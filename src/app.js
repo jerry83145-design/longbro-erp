@@ -927,6 +927,7 @@ ledgerForm.addEventListener("submit", async (event) => {
     }
 
     if (editingRecordId) {
+      const currentEditingId = editingRecordId;
       if (previousRecord?.settledDate) {
         record.settledDate = previousRecord.settledDate;
         record.settlementStatus = record.type === "income" ? "已收款" : "已付款";
@@ -939,6 +940,10 @@ ledgerForm.addEventListener("submit", async (event) => {
         record.pendingReason = resolveVoucherPendingReason(record);
       }
       await updateRecord(record);
+      if (record.type === "expense") {
+        await handleLedgerInventorySync({ id: currentEditingId, ...stripFile(record) });
+        if (isConfigured) await loadInventoryRecords();
+      }
     } else if (isConfigured) {
       const savedId = await saveRecordToFirebase(record);
       await handleLedgerInventorySync({ id: savedId, ...stripFile(record) });
@@ -1982,7 +1987,9 @@ async function handleLedgerInventorySync(record) {
 }
 
 async function createInventoryInFromExpense(record) {
-  const quantityText = window.prompt(`請輸入「${record.minor || record.item}」入庫數量`, "1");
+  const existingInventory = inventoryCache.find((item) => !item.deletedAt && item.linkedLedgerId === record.id && item.action === "in");
+  const defaultQuantity = existingInventory?.quantity || inferInventoryQuantityFromText(record.item) || 1;
+  const quantityText = window.prompt(`請輸入「${record.minor || record.item}」入庫數量`, String(defaultQuantity));
   if (quantityText === null) return;
   const quantity = Number(quantityText || 0);
   if (!quantity || quantity <= 0) {
@@ -2005,7 +2012,39 @@ async function createInventoryInFromExpense(record) {
     linkedLedgerId: record.id,
   };
 
+  if (existingInventory) {
+    await updateSyncedInventoryRecord(existingInventory, inventoryRecord);
+    return;
+  }
+
   await addInventoryRecord(inventoryRecord);
+}
+
+async function updateSyncedInventoryRecord(previousRecord, updatedFields) {
+  const updatedRecord = {
+    ...previousRecord,
+    ...updatedFields,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+    updatedBy: currentUser?.email || "local-preview",
+  };
+
+  await writeAuditLog("update", "inventoryRecords", previousRecord.id, previousRecord, updatedRecord);
+  if (isConfigured) {
+    const { id, ...payload } = updatedRecord;
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "inventoryRecords", previousRecord.id), payload);
+    await loadInventoryRecords();
+    return;
+  }
+
+  inventoryCache = inventoryCache.map((item) => (item.id === previousRecord.id ? updatedRecord : item));
+  saveLocalInventoryRecords();
+  renderInventory();
+  renderLedgerInventorySync();
+}
+
+function inferInventoryQuantityFromText(text) {
+  const match = String(text || "").match(/[xX×＊*]\s*(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : 0;
 }
 
 async function createInventoryOutFromIncome(record) {
