@@ -1987,37 +1987,116 @@ async function handleLedgerInventorySync(record) {
 }
 
 async function createInventoryInFromExpense(record) {
-  const existingInventory = inventoryCache.find((item) => !item.deletedAt && item.linkedLedgerId === record.id && item.action === "in");
-  const defaultQuantity = existingInventory?.quantity || inferInventoryQuantityFromText(record.item) || 1;
-  const quantityText = window.prompt(`請輸入「${record.minor || record.item}」入庫數量`, String(defaultQuantity));
-  if (quantityText === null) return;
-  const quantity = Number(quantityText || 0);
-  if (!quantity || quantity <= 0) {
-    showToast("入庫數量必須大於 0。");
+  const existingInventoryItems = inventoryCache.filter((item) => !item.deletedAt && item.linkedLedgerId === record.id && item.action === "in");
+  const drafts = existingInventoryItems.length
+    ? existingInventoryItems.map((item) => ({
+      name: item.name || record.minor || record.item,
+      quantity: Number(item.quantity || 1),
+      totalCost: Number(item.totalCost || 0),
+    }))
+    : buildInventoryInDraftsFromExpense(record);
+  const inputText = window.prompt(
+    [
+      "請確認入庫品項，每行格式：品名｜數量｜總成本",
+      "可直接修改、刪除或新增一行。",
+      "",
+      "例如：卡模｜2｜1200",
+    ].join("\n"),
+    drafts.map((item) => `${item.name}｜${formatNumber(item.quantity)}｜${formatNumber(item.totalCost)}`).join("\n"),
+  );
+  if (inputText === null) return;
+
+  const inventoryItems = parseInventoryInPrompt(inputText);
+  if (!inventoryItems.length) {
+    showToast("請至少保留一筆入庫品項。");
     return;
   }
 
-  const inventoryRecord = {
+  for (const [index, item] of inventoryItems.entries()) {
+    const inventoryRecord = buildInventoryInRecordFromExpense(record, item);
+    const existingInventory = existingInventoryItems[index];
+    if (existingInventory) {
+      await updateSyncedInventoryRecord(existingInventory, inventoryRecord);
+    } else {
+      await addInventoryRecord(inventoryRecord);
+    }
+  }
+
+  for (const extraRecord of existingInventoryItems.slice(inventoryItems.length)) {
+    await softDeleteRecord("inventoryRecords", extraRecord.id, extraRecord);
+  }
+}
+
+function buildInventoryInDraftsFromExpense(record) {
+  const items = parseInventoryItemsFromText(record.item);
+  const baseItems = items.length ? items : [{
+    name: record.minor || record.item || "未命名貨品",
+    quantity: inferInventoryQuantityFromText(record.item) || 1,
+  }];
+  return allocateInventoryCost(baseItems, Number(record.amount || 0));
+}
+
+function parseInventoryItemsFromText(text) {
+  return String(text || "")
+    .split(/[、,，;；／/]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const quantity = inferInventoryQuantityFromText(part) || 1;
+      const name = part
+        .replace(/[xX×＊*]\s*\d+(?:\.\d+)?\s*\S*$/u, "")
+        .replace(/\s*\d+(?:\.\d+)?\s*(包|盒|個|組|張|片|件|本|台)$/u, "")
+        .trim();
+      return { name: name || part, quantity };
+    });
+}
+
+function allocateInventoryCost(items, totalAmount) {
+  const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || items.length || 1;
+  let allocated = 0;
+  return items.map((item, index) => {
+    const isLast = index === items.length - 1;
+    const totalCost = isLast ? Math.max(0, totalAmount - allocated) : Math.round(totalAmount * Number(item.quantity || 0) / totalQuantity);
+    allocated += totalCost;
+    return { ...item, totalCost };
+  });
+}
+
+function parseInventoryInPrompt(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/[|｜\t]/).map((part) => part.trim());
+      const fallback = parseInventoryItemsFromText(parts[0] || line)[0] || {};
+      const name = parts[0] || fallback.name || "";
+      const quantity = Number((parts[1] || fallback.quantity || "").toString().replace(/,/g, ""));
+      const totalCost = Number((parts[2] || "0").toString().replace(/,/g, ""));
+      return {
+        name,
+        quantity,
+        totalCost,
+      };
+    })
+    .filter((item) => item.name && item.quantity > 0);
+}
+
+function buildInventoryInRecordFromExpense(record, item) {
+  return {
     date: record.date,
     month: record.month,
-    type: inferInventoryTypeFromText(`${record.minor} ${record.item}`),
+    type: inferInventoryTypeFromText(`${record.minor} ${item.name}`),
     action: "in",
     source: "支出同步入庫",
-    name: record.minor || record.item,
-    quantity,
-    unitCost: Number(record.amount || 0) / quantity,
-    totalCost: Number(record.amount || 0),
+    name: item.name,
+    quantity: item.quantity,
+    unitCost: Number(item.totalCost || 0) / item.quantity,
+    totalCost: Number(item.totalCost || 0),
     reference: `支出：${record.item}`,
     note: `由支出紀錄同步入庫；交易對象：${record.counterparty}`,
     linkedLedgerId: record.id,
   };
-
-  if (existingInventory) {
-    await updateSyncedInventoryRecord(existingInventory, inventoryRecord);
-    return;
-  }
-
-  await addInventoryRecord(inventoryRecord);
 }
 
 async function updateSyncedInventoryRecord(previousRecord, updatedFields) {
@@ -9057,9 +9136,7 @@ function renderLedgerInventorySync() {
   }
 
   if (recordType === "expense") {
-    const name = fields.minor.value || fields.item.value.trim() || "未命名貨品";
-    const type = inventoryTypeLabels[inferInventoryTypeFromText(name)] || "卡盒";
-    fields.inventorySyncHint.textContent = `儲存後會詢問數量，並以「${name}」新增 ${type} 入庫；金額會作為庫存成本。`;
+    fields.inventorySyncHint.textContent = `儲存後會拆分品項並詢問入庫清單；例如「卡模*2、卡夾*2」會分別入庫，成本可在確認框中調整。`;
     fields.inventoryPicker.innerHTML = "";
     return;
   }
