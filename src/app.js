@@ -3259,6 +3259,17 @@ function isBankTransactionClassified(transaction) {
     && ["已配收入", "已配支出", "已配平台撥款", "已配代墊還款"].includes(transaction.status);
 }
 
+function getBankTransactionDisplayStatus(transaction) {
+  if (!isBankTransactionClassified(transaction)) return transaction.status || "待核對";
+  const labelMap = {
+    已配收入: "待配收入",
+    已配支出: "待配支出",
+    已配平台撥款: "待配平台撥款",
+    已配代墊還款: "待配代墊還款",
+  };
+  return labelMap[transaction.status] || "已分類未配帳務";
+}
+
 function getMatchedLedgerIds(transaction) {
   if (Array.isArray(transaction.matchedLedgerIds) && transaction.matchedLedgerIds.length) {
     return transaction.matchedLedgerIds.filter(Boolean);
@@ -3286,14 +3297,14 @@ function renderBankReconciliationItem(transaction) {
   const sign = Number(transaction.deposit || 0) ? "+" : "-";
   const amountText = amount ? `${sign} NT$ ${formatNumber(amount)}` : "待辨識";
   const reconcileLabel = amount ? "配帳務" : "補資料再配帳";
-  const status = transaction.status || "待核對";
+  const status = getBankTransactionDisplayStatus(transaction);
   const statusTone = getBankReconciliationTone(transaction);
   const ledgerText = transaction.matchedLedgerItem
     ? `配對帳務：${transaction.matchedLedgerItem}`
     : transaction.matchedLedgerId
       ? "配對帳務：已配帳務"
       : isBankTransactionClassified(transaction)
-        ? `${transaction.status}，尚未配帳務`
+        ? `${status}，尚未選到實際帳務`
         : "尚未選擇帳務";
   const differenceText = transaction.matchDifference
     ? `差額：NT$ ${formatNumber(transaction.matchDifference)} · ${transaction.differenceHandling || "待確認"}`
@@ -3414,7 +3425,7 @@ function buildBankReconciliationIssues(records, transactions) {
         date: transaction.date,
         subject: transaction.description || transaction.sourceFile || "銀行資料",
         detail: classified
-          ? `${transaction.status}，但尚未選到實際收入／支出。銀行金額 NT$ ${formatNumber(getBankTransactionAmount(transaction))}。`
+          ? `${getBankTransactionDisplayStatus(transaction)}，但尚未選到實際收入／支出。銀行金額 NT$ ${formatNumber(getBankTransactionAmount(transaction))}。`
           : `銀行金額 NT$ ${formatNumber(getBankTransactionAmount(transaction))} 尚未配到帳務。`,
       });
     });
@@ -4213,7 +4224,7 @@ function renderBankTransactionRow(transaction) {
     : transaction.withdrawal
       ? `- NT$ ${formatNumber(transaction.withdrawal)}`
       : "待辨識";
-  const status = transaction.status || "待核對";
+  const status = getBankTransactionDisplayStatus(transaction);
   const matchedText = transaction.matchedLedgerItem
     ? `已配：${transaction.matchedLedgerItem}`
     : transaction.matchedLedgerId
@@ -4241,7 +4252,7 @@ function renderBankTransactionRow(transaction) {
         ${isBankTransactionFormallyMatched(transaction) || isBankTransactionClassified(transaction) ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="unmatch">退回待核對</button>` : ""}
         ${statusButtons
           .map(([nextStatus, label]) => `
-            <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-status="${escapeHtml(nextStatus)}" ${status === nextStatus ? "disabled" : ""}>${label}</button>
+            <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-status="${escapeHtml(nextStatus)}" ${transaction.status === nextStatus ? "disabled" : ""}>${label}</button>
           `)
           .join("")}
         <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="edit">修改</button>
@@ -9330,16 +9341,17 @@ function buildReportIssues() {
 
   bankTransactionsCache
     .filter((transaction) => inRange(transaction.date))
-    .filter((transaction) => !["已配收入", "已配支出", "已配平台撥款", "已配代墊還款", "不入帳"].includes(transaction.status))
+    .filter((transaction) => !isBankTransactionFormallyMatched(transaction) && transaction.status !== "不入帳")
     .forEach((transaction) => {
+      const classified = isBankTransactionClassified(transaction);
       issues.push({
-        type: transaction.status === "待辨識" ? "存摺照片待辨識" : "銀行未配對",
+        type: transaction.status === "待辨識" ? "存摺照片待辨識" : classified ? "銀行已分類未配帳務" : "銀行未配對",
         date: transaction.date,
         party: transaction.account,
         summary: transaction.description || transaction.sourceFile || "銀行資料",
         amount: Number(transaction.deposit || transaction.withdrawal || 0),
-        reason: transaction.pendingReason || "尚未標記配對狀態。",
-        action: "在現金流頁將銀行交易標記為收入、支出、平台撥款、代墊還款或不入帳。",
+        reason: classified ? `${getBankTransactionDisplayStatus(transaction)}，但尚未勾選實際帳務。` : transaction.pendingReason || "尚未標記配對狀態。",
+        action: classified ? "回到現金流頁按「配帳務」，勾選實際要沖銷的流水帳。" : "在現金流頁將銀行交易標記為收入、支出、平台撥款、代墊還款或不入帳。",
       });
     });
 
@@ -9349,6 +9361,7 @@ function buildReportIssues() {
 function getShareholderRepaymentTransactions(start, end) {
   return bankTransactionsCache
     .filter((transaction) => transaction.status === "已配代墊還款")
+    .filter(isBankTransactionFormallyMatched)
     .filter((transaction) => transaction.date >= start && transaction.date <= end)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
