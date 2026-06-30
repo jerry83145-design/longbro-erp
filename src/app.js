@@ -4339,7 +4339,7 @@ async function reconcileBankTransaction(transaction) {
     return;
   }
 
-  const selectedRecords = await openLedgerMatchDialog(workingTransaction, direction, candidates.slice(0, 30));
+  const selectedRecords = await openLedgerMatchDialog(workingTransaction, direction, candidates);
   if (!selectedRecords) return;
 
   if (!selectedRecords.length) {
@@ -4395,6 +4395,25 @@ function getMatchDifferenceInfo(bankAmount, ledgerAmount) {
 
 function openLedgerMatchDialog(transaction, direction, candidates) {
   return new Promise((resolve) => {
+    const months = Array.from(new Set(candidates.map((record) => String(record.date || "").slice(0, 7)).filter(Boolean))).sort().reverse();
+    const defaultMonth = months.includes(String(transaction.date || "").slice(0, 7)) ? String(transaction.date || "").slice(0, 7) : "";
+    const renderCandidate = (record) => `
+      <label class="match-option" data-match-option data-match-month="${escapeHtml(String(record.date || "").slice(0, 7))}" data-match-text="${escapeHtml([
+        record.date,
+        record.item,
+        record.counterparty,
+        record.settlementStatus,
+        record.account,
+        record.amount,
+      ].filter(Boolean).join(" ").toLowerCase())}">
+        <input type="checkbox" data-match-record-id="${escapeHtml(record.id)}" />
+        <span>
+          <strong>${escapeHtml(record.date)} · ${escapeHtml(record.item)}</strong>
+          <small>${escapeHtml(record.counterparty)} · ${escapeHtml(record.account || "")} · ${escapeHtml(record.settlementStatus || "")}</small>
+        </span>
+        <strong>NT$ ${formatNumber(record.amount)}</strong>
+      </label>
+    `;
     const overlay = document.createElement("div");
     overlay.className = "match-dialog-overlay";
     overlay.innerHTML = `
@@ -4412,17 +4431,23 @@ function openLedgerMatchDialog(transaction, direction, candidates) {
           <span>已選合計 <strong data-match-total>NT$ 0</strong></span>
           <span>差額 <strong data-match-diff>NT$ ${formatNumber(direction.amount)}</strong></span>
         </div>
+        <div class="match-dialog-filters">
+          <label>
+            <span>月份</span>
+            <select data-match-month-filter>
+              <option value="">全部月份</option>
+              ${months.map((month) => `<option value="${escapeHtml(month)}" ${month === defaultMonth ? "selected" : ""}>${escapeHtml(month)}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            <span>搜尋</span>
+            <input type="search" data-match-search placeholder="輸入日期、對象、摘要、金額" />
+          </label>
+          <small data-match-visible-count></small>
+        </div>
         <div class="match-dialog-list">
-          ${candidates.map((record) => `
-            <label class="match-option">
-              <input type="checkbox" data-match-record-id="${escapeHtml(record.id)}" />
-              <span>
-                <strong>${escapeHtml(record.date)} · ${escapeHtml(record.item)}</strong>
-                <small>${escapeHtml(record.counterparty)} · ${escapeHtml(record.settlementStatus || "")}</small>
-              </span>
-              <strong>NT$ ${formatNumber(record.amount)}</strong>
-            </label>
-          `).join("")}
+          ${candidates.map(renderCandidate).join("")}
+          <div class="match-empty-state" data-match-empty hidden>目前篩選找不到帳務，請切換月份或搜尋關鍵字。</div>
         </div>
         <div class="match-dialog-actions">
           <button type="button" class="secondary-button" data-match-cancel>取消</button>
@@ -4435,6 +4460,24 @@ function openLedgerMatchDialog(transaction, direction, candidates) {
       overlay.remove();
       resolve(value);
     };
+    const applyFilters = () => {
+      const month = overlay.querySelector("[data-match-month-filter]")?.value || "";
+      const keyword = (overlay.querySelector("[data-match-search]")?.value || "").trim().toLowerCase();
+      let visibleCount = 0;
+
+      overlay.querySelectorAll("[data-match-option]").forEach((option) => {
+        const monthMatched = !month || option.dataset.matchMonth === month;
+        const textMatched = !keyword || (option.dataset.matchText || "").includes(keyword);
+        const visible = monthMatched && textMatched;
+        option.hidden = !visible;
+        if (visible) visibleCount += 1;
+      });
+
+      const countNode = overlay.querySelector("[data-match-visible-count]");
+      if (countNode) countNode.textContent = `目前顯示 ${formatNumber(visibleCount)} / ${formatNumber(candidates.length)} 筆`;
+      const emptyNode = overlay.querySelector("[data-match-empty]");
+      if (emptyNode) emptyNode.hidden = visibleCount > 0;
+    };
     const updateTotal = () => {
       const selectedIds = Array.from(overlay.querySelectorAll("[data-match-record-id]:checked")).map((item) => item.dataset.matchRecordId);
       const total = candidates
@@ -4444,7 +4487,11 @@ function openLedgerMatchDialog(transaction, direction, candidates) {
       overlay.querySelector("[data-match-diff]").textContent = `NT$ ${formatNumber(direction.amount - total)}`;
     };
 
-    overlay.addEventListener("change", updateTotal);
+    overlay.addEventListener("change", (event) => {
+      if (event.target.matches("[data-match-month-filter]")) applyFilters();
+      updateTotal();
+    });
+    overlay.querySelector("[data-match-search]")?.addEventListener("input", applyFilters);
     overlay.querySelector("[data-match-close]").addEventListener("click", () => close(null));
     overlay.querySelector("[data-match-cancel]").addEventListener("click", () => close(null));
     overlay.querySelector("[data-match-confirm]").addEventListener("click", () => {
@@ -4456,6 +4503,7 @@ function openLedgerMatchDialog(transaction, direction, candidates) {
     });
 
     document.body.appendChild(overlay);
+    applyFilters();
   });
 }
 

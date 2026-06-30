@@ -2940,11 +2940,57 @@ textarea:focus {
   font-size: 20px;
 }
 
+.match-dialog-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(240px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  background: #fbfdfd;
+  padding: 14px 24px;
+}
+
+.match-dialog-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.match-dialog-filters select,
+.match-dialog-filters input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.match-dialog-filters small {
+  color: var(--muted);
+  font-weight: 800;
+  white-space: nowrap;
+  padding-bottom: 12px;
+}
+
 .match-dialog-list {
   display: grid;
   gap: 10px;
   padding: 18px 24px;
   overflow: auto;
+}
+
+.match-empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  padding: 18px;
+  text-align: center;
 }
 
 .match-option {
@@ -3144,6 +3190,15 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .match-dialog-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .match-dialog-filters small {
+    padding-bottom: 0;
+    white-space: normal;
+  }
+
   .duplicate-import-grid {
     grid-template-columns: 1fr;
   }
@@ -3154,6 +3209,7 @@ textarea:focus {
 
   .match-dialog-list,
   .match-dialog-summary,
+  .match-dialog-filters,
   .match-dialog-actions {
     padding-left: 18px;
     padding-right: 18px;
