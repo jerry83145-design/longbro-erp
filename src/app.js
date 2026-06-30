@@ -3278,6 +3278,8 @@ function renderBankReconciliationGroupBody(transactions) {
 function renderBankReconciliationItem(transaction) {
   const amount = Number(transaction.deposit || 0) || Number(transaction.withdrawal || 0);
   const sign = Number(transaction.deposit || 0) ? "+" : "-";
+  const amountText = amount ? `${sign} NT$ ${formatNumber(amount)}` : "待辨識";
+  const reconcileLabel = amount ? "配帳務" : "補資料再配帳";
   const status = transaction.status || "待核對";
   const statusTone = getBankReconciliationTone(transaction);
   const ledgerText = transaction.matchedLedgerItem
@@ -3303,12 +3305,12 @@ function renderBankReconciliationItem(transaction) {
         ${reasonText ? `<small>${escapeHtml(reasonText)}</small>` : ""}
       </div>
       <div class="bank-reconcile-side">
-        <strong>${sign} NT$ ${formatNumber(amount)}</strong>
+        <strong>${amountText}</strong>
         <div class="bank-reconcile-actions">
           ${isBankTransactionFormallyMatched(transaction)
             ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">重新配帳</button>`
             : transaction.status !== "不入帳"
-              ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">配帳務</button>`
+              ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">${reconcileLabel}</button>`
               : ""}
           ${isBankTransactionFormallyMatched(transaction) || isBankTransactionClassified(transaction) ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="unmatch">退回待核對</button>` : ""}
         </div>
@@ -4199,6 +4201,7 @@ function renderBankTransactions() {
 }
 
 function renderBankTransactionRow(transaction) {
+  const hasBankAmount = Boolean(getBankTransactionDirection(transaction));
   const amountText = transaction.deposit
     ? `+ NT$ ${formatNumber(transaction.deposit)}`
     : transaction.withdrawal
@@ -4228,7 +4231,7 @@ function renderBankTransactionRow(transaction) {
       <strong>${amountText}</strong>
       <span>${escapeHtml(status)}</span>
       <div class="bank-actions">
-        <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">配帳務</button>
+        <button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="reconcile">${hasBankAmount ? "配帳務" : "補資料再配帳"}</button>
         ${isBankTransactionFormallyMatched(transaction) || isBankTransactionClassified(transaction) ? `<button type="button" data-bank-id="${escapeHtml(transaction.id)}" data-bank-action="unmatch">退回待核對</button>` : ""}
         ${statusButtons
           .map(([nextStatus, label]) => `
@@ -4303,24 +4306,33 @@ async function updateBankTransactionStatus(transaction, status) {
 }
 
 async function reconcileBankTransaction(transaction) {
-  const direction = getBankTransactionDirection(transaction);
+  let workingTransaction = transaction;
+  let direction = getBankTransactionDirection(workingTransaction);
   if (!direction) {
-    showToast("這筆銀行資料沒有存入或提出金額，無法配帳務。");
-    return;
+    showToast("這筆銀行資料需要先補存入或提出金額。");
+    const updatedTransaction = await handleEditBankTransaction(workingTransaction);
+    if (!updatedTransaction) return;
+
+    workingTransaction = updatedTransaction;
+    direction = getBankTransactionDirection(workingTransaction);
+    if (!direction) {
+      showToast("仍沒有存入或提出金額，暫時不能配帳務。");
+      return;
+    }
   }
 
-  if (getMatchedLedgerIds(transaction).length) {
+  if (getMatchedLedgerIds(workingTransaction).length) {
     const confirmed = window.confirm("這筆銀行資料已經配過帳務，是否重新配對？");
     if (!confirmed) return;
   }
 
-  const candidates = getBankLedgerCandidates(transaction, direction);
+  const candidates = getBankLedgerCandidates(workingTransaction, direction);
   if (!candidates.length) {
     showToast(`找不到可配對的${direction.type === "income" ? "收入" : "支出"}紀錄。`);
     return;
   }
 
-  const selectedRecords = await openLedgerMatchDialog(transaction, direction, candidates.slice(0, 30));
+  const selectedRecords = await openLedgerMatchDialog(workingTransaction, direction, candidates.slice(0, 30));
   if (!selectedRecords) return;
 
   if (!selectedRecords.length) {
@@ -4332,7 +4344,7 @@ async function reconcileBankTransaction(transaction) {
   const differenceInfo = getMatchDifferenceInfo(direction.amount, selectedTotal);
   if (!differenceInfo) return;
 
-  await applyBankLedgerMatches(transaction, selectedRecords, direction, differenceInfo);
+  await applyBankLedgerMatches(workingTransaction, selectedRecords, direction, differenceInfo);
 }
 
 function getMatchDifferenceInfo(bankAmount, ledgerAmount) {
@@ -4608,16 +4620,27 @@ async function handleEditBankTransaction(transaction) {
   const balance = window.prompt("餘額，沒有請填 0", transaction.balance || 0);
   if (balance === null) return;
 
+  const depositAmount = parseAmount(deposit);
+  const withdrawalAmount = parseAmount(withdrawal);
+  if (depositAmount > 0 && withdrawalAmount > 0) {
+    showToast("存入金額與提出金額只能擇一填寫。");
+    return null;
+  }
+
+  const hasAmount = depositAmount > 0 || withdrawalAmount > 0;
   const updates = {
     date: normalizeImportDate(date) || transaction.date,
     description: description.trim(),
-    deposit: parseAmount(deposit),
-    withdrawal: parseAmount(withdrawal),
+    deposit: depositAmount,
+    withdrawal: withdrawalAmount,
     balance: parseAmount(balance),
+    status: hasAmount && transaction.status === "待辨識" ? "待核對" : transaction.status || (hasAmount ? "待核對" : "待辨識"),
+    pendingReason: hasAmount ? "尚未與收入、支出、平台撥款或代墊還款配對。" : transaction.pendingReason || "存摺照片尚未人工辨識或 OCR。",
     updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
   };
+  const updatedTransaction = { ...transaction, ...updates };
 
-  await writeAuditLog("update", "bankTransactions", transaction.id, transaction, { ...transaction, ...updates });
+  await writeAuditLog("update", "bankTransactions", transaction.id, transaction, updatedTransaction);
 
   if (isConfigured) {
     await firebaseApi.updateDoc(firebaseApi.doc(db, "bankTransactions", transaction.id), updates);
@@ -4633,6 +4656,7 @@ async function handleEditBankTransaction(transaction) {
 
   renderCashflow();
   showToast("銀行交易已更新。");
+  return updatedTransaction;
 }
 
 async function handleDeleteBankTransaction(transaction) {
