@@ -3063,7 +3063,7 @@ function buildCashflowSummary(records, opening, bankTransactions = []) {
   });
 
   bankTransactions.forEach((transaction) => {
-    if (isBankTransactionFormallyMatched(transaction)) return;
+    if (!isBankTransactionFormallyMatched(transaction)) return;
     if (transaction.status !== "已配代墊還款") return;
 
     const amount = Number(transaction.withdrawal || transaction.deposit || 0);
