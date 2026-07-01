@@ -9807,8 +9807,9 @@ function renderInventoryMatchOption(lot) {
 function updateSummary(records) {
   const summaryMonth = selectedSummaryMonth || pickSummaryMonth(records);
   const monthRecords = summaryMonth ? records.filter((record) => record.month === summaryMonth) : [];
-  const expense = sumByType(monthRecords, "expense");
-  const income = sumByType(monthRecords, "income");
+  const adjustedMonthRecords = applyLedgerAdjustments(monthRecords, buildLedgerAdjustmentSummary(monthRecords));
+  const expense = sumByType(adjustedMonthRecords, "expense");
+  const income = sumByType(adjustedMonthRecords, "income");
   const pending = monthRecords.filter(hasReportablePendingReason).length;
   const label = formatSummaryMonthLabel(summaryMonth);
 

@@ -379,13 +379,21 @@ h2 {
   letter-spacing: 0;
 }
 
+.summary-card small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .summary-card.primary {
   background: var(--accent);
   color: #fff;
 }
 
 .summary-card.primary span,
-.summary-card.primary strong {
+.summary-card.primary strong,
+.summary-card.primary small {
   color: #d5f0ed;
 }
 
