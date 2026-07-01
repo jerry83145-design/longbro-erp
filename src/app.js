@@ -8792,7 +8792,15 @@ function exportCurrentReport() {
   appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
   appendSheet(workbook, "憑證核對表", buildVoucherReconciliationSheet());
   appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
-  window.XLSX.writeFile(workbook, `${lastReportSummary.start}_${lastReportSummary.end}_內帳報表.xlsx`);
+  window.XLSX.writeFile(workbook, buildReportExportFileName(lastReportSummary.start, lastReportSummary.end));
+}
+
+function buildReportExportFileName(start, end) {
+  const startMonth = String(start || "").slice(0, 7).replace("-", "");
+  const endMonth = String(end || "").slice(0, 7).replace("-", "");
+  if (startMonth && startMonth === endMonth) return `隆博ERP_月報_${startMonth}.xlsx`;
+  if (startMonth && endMonth) return `隆博ERP_區間報表_${startMonth}-${endMonth}.xlsx`;
+  return "隆博ERP_區間報表.xlsx";
 }
 
 function appendSheet(workbook, name, rows) {
