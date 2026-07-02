@@ -16,8 +16,8 @@ const types = {
 createServer((request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
   const pathname = decodeURIComponent(url.pathname);
-  const safePath = normalize(pathname).replace(/^(\.\.[/\\])+/, "");
-  const filePath = resolve(join(root, safePath === "/" ? "index.html" : safePath));
+  const safePath = normalize(pathname).replace(/^[/\\]+/, "").replace(/^(\.\.[/\\])+/, "");
+  const filePath = resolve(join(root, safePath || "index.html"));
 
   if (!filePath.startsWith(root) || !existsSync(filePath) || !statSync(filePath).isFile()) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });

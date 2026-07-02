@@ -33,14 +33,16 @@ const optionLabels = {
 };
 
 const inventorySources = {
+  sealedCase: ["進貨"],
   box: ["進貨"],
   card: ["團拆入卡", "拆盒入卡", "玩家收購"],
   supply: ["包材採購", "進貨", "其他"],
 };
 
 const inventoryTypeLabels = {
-  box: "卡盒",
-  card: "卡片",
+  sealedCase: "完整箱",
+  box: "散盒",
+  card: "散卡",
   supply: "包材",
 };
 
@@ -51,6 +53,7 @@ const inventoryActionLabels = {
 };
 
 const inventoryUnitLabels = {
+  sealedCase: "箱",
   box: "盒",
   card: "張",
   supply: "件",
@@ -160,6 +163,7 @@ const inventorySummary = document.querySelector("#inventorySummary");
 const inventoryList = document.querySelector("#inventoryList");
 const inventoryOpeningBoxQtyInput = document.querySelector("#inventoryOpeningBoxQtyInput");
 const inventoryOpeningCardQtyInput = document.querySelector("#inventoryOpeningCardQtyInput");
+const inventoryOpeningCaseQtyInput = document.querySelector("#inventoryOpeningCaseQtyInput");
 const inventoryOpeningCostInput = document.querySelector("#inventoryOpeningCostInput");
 const saveInventorySettingsButton = document.querySelector("#saveInventorySettingsButton");
 const recycleBinList = document.querySelector("#recycleBinList");
@@ -1099,6 +1103,7 @@ function saveCashflowSettings() {
 
 function loadInventorySettings() {
   const settings = JSON.parse(localStorage.getItem("inventorySettings") || "{}");
+  inventoryOpeningCaseQtyInput.value = settings.openingCaseQty ?? "";
   inventoryOpeningBoxQtyInput.value = settings.openingBoxQty ?? "";
   inventoryOpeningCardQtyInput.value = settings.openingCardQty ?? "";
   inventoryOpeningCostInput.value = settings.openingCost ?? "";
@@ -1108,6 +1113,7 @@ function saveInventorySettings() {
   localStorage.setItem(
     "inventorySettings",
     JSON.stringify({
+      openingCaseQty: Number(inventoryOpeningCaseQtyInput.value || 0),
       openingBoxQty: Number(inventoryOpeningBoxQtyInput.value || 0),
       openingCardQty: Number(inventoryOpeningCardQtyInput.value || 0),
       openingCost: Number(inventoryOpeningCostInput.value || 0),
@@ -2230,7 +2236,9 @@ async function createInventoryOutFromIncome(record) {
 
 function inferInventoryTypeFromText(text) {
   if (/包材|紙箱|氣泡|膠帶|耗材|信封|保護殼|卡磚|卡夾/.test(text)) return "supply";
-  if (/卡片|單卡|球員卡/.test(text)) return "card";
+  if (/完整箱|整箱|一箱|箱裝|原箱|未拆箱|sealed\s*case|case/i.test(text)) return "sealedCase";
+  if (/散卡|卡片|單卡|球員卡/.test(text)) return "card";
+  if (/散盒|卡盒|盒/.test(text)) return "box";
   return "box";
 }
 
@@ -4952,7 +4960,7 @@ function buildOverviewCheckItems(pendingItems = []) {
         title: "銷貨收入未配庫存",
         date: record.date,
         subject: record.item,
-        detail: "尚未選擇售出的卡盒或卡片，毛利可能失真。",
+        detail: "尚未選擇售出的庫存品項，毛利可能失真。",
         targetView: "ledger",
         targetType: "income",
         recordId: record.id,
@@ -5087,7 +5095,7 @@ function recordLooksLikePurchaseInventory(record) {
   const text = [record.major, record.middle, record.minor, record.item, record.note]
     .filter(Boolean)
     .join(" ");
-  return /進貨|存貨|卡盒|卡片|包材/.test(text);
+  return /進貨|存貨|完整箱|整箱|一箱|散盒|卡盒|散卡|卡片|包材/.test(text);
 }
 
 function hasInventoryEntryForLedger(ledgerId) {
@@ -7423,12 +7431,17 @@ function renderInventory() {
   inventorySummary.innerHTML = `
     <div class="inventory-summary-grid">
       <article class="inventory-card">
-        <span>卡盒庫存</span>
+        <span>完整箱庫存</span>
+        <strong>${formatNumber(summary.sealedCaseQty)} 箱</strong>
+        <button type="button" data-inventory-summary-detail="sealedCase">看明細</button>
+      </article>
+      <article class="inventory-card">
+        <span>散盒庫存</span>
         <strong>${formatNumber(summary.boxQty)} 盒</strong>
         <button type="button" data-inventory-summary-detail="box">看明細</button>
       </article>
       <article class="inventory-card">
-        <span>卡片庫存</span>
+        <span>散卡庫存</span>
         <strong>${formatNumber(summary.cardQty)} 張</strong>
         <button type="button" data-inventory-summary-detail="card">看明細</button>
       </article>
@@ -7464,6 +7477,7 @@ function buildInventorySummary(records) {
       const direction = record.action === "out" ? -1 : 1;
       const qty = Number(record.quantity || 0) * direction;
       const cost = Number(record.totalCost || 0) * direction;
+      if (record.type === "sealedCase") summary.sealedCaseQty += qty;
       if (record.type === "box") summary.boxQty += qty;
       if (record.type === "card") summary.cardQty += qty;
       if (record.type === "supply") summary.supplyQty += qty;
@@ -7477,6 +7491,7 @@ function buildInventorySummary(records) {
 
 function getInventoryOpening() {
   return {
+    sealedCaseQty: Number(inventoryOpeningCaseQtyInput.value || 0),
     boxQty: Number(inventoryOpeningBoxQtyInput.value || 0),
     cardQty: Number(inventoryOpeningCardQtyInput.value || 0),
     supplyQty: 0,
@@ -7584,9 +7599,21 @@ function buildInventoryTypeDetails(type) {
   const opening = getInventoryOpening();
   const map = new Map();
 
+  if (type === "sealedCase" && opening.sealedCaseQty) {
+    addInventoryTypeDetail(map, {
+      name: "期初完整箱庫存",
+      quantity: opening.sealedCaseQty,
+      totalCost: 0,
+      date: "",
+      source: "期初",
+      reference: "期初數量未指定品項",
+      pendingCost: Boolean(opening.sealedCaseQty),
+    });
+  }
+
   if (type === "box" && opening.boxQty) {
     addInventoryTypeDetail(map, {
-      name: "期初卡盒庫存",
+      name: "期初散盒庫存",
       quantity: opening.boxQty,
       totalCost: 0,
       date: "",
@@ -7598,7 +7625,7 @@ function buildInventoryTypeDetails(type) {
 
   if (type === "card" && opening.cardQty) {
     addInventoryTypeDetail(map, {
-      name: "期初卡片庫存",
+      name: "期初散卡庫存",
       quantity: opening.cardQty,
       totalCost: 0,
       date: "",
@@ -9055,8 +9082,9 @@ function buildInventoryReportSheet() {
     [],
     ["庫存摘要"],
     ["項目", "數量／金額", "單位", "說明"],
-    ["卡盒庫存", summary.boxQty, "盒", "期初加入庫減出庫"],
-    ["卡片庫存", summary.cardQty, "張", "期初加入庫減出庫"],
+    ["完整箱庫存", summary.sealedCaseQty, "箱", "期初加入庫減出庫"],
+    ["散盒庫存", summary.boxQty, "盒", "期初加入庫減出庫"],
+    ["散卡庫存", summary.cardQty, "張", "期初加入庫減出庫"],
     ["包材庫存", summary.supplyQty, "件", "入庫減出庫"],
     ["庫存成本", summary.totalCost, "TWD", "期初成本加庫存異動成本"],
     ["待成本確認", summary.pendingCost, "筆", "成本為 0 或未輸入的庫存紀錄"],
@@ -9304,7 +9332,7 @@ function buildCheckSheet() {
     ["交易筆數", lastReportSummary.count, lastReportSummary.count, 0, "OK", "依目前區間流水帳納入。", "ledgerRecords"],
     ["待確認筆數", lastReportSummary.pending, 0, lastReportSummary.pending, lastReportSummary.pending ? "待確認" : "OK", "未附憑證或收入稅務資訊待確認。", "ledgerRecords"],
     ["未配銀行交易", issueCounts["銀行未配對"] || 0, 0, issueCounts["銀行未配對"] || 0, issueCounts["銀行未配對"] ? "待核對" : "OK", "銀行匯入資料尚未標記配對收入、支出、平台撥款或代墊還款。", "bankTransactions"],
-    ["收入未配庫存", issueCounts["收入未配庫存"] || 0, 0, issueCounts["收入未配庫存"] || 0, issueCounts["收入未配庫存"] ? "待核對" : "OK", "收入尚未選擇售出的卡盒或卡片，毛利可能失真。", "ledgerRecords + inventoryRecords"],
+    ["收入未配庫存", issueCounts["收入未配庫存"] || 0, 0, issueCounts["收入未配庫存"] || 0, issueCounts["收入未配庫存"] ? "待核對" : "OK", "收入尚未選擇售出的庫存品項，毛利可能失真。", "ledgerRecords + inventoryRecords"],
     ["庫存成本為 0", issueCounts["庫存成本為 0"] || 0, 0, issueCounts["庫存成本為 0"] || 0, issueCounts["庫存成本為 0"] ? "待確認" : "OK", "入庫或調整資料缺成本，庫存金額與毛利需確認。", "inventoryRecords"],
     ["期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`, `${lastReportSummary.start} 至 ${lastReportSummary.end}`, "", "OK", "使用者自訂區間。", "報表期間"],
     ["稅額完整性", 0, "待憑證確認", "", "待確認", "目前尚未拆分進項稅額與銷項稅額。", "網頁流水帳"],
@@ -9807,7 +9835,7 @@ function renderInventoryMatchPanel(record) {
     return `
       <div class="inventory-match-panel">
         <strong>庫存配對</strong>
-        <span>目前沒有可出庫的卡盒或卡片。</span>
+        <span>目前沒有可出庫的庫存品項。</span>
       </div>
     `;
   }
@@ -9816,7 +9844,7 @@ function renderInventoryMatchPanel(record) {
     <div class="inventory-match-panel">
       <div>
         <strong>庫存配對</strong>
-        <span>可多選庫存來源；適合一天賣多盒或同一筆收入包含多個商品。</span>
+        <span>可多選庫存來源；適合一天賣多箱、多盒、多張卡或同一筆收入包含多個商品。</span>
       </div>
       <div class="inventory-match-list">
         ${availableLots.map(renderInventoryMatchOption).join("")}

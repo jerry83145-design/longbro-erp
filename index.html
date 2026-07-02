@@ -181,7 +181,7 @@
 
               <div class="field wide">
                 <label for="itemInput">項目／摘要 <b>*</b></label>
-                <input id="itemInput" type="text" placeholder="例如：卡盒、印章、運費" required />
+                <input id="itemInput" type="text" placeholder="例如：完整箱、散盒、散卡、包材、運費" required />
               </div>
 
               <div class="field">
@@ -386,22 +386,26 @@
           <div class="placeholder-panel">
             <p class="eyebrow">INVENTORY</p>
             <h2>進銷存</h2>
-            <p class="muted-text">卡盒以進貨入庫；卡片可由團拆入卡、拆盒入卡或玩家收購入庫。這裡先做內部庫存草稿，未來再串到銷貨成本。</p>
+            <p class="muted-text">完整箱、散盒、散卡與包材都可入庫；散卡可由團拆入卡、拆盒入卡或玩家收購入庫。這裡先做內部庫存草稿，未來再串到銷貨成本。</p>
 
             <section class="opening-panel">
               <div class="section-heading compact">
                 <div>
                   <h3>庫存期初</h3>
-                  <p class="muted-text">承接系統啟用前已存在的卡盒、卡片與庫存成本。</p>
+                  <p class="muted-text">承接系統啟用前已存在的完整箱、散盒、散卡與庫存成本。</p>
                 </div>
               </div>
               <div class="opening-grid">
                 <div class="field">
-                  <label for="inventoryOpeningBoxQtyInput">卡盒期初數量</label>
+                  <label for="inventoryOpeningCaseQtyInput">完整箱期初數量</label>
+                  <input id="inventoryOpeningCaseQtyInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+                </div>
+                <div class="field">
+                  <label for="inventoryOpeningBoxQtyInput">散盒期初數量</label>
                   <input id="inventoryOpeningBoxQtyInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
                 </div>
                 <div class="field">
-                  <label for="inventoryOpeningCardQtyInput">卡片期初數量</label>
+                  <label for="inventoryOpeningCardQtyInput">散卡期初數量</label>
                   <input id="inventoryOpeningCardQtyInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
                 </div>
                 <div class="field">
@@ -420,8 +424,9 @@
               <div class="field">
                 <label for="inventoryTypeSelect">庫存類型 <b>*</b></label>
                 <select id="inventoryTypeSelect" required>
-                  <option value="box">卡盒</option>
-                  <option value="card">卡片</option>
+                  <option value="sealedCase">完整箱</option>
+                  <option value="box">散盒</option>
+                  <option value="card">散卡</option>
                   <option value="supply">包材</option>
                 </select>
               </div>
@@ -459,7 +464,7 @@
               </div>
               <div class="field wide">
                 <label for="inventoryNoteInput">備註</label>
-                <textarea id="inventoryNoteInput" rows="2" placeholder="例如：團拆帳上賣卡盒，但此處入庫抽到的卡片"></textarea>
+                <textarea id="inventoryNoteInput" rows="2" placeholder="例如：完整箱拆成散盒，或團拆入庫抽到的散卡"></textarea>
               </div>
               <div class="form-footer">
                 <button id="clearInventoryButton" class="secondary-button" type="button">清除庫存</button>
