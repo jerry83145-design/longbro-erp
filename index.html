@@ -174,7 +174,8 @@
 
               <div class="field with-add">
                 <label for="counterpartySelect">交易對象 <b>*</b></label>
-                <select id="counterpartySelect" required></select>
+                <input id="counterpartySelect" type="text" list="counterpartyOptions" placeholder="輸入或選擇交易對象" autocomplete="off" required />
+                <datalist id="counterpartyOptions"></datalist>
                 <button class="icon-button" type="button" data-add-option="counterparties">+</button>
               </div>
 

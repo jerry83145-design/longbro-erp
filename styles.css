@@ -742,7 +742,8 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
-.with-add select {
+.with-add select,
+.with-add input {
   grid-column: 1;
   grid-row: 2;
 }

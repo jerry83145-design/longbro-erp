@@ -991,6 +991,7 @@ ledgerForm.addEventListener("submit", async (event) => {
       renderSettlementCenter();
     }
 
+    rememberOptionValue("counterparties", record.counterparty);
     clearButton.click();
     showToast(previousRecord ? "紀錄已更新。" : "紀錄已儲存。");
   } catch (error) {
@@ -1116,7 +1117,7 @@ function saveInventorySettings() {
 
 function renderAllOptions() {
   const options = optionsByType[recordType];
-  fillSelect(fields.counterparty, options.counterparties);
+  fillDatalist("counterpartyOptions", options.counterparties);
   fillSelect(fields.cashflow, options.cashflows);
   fillSelect(fields.account, options.accounts);
   fillSelect(fields.major, options.majors);
@@ -1128,6 +1129,15 @@ function renderAllOptions() {
 function fillSelect(select, values) {
   select.innerHTML = values
     .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+    .join("");
+}
+
+function fillDatalist(id, values) {
+  const datalist = document.querySelector(`#${id}`);
+  if (!datalist) return;
+  datalist.innerHTML = values
+    .filter((value) => value !== "自訂")
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`)
     .join("");
 }
 
@@ -1165,6 +1175,18 @@ function normalizeOptions(values, fallback) {
   const normalized = values.length ? Array.from(new Set(values)) : [...fallback];
   if (!normalized.includes("自訂")) normalized.push("自訂");
   return normalized;
+}
+
+function rememberOptionValue(key, value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || trimmed === "自訂") return;
+  const current = optionsByType[recordType][key] || [];
+  if (current.includes(trimmed)) return;
+
+  optionsByType[recordType][key] = normalizeOptions([...current, trimmed], defaultOptionsByType[recordType][key]);
+  saveOptions();
+  renderAllOptions();
+  renderOptionsEditor();
 }
 
 function addOption(key) {
@@ -1352,6 +1374,7 @@ function getNavKey(item) {
 function buildRecord() {
   const date = fields.date.value;
   const amount = Number(fields.amount.value);
+  const counterparty = fields.counterparty.value.trim();
   const note = fields.note.value === "自訂" ? fields.noteText.value.trim() : fields.note.value;
   const voucherFiles = getVoucherFiles();
   const voucherFileNames = voucherFiles.map((file) => file.name);
@@ -1361,6 +1384,11 @@ function buildRecord() {
 
   if (!date || date < "2026-01-01" || date > "2035-12-31") {
     showToast("請選擇 2026-2035 之間的日期。");
+    return null;
+  }
+
+  if (!counterparty) {
+    showToast("請輸入或選擇交易對象。");
     return null;
   }
 
@@ -1378,7 +1406,7 @@ function buildRecord() {
     type: recordType,
     date,
     month: date.slice(0, 7).replace("-", ""),
-    counterparty: fields.counterparty.value,
+    counterparty,
     item: fields.item.value.trim(),
     amount,
     invoiceStatus: voucherFiles.length ? "有" : "無",
@@ -1674,7 +1702,7 @@ function startEditingRecord(record) {
   showView("ledger");
 
   fields.date.value = record.date || "";
-  ensureSelectValue(fields.counterparty, record.counterparty);
+  fields.counterparty.value = record.counterparty || "";
   fields.item.value = record.item || "";
   fields.amount.value = Number(record.amount || 0);
   ensureSelectValue(fields.cashflow, record.cashflow);
