@@ -48,6 +48,11 @@
             <span class="nav-icon">▣</span>
             進銷存
           </button>
+          <button class="nav-item" type="button" data-view="assets">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">◇</span>
+            固定資產
+          </button>
           <button class="nav-item" type="button" data-view="vouchers">
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
             <span class="nav-icon">□</span>
@@ -477,6 +482,29 @@
             </div>
 
             <div id="inventoryList" class="inventory-list empty-state">尚無庫存紀錄</div>
+          </div>
+        </section>
+
+        <section id="assetsView" class="view-panel">
+          <div class="placeholder-panel">
+            <p class="eyebrow">FIXED ASSETS</p>
+            <h2>固定資產</h2>
+            <p class="muted-text">管理資產編號、分類、購買日、保固與貼標狀態。這裡是資產管理清冊，折舊與正式會計分錄仍待會計師確認。</p>
+
+            <div class="logic-note">
+              <strong>匯入來源</strong>
+              <span>可先匯入昨天整理好的 Google Sheets 資產清冊；系統會用資產編號比對，已存在的資產不重複新增。</span>
+            </div>
+
+            <div class="form-footer">
+              <button id="importAssetSheetButton" type="button">匯入固定資產清冊</button>
+            </div>
+
+            <div id="assetSummary" class="inventory-summary">
+              <div class="empty-state">尚無固定資產資料。</div>
+            </div>
+
+            <div id="assetList" class="inventory-list empty-state">尚無固定資產紀錄</div>
           </div>
         </section>
 

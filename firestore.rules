@@ -38,6 +38,12 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    match /assetRecords/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read, update: if isOwner();
+      allow delete: if isOwner();
+    }
+
     match /bankTransactions/{recordId} {
       allow create: if createsOwnRecord();
       allow read, update: if isOwner();

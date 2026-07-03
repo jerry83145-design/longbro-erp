@@ -59,6 +59,69 @@ const inventoryUnitLabels = {
   supply: "件",
 };
 
+const assetCategoryCodes = {
+  資訊設備: "IT",
+  直播設備: "LV",
+  辦公家具: "OF",
+  電器設備: "EL",
+};
+
+const assetCodeCategories = Object.fromEntries(
+  Object.entries(assetCategoryCodes).map(([category, code]) => [code, category]),
+);
+
+const fixedAssetSeedTsv = `PH-OF-0001	辦公家具	主播椅	2	46203	3000	0	46203	已過保	未貼	IKEA 跟華哥買
+PH-OF-0002	辦公家具	直播間小桌	1	46200	1197	0	46200	已過保	未貼	Loft 卡爾職人工作桌 11.5kg 1個, 咖啡色
+PH-LV-0001	直播設備	相機燈頭(變焦)	1	46200	3000	0	46200	已過保	未貼	Sony FE 28-70mm F3.5-5.6 OSS
+PH-LV-0002	直播設備	直播間螢幕支架	1	46197	2999	0	46197	已過保	未貼	ANDY系列 Raymii LS-126-P2 氣壓式高承重雙螢幕支架 35吋 16KG 螢幕架 螢幕伸縮懸掛支架+Raymii LSA6 螢幕支架桌面保護墊片
+PH-LV-0003	直播設備	主播間手機支架	2	46197	698	0	46197	已過保	未貼	Raymii D100 鋁合金旋轉手機平板增高支架 手機架 灰色
+PH-LV-0004	直播設備	直播間第一組燈	1	46185	11500				未貼	200XS+Lantern65cm柔光罩+Sirui DJ280燈架
+PH-LV-0005	直播設備	直播間麥克風架	2	46197	5562	12	46562	保固中	未貼	【Elgato】WAVE MIC ARM LP 麥克風矮懸臂 桌邊架(公司貨)
+PH-IT-0001	資訊設備	小記憶卡	1	46196	1510	9999	350535	保固中	未貼	SanDisk 256GB 190MB/s Extreme MicroSDXC UHS-I A2 V30 256GB 記憶卡
+PH-LV-0006	直播設備	直播間麥克風線	2	46195	750				未貼	Canare L2T2S - Neutrik鍍銀XLR平衡頭麥克風線
+PH-LV-0007	直播設備	相機電池充電器	1	46191	555	12	46556	保固中	未貼	Rowa NP-FZ100 副廠雙槽電池充電器
+PH-OF-0003	辦公家具	包貨推車	2	46191	1684	0	46191	已過保	未貼	IKEA
+PH-OF-0004	辦公家具	包貨區長桌	2	46191	1998	0	46191	已過保	未貼	酷澎雜牌
+PH-LV-0008	直播設備	綠幕	1	46190	1891	12	46555	保固中	未貼	【Quality 聚家】全伸縮直播綠幕 攝影背景布 摳像背景布（2.7*3米背景架/3*2米背景布/三角支架/快速升降）
+PH-LV-0009	直播設備	相機架	1	46190	815	0	46190	已過保	未貼	【Ulanzi 優籃子】【Ulanzi HD02 10吋滑槽怪手套裝】承重3kg 魔術手臂 萬向魔術臂 大力夾 1/4" 3/8" 阿萊定位孔
+PH-LV-0010	直播設備	黑色延長線(TPS356DN0027)	2	46189	1348	12	46554	保固中	未貼	【PowerSync 群加】6開6插安全防雷防塵延長線 /2.7M(TPS356DN0027)
+PH-LV-0011	直播設備	【PX 大通】3m網路線	1	46189	246	24	46920	保固中	未貼	【PX 大通】3m網路線
+PH-IT-0002	資訊設備	【TP-Link】 網路交換器(TL-SG105)	1	46189	439	36	47285	保固中		【TP-Link】 網路交換器(TL-SG105)
+PH-LV-0012	直播設備	【PX大通】HDMI PREMIUM 5m線	1	46189	789	24	46920	保固中		【PX大通】HDMI PREMIUM 5m線
+PH-LV-0013	直播設備	【綠聯】TypeC快充傳輸線 黑色2m	1	46189	186	12	46554	保固中		【綠聯】TypeC快充傳輸線 黑色2m
+PH-LV-0014	直播設備	主播電腦	1	46189	77000	12	46554	保固中	未貼	組裝電腦，保固依各零件，有問題都可以問張育軒(賣家)
+PH-LV-0015	直播設備	直播間電腦螢幕	3	46189	9150	36	47285	保固中		華碩VG279Q5A
+PH-LV-0016	直播設備	麥克風	1	46189	3300	24	46920	保固中	未貼	RODE 台灣公司貨 有線廣播級動態麥克風, RDPODMIC, 黑色
+PH-EL-0001	電器設備	除濕機	2	46188	17905	36	47284	保固中	未貼	HITACHI RD-220HC
+PH-LV-0017	直播設備	主畫面相機	1	46188	52520	0	46188	已過保	未貼	Sony A7SIII A7S3
+PH-LV-0018	直播設備	定焦鏡頭	1	46186	8200	0	46186	已過保	未貼	Sony 50mm marco
+PH-LV-0019	直播設備	直播間電視	1	46186	6200	0	46186	已過保	未貼	Samsung UA55AU8000WXZW
+PH-EL-0002	電器設備	防潮箱	1	46186	5299	120	49839	保固中	未貼	【防潮家】121公升電子防潮箱D-118CA(台灣製 7年保固 穩定除濕)
+PH-LV-0020	直播設備	直播間第二組燈	1	46197	7600				未貼	Godox SB-US-80蜂巢罩、神牛SL60II Bi 、燈架
+PH-IT-0003	資訊設備	Pocket4	1	46185	19380	24	46916	保固中	未貼	保固為加購保險 兩年共四次人為 原廠非人為僅一年
+PH-LV-0021	直播設備	Mixer	1	46184	5385	0	46184	已過保	未貼	Yamaha AG06 MK2
+PH-LV-0022	直播設備	直播鏡頭	1	46183	2170	12	46548	保固中	未貼	羅技 c922pro
+PH-IT-0004	資訊設備	掃描機	1	46182	40000	12	46547	保固中	未貼	epson v850
+PH-IT-0005	資訊設備	印表機	1	46182	3000	36	47278	保固中		Canon G3730
+PH-IT-0006	資訊設備	鍵盤滑鼠	1	46176	990	12	46541	保固中	未貼	【Logitech 羅技】MK295 無線靜音鍵鼠組
+PH-LV-0023	直播設備	直播間鍵盤滑鼠	2	46182	1950	12	46547	保固中		光華雜牌
+PH-IT-0007	資訊設備	文書機	2	46182	35474	12	46547	保固中	未貼	【華碩平台】R5 六核 Win11 {蛇蟠陣法V W}優質文書機(R5 5600GT/A520/16G D4/512G)
+PH-LV-0024	直播設備	直播間電視架	1	46181	450	0	46181	已過保	未貼	臉書雜牌
+PH-OF-0005	辦公家具	抽屜櫃	5	46181	6100	0	46181	已過保	未貼	IKEA
+PH-LV-0025	直播設備	集線器	1	46181	7750	24	46912	保固中	未貼	【OWC】Thunderbolt Dock(支援 Thunderbolt 3 Mac 和 Thunderbolt 4 PC)
+PH-IT-0008	資訊設備	辦公區電視	1	46178	8800	0	46178	已過保	未貼	兆基電子JGF-65UDF
+PH-OF-0006	辦公家具	直播桌	1	46178	14500	0	46178	已過保	未貼	安寶角鋼
+PH-EL-0003	電器設備	冰箱	1	46177	5500	0	46177	已過保	未貼	HITACHI R-BX330
+PH-OF-0007	辦公家具	辦公椅	5	46175	5182	0	46175	已過保	未貼	雜牌
+PH-OF-0008	辦公家具	沙發	1	46174	26000	0	46174	已過保	未貼	IKEA
+PH-OF-0009	辦公家具	辦公桌	6	46174	12000	0	46174	已過保		IKEA
+PH-OF-0010	辦公家具	手推車	1	46171	1000	12	46536	保固中	未貼	一元五金推車
+PH-EL-0004	電器設備	淨水器	1	46170	9450	24	46901	保固中	未貼	蔚藍淨水 濾心為消耗品，龍頭壞了也能換，其他要跟廠商確認
+PH-EL-0005	電器設備	冷氣	5	46168	155000	84	48725	保固中	未貼	TCL R32 保固要再跟小陳確認一下
+PH-EL-0006	電器設備	吸塵器	1	46163	13000	0	46163	已過保	未貼	Dyson V12 SV46ff 吸塵器
+PH-EL-0007	電器設備	電風扇	1	46162	1490	0	46162	已過保	未貼	禾聯
+PH-IT-0009	資訊設備	延長線	2	46205	1350	0	46205	已過保	未貼	Kinyo 3.6m`;
+
 const settlementStatuses = {
   expense: ["已付款", "待付款", "信用卡未請款", "月結未付", "股東代墊未沖", "不適用"],
   income: ["已收款", "待收款", "平台待撥", "月結未收", "不適用"],
@@ -161,6 +224,9 @@ const clearInventoryButton = document.querySelector("#clearInventoryButton");
 const saveInventoryButton = document.querySelector("#saveInventoryButton");
 const inventorySummary = document.querySelector("#inventorySummary");
 const inventoryList = document.querySelector("#inventoryList");
+const importAssetSheetButton = document.querySelector("#importAssetSheetButton");
+const assetSummary = document.querySelector("#assetSummary");
+const assetList = document.querySelector("#assetList");
 const inventoryOpeningBoxQtyInput = document.querySelector("#inventoryOpeningBoxQtyInput");
 const inventoryOpeningCardQtyInput = document.querySelector("#inventoryOpeningCardQtyInput");
 const inventoryOpeningCaseQtyInput = document.querySelector("#inventoryOpeningCaseQtyInput");
@@ -219,6 +285,7 @@ let restoreBackupDraft = null;
 let restoreBackupPlan = null;
 let recordsCache = loadLocalRecords();
 let inventoryCache = loadLocalInventoryRecords();
+let assetCache = loadLocalAssetRecords();
 let bankTransactionsCache = loadLocalBankTransactions();
 let lineDraftsCache = loadLocalLineDrafts();
 let voucherInboxCache = loadLocalVoucherInbox();
@@ -244,6 +311,7 @@ const recycleCollections = [
   { name: "ledgerRecords", label: "流水帳" },
   { name: "bankTransactions", label: "銀行資料" },
   { name: "inventoryRecords", label: "庫存" },
+  { name: "assetRecords", label: "固定資產" },
 ];
 
 const isConfigured = !Object.values(firebaseConfig).some((value) =>
@@ -299,6 +367,12 @@ const pageMeta = {
     subtitle: "管理進貨、銷貨、庫存與實際商品成本",
     action: "新增收入",
   },
+  assets: {
+    eyebrow: "FIXED ASSETS",
+    title: "固定資產",
+    subtitle: "管理資產編號、分類、保固、貼標與來源支出",
+    action: "新增支出",
+  },
   vouchers: {
     eyebrow: "VOUCHERS",
     title: "憑證中心",
@@ -339,6 +413,7 @@ renderBatchVoucherList([]);
 renderLedgerInventorySync();
 renderInventorySources();
 renderInventory();
+renderAssets();
 renderPendingCenter();
 renderVoucherCenter();
 renderSettlementCenter();
@@ -355,6 +430,7 @@ if (isConfigured) {
   renderCustomReport();
   renderCashflow();
   renderInventory();
+  renderAssets();
   renderPendingCenter();
   renderVoucherCenter();
   renderSettlementCenter();
@@ -461,6 +537,7 @@ saveInventorySettingsButton.addEventListener("click", () => {
   showToast("庫存期初已儲存。");
 });
 
+importAssetSheetButton?.addEventListener("click", importSeedAssetRecords);
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
 refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
 exportBackupButton?.addEventListener("click", exportFullBackup);
@@ -935,6 +1012,23 @@ inventorySummary.addEventListener("click", (event) => {
   showInventoryTypeDetailDialog(button.dataset.inventorySummaryDetail);
 });
 
+assetList?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-asset-action]");
+  if (!button) return;
+
+  const record = assetCache.find((item) => item.id === button.dataset.assetId);
+  if (!record) return;
+
+  if (button.dataset.assetAction === "details") {
+    showAssetDetailDialog(record);
+    return;
+  }
+
+  if (button.dataset.assetAction === "delete") {
+    await handleDeleteAssetRecord(record);
+  }
+});
+
 ledgerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -974,19 +1068,26 @@ ledgerForm.addEventListener("submit", async (event) => {
       }
       await updateRecord(record);
       if (record.type === "expense") {
-        await handleLedgerInventorySync({ id: currentEditingId, ...stripFile(record) });
+        const savedRecord = { id: currentEditingId, ...stripFile(record) };
+        await handleLedgerInventorySync(savedRecord);
+        await handleLedgerAssetSync(savedRecord);
         if (isConfigured) await loadInventoryRecords();
+        if (isConfigured) await loadAssetRecords();
       }
     } else if (isConfigured) {
       const savedId = await saveRecordToFirebase(record);
-      await handleLedgerInventorySync({ id: savedId, ...stripFile(record) });
+      const savedRecord = { id: savedId, ...stripFile(record) };
+      await handleLedgerInventorySync(savedRecord);
+      await handleLedgerAssetSync(savedRecord);
       await loadRecords();
       await loadInventoryRecords();
+      await loadAssetRecords();
     } else {
       const savedRecord = { id: crypto.randomUUID(), ...stripFile(record), createdAt: new Date() };
       recordsCache.unshift(savedRecord);
       saveLocalRecords();
       await handleLedgerInventorySync(savedRecord);
+      await handleLedgerAssetSync(savedRecord);
       renderRecords(recordsCache);
       updateSummary(recordsCache);
       renderCustomReport();
@@ -1046,6 +1147,7 @@ function loadSecondaryData() {
 
   secondaryDataLoadPromise = Promise.allSettled([
     loadInventoryRecords(),
+    loadAssetRecords(),
     loadBankTransactions(),
     loadLineDrafts(),
     loadVoucherInbox(),
@@ -1248,13 +1350,14 @@ function showView(view) {
   currentView = view;
   document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.remove("active"));
   document.querySelector(`#${view}View`)?.classList.add("active");
-  if (["reports", "cashflow", "settlement", "inventory", "pending", "vouchers"].includes(view)) {
+  if (["reports", "cashflow", "settlement", "inventory", "assets", "pending", "vouchers"].includes(view)) {
     loadSecondaryData();
   }
   if (view === "reports") renderCustomReport();
   if (view === "cashflow") renderCashflow();
   if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
+  if (view === "assets") renderAssets();
   if (view === "pending") renderPendingCenter();
   if (view === "vouchers") renderVoucherCenter();
   if (view === "settings") {
@@ -3605,6 +3708,7 @@ function getAuditActionLabel(action) {
 function getAuditRecordTitle(collectionName, record) {
   if (collectionName === "bankTransactions") return record.description || record.sourceFile || "銀行資料";
   if (collectionName === "inventoryRecords") return record.name || "庫存紀錄";
+  if (collectionName === "assetRecords") return record.name || record.assetNumber || "固定資產";
   return record.item || record.counterparty || "流水帳紀錄";
 }
 
@@ -3620,13 +3724,17 @@ function getAuditRecordMeta(collectionName, record) {
     return `${record.date || "未填日期"} · ${action} · ${formatNumber(record.quantity)} · NT$ ${formatNumber(record.totalCost)}`;
   }
 
+  if (collectionName === "assetRecords") {
+    return `${record.purchaseDate || "未填日期"} · ${record.assetNumber || "未編號"} · ${record.category || "未分類"} · NT$ ${formatNumber(record.amount)}`;
+  }
+
   return `${record.date || "未填日期"} · ${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`;
 }
 
 function getAuditDiffText(log) {
   if (log.action !== "update" || !log.before || !log.after) return "";
   const changes = [];
-  ["date", "counterparty", "item", "amount", "account", "settlementStatus", "name", "quantity", "totalCost", "status"].forEach((field) => {
+  ["date", "counterparty", "item", "amount", "account", "settlementStatus", "name", "quantity", "totalCost", "status", "assetNumber", "labelStatus", "warrantyStatus"].forEach((field) => {
     if (String(log.before[field] ?? "") !== String(log.after[field] ?? "")) changes.push(field);
   });
   return changes.length ? `變更 ${changes.length} 欄` : "內容已更新";
@@ -3727,6 +3835,7 @@ function getRecycleCollectionLabel(collectionName) {
 function getRecycleItemTitle(record) {
   if (record.collectionName === "bankTransactions") return record.description || record.sourceFile || "銀行資料";
   if (record.collectionName === "inventoryRecords") return record.name || "庫存紀錄";
+  if (record.collectionName === "assetRecords") return record.name || record.assetNumber || "固定資產";
   return record.item || record.counterparty || "流水帳紀錄";
 }
 
@@ -3740,6 +3849,10 @@ function getRecycleItemMeta(record) {
   if (record.collectionName === "inventoryRecords") {
     const action = inventoryActionLabels[record.action] || record.action || "庫存";
     return `${record.date || "未填日期"} · ${action} · ${formatNumber(record.quantity)} · NT$ ${formatNumber(record.totalCost)}`;
+  }
+
+  if (record.collectionName === "assetRecords") {
+    return `${record.purchaseDate || "未填日期"} · ${record.assetNumber || "未編號"} · ${record.category || "未分類"} · NT$ ${formatNumber(record.amount)}`;
   }
 
   return `${record.date || "未填日期"} · ${typeLabel(record.type)} · ${record.counterparty || "未填對象"} · NT$ ${formatNumber(record.amount)}`;
@@ -3799,6 +3912,12 @@ async function refreshDataAfterRestore(collectionName) {
   if (collectionName === "inventoryRecords") {
     if (isConfigured) await loadInventoryRecords();
     else renderInventory();
+    return;
+  }
+
+  if (collectionName === "assetRecords") {
+    if (isConfigured) await loadAssetRecords();
+    else renderAssets();
   }
 }
 
@@ -3826,6 +3945,11 @@ function restoreLocalDeletedRecord(collectionName, recordId, updates) {
   if (collectionName === "inventoryRecords") {
     inventoryCache.unshift(restoredRecord);
     saveLocalInventoryRecords();
+  }
+
+  if (collectionName === "assetRecords") {
+    assetCache.unshift(restoredRecord);
+    saveLocalAssetRecords();
   }
 
   localStorage.setItem(
@@ -7418,6 +7542,346 @@ async function updateLedgerInventoryLinks(record, links) {
   saveLocalRecords();
 }
 
+async function handleLedgerAssetSync(record) {
+  if (record.type !== "expense" || record.assetSyncPrompted) return;
+  if (assetCache.some((asset) => asset.sourceLedgerId === record.id && !asset.deletedAt)) return;
+  if (!looksLikeFixedAssetExpense(record)) return;
+
+  const confirmed = window.confirm(
+    `這筆支出看起來可能是固定資產，要加入資產清單嗎？\n\n${record.item}\nNT$ ${formatNumber(record.amount)}\n\n提醒：這只是管理清冊，折舊與正式會計科目仍待會計師確認。`,
+  );
+  if (!confirmed) return;
+
+  const draft = buildAssetDraftFromExpense(record);
+  const inputText = window.prompt(
+    [
+      "請確認資產資料，每行格式：分類｜名稱｜數量｜金額｜保固月數",
+      "分類可填：資訊設備、直播設備、辦公家具、電器設備",
+      "",
+      "例如：直播設備｜直播鏡頭｜1｜12000｜24",
+    ].join("\n"),
+    `${draft.category}｜${draft.name}｜${draft.quantity}｜${draft.amount}｜${draft.warrantyMonths}`,
+  );
+  if (inputText === null) return;
+
+  const assets = parseAssetPrompt(inputText, record);
+  if (!assets.length) {
+    showToast("沒有可新增的固定資產資料。");
+    return;
+  }
+
+  for (const asset of assets) {
+    await addAssetRecord(asset);
+  }
+
+  if (isConfigured) await loadAssetRecords();
+  else renderAssets();
+  showToast(`已新增 ${assets.length} 筆固定資產。`);
+}
+
+function looksLikeFixedAssetExpense(record) {
+  const text = `${record.major || ""} ${record.middle || ""} ${record.minor || ""} ${record.item || ""} ${record.note || ""}`;
+  return /固定資產|辦公設備|設備|資訊設備|直播設備|辦公家具|電器設備|電腦|螢幕|相機|鏡頭|麥克風|桌|椅|冷氣|冰箱|除濕|印表機|掃描|支架|燈|防潮箱|淨水器|吸塵器/u.test(text);
+}
+
+function buildAssetDraftFromExpense(record) {
+  const category = inferAssetCategory(record);
+  return {
+    category,
+    name: record.minor && record.minor !== "待確認" ? record.minor : record.item || "未命名資產",
+    quantity: 1,
+    amount: Number(record.amount || 0),
+    warrantyMonths: 0,
+  };
+}
+
+function inferAssetCategory(record) {
+  const text = `${record.major || ""} ${record.middle || ""} ${record.minor || ""} ${record.item || ""}`;
+  if (/資訊|電腦|網路|交換器|記憶卡|掃描|印表|鍵盤|滑鼠/u.test(text)) return "資訊設備";
+  if (/直播|相機|鏡頭|麥克風|燈|支架|綠幕|HDMI|TypeC|集線器|電視/u.test(text)) return "直播設備";
+  if (/桌|椅|櫃|沙發|推車|家具/u.test(text)) return "辦公家具";
+  if (/冷氣|冰箱|除濕|防潮|淨水|吸塵|電風扇/u.test(text)) return "電器設備";
+  return "直播設備";
+}
+
+function parseAssetPrompt(text, sourceRecord) {
+  const reservations = new Map();
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/[|｜]/).map((part) => part.trim());
+      const category = normalizeAssetCategory(parts[0]) || inferAssetCategory(sourceRecord);
+      const name = parts[1] || sourceRecord.item || "未命名資產";
+      const quantity = Number(String(parts[2] || "1").replace(/,/g, "")) || 1;
+      const amount = Number(String(parts[3] || sourceRecord.amount || 0).replace(/,/g, "")) || 0;
+      const warrantyMonths = Number(String(parts[4] || "0").replace(/,/g, "")) || 0;
+      const purchaseDate = sourceRecord.date || toDateValue(new Date());
+      return {
+        assetNumber: generateNextAssetNumber(category, reservations),
+        category,
+        name,
+        quantity,
+        purchaseDate,
+        amount,
+        warrantyMonths,
+        warrantyEndDate: warrantyMonths ? addMonthsToDate(purchaseDate, warrantyMonths) : purchaseDate,
+        warrantyStatus: warrantyMonths ? resolveWarrantyStatus(addMonthsToDate(purchaseDate, warrantyMonths)) : "已過保",
+        labelStatus: "未貼",
+        note: sourceRecord.counterparty ? `由支出新增：${sourceRecord.counterparty}` : "由支出新增",
+        source: "支出同步新增資產",
+        sourceLedgerId: sourceRecord.id,
+      };
+    })
+    .filter((asset) => asset.category && asset.name && asset.quantity > 0);
+}
+
+function normalizeAssetCategory(value) {
+  const trimmed = String(value || "").trim();
+  if (assetCategoryCodes[trimmed]) return trimmed;
+  const code = trimmed.toUpperCase();
+  return assetCodeCategories[code] || "";
+}
+
+function generateNextAssetNumber(category, reservations = new Map()) {
+  const code = assetCategoryCodes[category] || "OT";
+  const base = assetCache
+    .map((asset) => String(asset.assetNumber || "").match(new RegExp(`^PH-${code}-(\\d+)$`)))
+    .filter(Boolean)
+    .reduce((max, match) => Math.max(max, Number(match[1] || 0)), 0);
+  const next = Math.max(base, Number(reservations.get(code) || 0)) + 1;
+  reservations.set(code, next);
+  return `PH-${code}-${String(next).padStart(4, "0")}`;
+}
+
+function addMonthsToDate(dateValue, months) {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateValue;
+  date.setMonth(date.getMonth() + Number(months || 0));
+  return toDateValue(date);
+}
+
+function resolveWarrantyStatus(warrantyEndDate) {
+  if (!warrantyEndDate) return "";
+  return warrantyEndDate >= toDateValue(new Date()) ? "保固中" : "已過保";
+}
+
+async function importSeedAssetRecords() {
+  if (isConfigured && (!currentUser || !db)) {
+    showToast("請先登入後再匯入固定資產。");
+    return;
+  }
+
+  const rows = parseFixedAssetSeedRows();
+  const existing = new Set(assetCache.map((asset) => asset.assetNumber).filter(Boolean));
+  const toImport = rows.filter((asset) => asset.assetNumber && !existing.has(asset.assetNumber));
+
+  if (!toImport.length) {
+    showToast("固定資產清冊已匯入過，沒有新增資料。");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `將匯入固定資產清冊 ${toImport.length} 筆。\n已存在的資產編號會跳過，不會覆蓋原資料。\n\n是否繼續？`,
+  );
+  if (!confirmed) return;
+
+  for (const asset of toImport) {
+    await addAssetRecord(asset);
+  }
+
+  if (isConfigured) await loadAssetRecords();
+  renderAssets();
+  showToast(`固定資產已匯入 ${toImport.length} 筆。`);
+}
+
+function parseFixedAssetSeedRows() {
+  return fixedAssetSeedTsv
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.split("\t"))
+    .map(([assetNumber, category, name, quantity, purchaseSerial, amount, warrantyMonths, warrantyEndSerial, warrantyStatus, labelStatus, note]) => ({
+      assetNumber,
+      category,
+      name: String(name || "").trim(),
+      quantity: Number(quantity || 0),
+      purchaseDate: excelSerialToDateValue(purchaseSerial),
+      amount: Number(amount || 0),
+      warrantyMonths: warrantyMonths === "" ? "" : Number(warrantyMonths || 0),
+      warrantyEndDate: warrantyEndSerial ? excelSerialToDateValue(warrantyEndSerial) : "",
+      warrantyStatus: warrantyStatus || "",
+      labelStatus: labelStatus || "未貼",
+      note: note || "",
+      source: "Google Sheets 固定資產清冊 2026-07-01",
+    }));
+}
+
+function excelSerialToDateValue(serial) {
+  const value = Number(serial || 0);
+  if (!value) return "";
+  const date = new Date(Date.UTC(1899, 11, 30) + value * 86400000);
+  return date.toISOString().slice(0, 10);
+}
+
+async function loadAssetRecords() {
+  if (!currentUser || !db) return;
+
+  const snapshot = await firebaseApi.getDocs(
+    firebaseApi.query(
+      firebaseApi.collection(db, "assetRecords"),
+      firebaseApi.where("userId", "==", currentUser.uid),
+      firebaseApi.limit(500),
+    ),
+  );
+  assetCache = snapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((record) => !record.deletedAt)
+    .sort(compareAssets);
+  renderAssets();
+}
+
+async function addAssetRecord(record) {
+  const payload = {
+    ...record,
+    category: normalizeAssetCategory(record.category) || record.category,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  if (isConfigured) {
+    const docRef = await firebaseApi.addDoc(firebaseApi.collection(db, "assetRecords"), {
+      ...payload,
+      createdAt: firebaseApi.serverTimestamp(),
+      createdBy: currentUser.email,
+      userId: currentUser.uid,
+    });
+    return docRef.id;
+  }
+
+  const id = crypto.randomUUID();
+  assetCache.unshift({ id, ...payload, createdAt: new Date() });
+  saveLocalAssetRecords();
+  return id;
+}
+
+function renderAssets() {
+  if (!assetSummary || !assetList) return;
+
+  const summary = buildAssetSummary(assetCache);
+  assetSummary.innerHTML = `
+    <div class="inventory-summary-grid">
+      <article class="inventory-card">
+        <span>資產件數</span>
+        <strong>${formatNumber(summary.totalQuantity)} 件</strong>
+      </article>
+      <article class="inventory-card">
+        <span>資產總額</span>
+        <strong>NT$ ${formatNumber(summary.totalAmount)}</strong>
+      </article>
+      <article class="inventory-card">
+        <span>尚未貼標</span>
+        <strong>${formatNumber(summary.unlabeled)} 筆</strong>
+      </article>
+      <article class="inventory-card">
+        <span>保固中</span>
+        <strong>${formatNumber(summary.inWarranty)} 筆</strong>
+      </article>
+      <article class="inventory-card">
+        <span>待確認</span>
+        <strong>${formatNumber(summary.pending)} 筆</strong>
+      </article>
+    </div>
+  `;
+
+  if (!assetCache.length) {
+    assetList.className = "inventory-list empty-state";
+    assetList.textContent = "尚無固定資產紀錄";
+    return;
+  }
+
+  assetList.className = "inventory-list";
+  assetList.innerHTML = [...assetCache].sort(compareAssets).map(renderAssetRecord).join("");
+}
+
+function buildAssetSummary(records) {
+  return records.reduce(
+    (summary, record) => {
+      summary.totalQuantity += Number(record.quantity || 0);
+      summary.totalAmount += Number(record.amount || 0);
+      if ((record.labelStatus || "未貼") !== "已貼") summary.unlabeled += 1;
+      if (record.warrantyStatus === "保固中") summary.inWarranty += 1;
+      if (!record.purchaseDate || !record.amount || record.warrantyStatus === "" || record.warrantyStatus === null) summary.pending += 1;
+      return summary;
+    },
+    { totalQuantity: 0, totalAmount: 0, unlabeled: 0, inWarranty: 0, pending: 0 },
+  );
+}
+
+function renderAssetRecord(record) {
+  const code = assetCategoryCodes[record.category] || "OT";
+  return `
+    <article class="inventory-row">
+      <span class="pill ${record.category === "資訊設備" ? "income" : ""}">${escapeHtml(code)}</span>
+      <div>
+        <strong>${escapeHtml(record.name)}</strong>
+        <span>${escapeHtml(record.assetNumber)} · ${escapeHtml(record.category)} · ${escapeHtml(record.note || "無備註")}</span>
+      </div>
+      <strong>${formatNumber(record.quantity)} 件</strong>
+      <span>NT$ ${formatNumber(record.amount)}</span>
+      <span>${escapeHtml(record.purchaseDate || "未填日期")} · ${escapeHtml(record.warrantyStatus || "待確認")} · ${escapeHtml(record.labelStatus || "未貼")}</span>
+      <div class="record-actions">
+        <button type="button" data-asset-action="details" data-asset-id="${escapeHtml(record.id)}">看明細</button>
+        <button type="button" class="danger" data-asset-action="delete" data-asset-id="${escapeHtml(record.id)}">刪除</button>
+      </div>
+    </article>
+  `;
+}
+
+function showAssetDetailDialog(record) {
+  const rows = [
+    ["資產編號", record.assetNumber],
+    ["分類", record.category],
+    ["名稱", record.name],
+    ["數量", `${formatNumber(record.quantity)} 件`],
+    ["購買日期", record.purchaseDate || "未填"],
+    ["金額", `NT$ ${formatNumber(record.amount)}`],
+    ["保固期限", record.warrantyMonths === "" ? "待確認" : `${formatNumber(record.warrantyMonths)} 個月`],
+    ["保固到期日", record.warrantyEndDate || "待確認"],
+    ["保固狀態", record.warrantyStatus || "待確認"],
+    ["貼標狀態", record.labelStatus || "未貼"],
+    ["備註", record.note || "無"],
+    ["來源", record.source || "ERP"],
+  ];
+
+  window.alert(rows.map(([label, value]) => `${label}：${value}`).join("\n"));
+}
+
+async function handleDeleteAssetRecord(record) {
+  const confirmed = window.confirm(
+    `確定要刪除這筆固定資產嗎？\n\n${record.assetNumber}｜${record.name}\nNT$ ${formatNumber(record.amount)}\n\n刪除後會保留在刪除紀錄。`,
+  );
+  if (!confirmed) return;
+
+  if (isConfigured) {
+    await softDeleteRecord("assetRecords", record.id, record);
+    await loadAssetRecords();
+  } else {
+    await softDeleteRecord("assetRecords", record.id, record);
+    assetCache = assetCache.filter((item) => item.id !== record.id);
+    saveLocalAssetRecords();
+    renderAssets();
+  }
+
+  renderCustomReport();
+  showToast("固定資產已移到刪除紀錄。");
+}
+
+function compareAssets(a, b) {
+  const numberCompare = String(a.assetNumber || "").localeCompare(String(b.assetNumber || ""), "zh-Hant");
+  if (numberCompare) return numberCompare;
+  return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");
+}
+
 function clearInventoryForm() {
   inventoryForm.reset();
   editingInventoryId = null;
@@ -8154,6 +8618,7 @@ async function exportFullBackup() {
     appendSheet(workbook, "流水帳", buildBackupSheet(backup.ledgerRecords, backupFields.ledgerRecords));
     appendSheet(workbook, "銀行資料", buildBackupSheet(backup.bankTransactions, backupFields.bankTransactions));
     appendSheet(workbook, "庫存紀錄", buildBackupSheet(backup.inventoryRecords, backupFields.inventoryRecords));
+    appendSheet(workbook, "固定資產", buildBackupSheet(backup.assetRecords, backupFields.assetRecords));
     appendSheet(workbook, "憑證暫存池", buildBackupSheet(backup.voucherInbox, backupFields.voucherInbox));
     appendSheet(workbook, "LINE草稿", buildBackupSheet(backup.lineDrafts, backupFields.lineDrafts));
     appendSheet(workbook, "回收桶", buildBackupSheet(backup.recycleBin, backupFields.recycleBin));
@@ -8164,7 +8629,7 @@ async function exportFullBackup() {
     window.XLSX.writeFile(workbook, `${stamp}_隆博ERP_資料備份.xlsx`);
     localStorage.setItem("lastBackupExportAt", new Date().toISOString());
     if (backupStatus) {
-      backupStatus.textContent = `已匯出備份：流水帳 ${backup.ledgerRecords.length} 筆、銀行 ${backup.bankTransactions.length} 筆、庫存 ${backup.inventoryRecords.length} 筆、憑證 ${backup.voucherInbox.length} 筆。`;
+      backupStatus.textContent = `已匯出備份：流水帳 ${backup.ledgerRecords.length} 筆、銀行 ${backup.bankTransactions.length} 筆、庫存 ${backup.inventoryRecords.length} 筆、固定資產 ${backup.assetRecords.length} 筆、憑證 ${backup.voucherInbox.length} 筆。`;
     }
     showToast("備份 Excel 已匯出。");
   } catch (error) {
@@ -8179,6 +8644,7 @@ const backupFields = {
   ledgerRecords: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "settlementStatus", "dueDate", "settledDate", "major", "middle", "minor", "invoiceNumber", "invoiceStatus", "hasVoucher", "pendingReason", "deletedAt", "createdBy"],
   bankTransactions: ["id", "date", "account", "description", "counterparty", "deposit", "withdrawal", "amount", "balance", "status", "linkedType", "linkedRecordId", "sourceFile", "deletedAt", "createdBy"],
   inventoryRecords: ["id", "date", "type", "action", "source", "name", "quantity", "remainingQuantity", "unitCost", "totalCost", "reference", "linkedLedgerId", "deletedAt", "createdBy"],
+  assetRecords: ["id", "assetNumber", "category", "name", "quantity", "purchaseDate", "amount", "warrantyMonths", "warrantyEndDate", "warrantyStatus", "labelStatus", "note", "source", "sourceLedgerId", "deletedAt", "createdBy"],
   voucherInbox: ["id", "invoiceNumber", "originalInvoiceNumber", "adjustmentNumber", "documentType", "adjustmentKind", "voucherType", "date", "type", "counterparty", "item", "totalAmount", "matchedAmount", "remainingAmount", "status", "source", "sourceWorkbook", "sourceFileName", "sourceRow", "deletedAt", "createdBy"],
   lineDrafts: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "major", "middle", "minor", "status", "needsReview", "source", "createdBy"],
   recycleBin: ["collectionName", "id", "date", "type", "item", "description", "amount", "deletedAt", "deletedBy", "rawJson"],
@@ -8190,6 +8656,7 @@ const restoreSheetDefinitions = [
   { key: "ledgerRecords", name: "流水帳", label: "流水帳", collectionName: "ledgerRecords" },
   { key: "bankTransactions", name: "銀行資料", label: "銀行資料", collectionName: "bankTransactions" },
   { key: "inventoryRecords", name: "庫存紀錄", label: "庫存紀錄", collectionName: "inventoryRecords" },
+  { key: "assetRecords", name: "固定資產", label: "固定資產", collectionName: "assetRecords" },
   { key: "voucherInbox", name: "憑證暫存池", label: "憑證暫存池", collectionName: "voucherInbox" },
   { key: "lineDrafts", name: "LINE草稿", label: "LINE 草稿", collectionName: "lineDrafts" },
   { key: "recycleBin", name: "回收桶", label: "回收桶", collectionName: "" },
@@ -8409,6 +8876,7 @@ async function collectRestoreExistingIds() {
       ledgerRecords: new Set(recordsCache.map((record) => record.id).filter(Boolean)),
       bankTransactions: new Set(bankTransactionsCache.map((record) => record.id).filter(Boolean)),
       inventoryRecords: new Set(inventoryCache.map((record) => record.id).filter(Boolean)),
+      assetRecords: new Set(assetCache.map((record) => record.id).filter(Boolean)),
       voucherInbox: new Set(voucherInboxCache.map((record) => record.id).filter(Boolean)),
       lineDrafts: new Set(lineDraftsCache.map((record) => record.id).filter(Boolean)),
       recycleBin: new Set(recycleBinCache.map((record) => getRestoreRecordId(record, { key: "recycleBin" })).filter(Boolean)),
@@ -8421,6 +8889,7 @@ async function collectRestoreExistingIds() {
     ledgerRecords,
     bankTransactions,
     inventoryRecords,
+    assetRecords,
     voucherInbox,
     lineDrafts,
     auditLogs,
@@ -8429,6 +8898,7 @@ async function collectRestoreExistingIds() {
     fetchUserCollectionForBackup("ledgerRecords", 1000),
     fetchUserCollectionForBackup("bankTransactions", 1000),
     fetchUserCollectionForBackup("inventoryRecords", 1000),
+    fetchUserCollectionForBackup("assetRecords", 1000),
     fetchUserCollectionForBackup("voucherInbox", 1000),
     fetchUserCollectionForBackup("lineDrafts", 500),
     fetchUserCollectionForBackup("auditLogs", 500),
@@ -8439,6 +8909,7 @@ async function collectRestoreExistingIds() {
     ledgerRecords: new Set(ledgerRecords.map((record) => record.id).filter(Boolean)),
     bankTransactions: new Set(bankTransactions.map((record) => record.id).filter(Boolean)),
     inventoryRecords: new Set(inventoryRecords.map((record) => record.id).filter(Boolean)),
+    assetRecords: new Set(assetRecords.map((record) => record.id).filter(Boolean)),
     voucherInbox: new Set(voucherInbox.map((record) => record.id).filter(Boolean)),
     lineDrafts: new Set(lineDrafts.map((record) => record.id).filter(Boolean)),
     recycleBin: new Set(),
@@ -8687,6 +9158,7 @@ async function collectBackupData() {
     ledgerRecords: recordsCache,
     bankTransactions: bankTransactionsCache,
     inventoryRecords: inventoryCache,
+    assetRecords: assetCache,
     voucherInbox: voucherInboxCache,
     lineDrafts: lineDraftsCache,
     recycleBin: recycleBinCache,
@@ -8700,6 +9172,7 @@ async function collectBackupData() {
     ledgerRecords,
     bankTransactions,
     inventoryRecords,
+    assetRecords,
     voucherInbox,
     lineDrafts,
     auditLogs,
@@ -8708,6 +9181,7 @@ async function collectBackupData() {
     fetchUserCollectionForBackup("ledgerRecords", 1000),
     fetchUserCollectionForBackup("bankTransactions", 1000),
     fetchUserCollectionForBackup("inventoryRecords", 1000),
+    fetchUserCollectionForBackup("assetRecords", 1000),
     fetchUserCollectionForBackup("voucherInbox", 1000),
     fetchUserCollectionForBackup("lineDrafts", 500),
     fetchUserCollectionForBackup("auditLogs", 500),
@@ -8717,6 +9191,7 @@ async function collectBackupData() {
   backup.ledgerRecords = ledgerRecords;
   backup.bankTransactions = bankTransactions;
   backup.inventoryRecords = inventoryRecords;
+  backup.assetRecords = assetRecords;
   backup.voucherInbox = voucherInbox;
   backup.lineDrafts = lineDrafts;
   backup.auditLogs = auditLogs;
@@ -8725,6 +9200,7 @@ async function collectBackupData() {
     ...ledgerRecords.filter((record) => record.deletedAt).map((record) => ({ collectionName: "ledgerRecords", ...record })),
     ...bankTransactions.filter((record) => record.deletedAt).map((record) => ({ collectionName: "bankTransactions", ...record })),
     ...inventoryRecords.filter((record) => record.deletedAt).map((record) => ({ collectionName: "inventoryRecords", ...record })),
+    ...assetRecords.filter((record) => record.deletedAt).map((record) => ({ collectionName: "assetRecords", ...record })),
   ];
 
   return normalizeBackupData(backup);
@@ -8784,6 +9260,7 @@ function buildBackupSummarySheet(backup) {
     ["流水帳", backup.ledgerRecords.length],
     ["銀行資料", backup.bankTransactions.length],
     ["庫存紀錄", backup.inventoryRecords.length],
+    ["固定資產", backup.assetRecords.length],
     ["憑證暫存池", backup.voucherInbox.length],
     ["LINE 草稿", backup.lineDrafts.length],
     ["回收桶", backup.recycleBin.length],
@@ -8844,6 +9321,7 @@ function exportCurrentReport() {
   const workbook = window.XLSX.utils.book_new();
   appendSheet(workbook, "損益", buildIncomeStatementSheet());
   appendSheet(workbook, "庫存表", buildInventoryReportSheet());
+  appendSheet(workbook, "固定資產", buildAssetReportSheet());
   appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
   appendSheet(workbook, "憑證核對表", buildVoucherReconciliationSheet());
   appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
@@ -9109,21 +9587,55 @@ function buildInventoryReportSheet() {
   ];
 }
 
+function buildAssetReportSheet() {
+  const summary = buildAssetSummary(assetCache);
+  return [
+    [`${lastReportSummary.start} 至 ${lastReportSummary.end} 固定資產清冊`],
+    [],
+    ["資產摘要"],
+    ["項目", "數量／金額", "單位", "說明"],
+    ["資產件數", summary.totalQuantity, "件", "清冊數量加總"],
+    ["資產總額", summary.totalAmount, "TWD", "依購入金額列示，未計折舊"],
+    ["尚未貼標", summary.unlabeled, "筆", "貼標狀態不是已貼的資產"],
+    ["保固中", summary.inWarranty, "筆", "清冊標示仍在保固內"],
+    ["待確認", summary.pending, "筆", "購買日、金額或保固狀態缺漏"],
+    [],
+    ["資產明細"],
+    ["資產編號", "分類", "名稱", "數量", "購買日期", "金額", "保固月數", "保固到期日", "保固狀態", "貼標狀態", "備註", "來源"],
+    ...[...assetCache].sort(compareAssets).map((record) => [
+      record.assetNumber || "",
+      record.category || "",
+      record.name || "",
+      Number(record.quantity || 0),
+      record.purchaseDate || "",
+      Number(record.amount || 0),
+      record.warrantyMonths === "" ? "" : Number(record.warrantyMonths || 0),
+      record.warrantyEndDate || "",
+      record.warrantyStatus || "",
+      record.labelStatus || "",
+      record.note || "",
+      record.source || "",
+    ]),
+  ];
+}
+
 function buildAssetsLiabilitiesSheet() {
   const cashflowSummary = getReportCashflowSummary();
   const inventorySummary = buildInventorySummary(inventoryCache);
+  const fixedAssetSummary = buildAssetSummary(assetCache);
   const arAp = buildReceivablePayableSummary(lastReportRows);
   const shareholderRepayments = getShareholderRepaymentTransactions(lastReportSummary.start, lastReportSummary.end);
   const assets = {
     cash: cashflowSummary.endingCash,
     receivable: arAp.receivableTotal,
     inventory: inventorySummary.totalCost,
+    fixedAssets: fixedAssetSummary.totalAmount,
   };
   const liabilities = {
     payable: arAp.payableTotal,
     shareholderAdvance: Math.max(cashflowSummary.shareholderAdvance, 0),
   };
-  const totalAssets = assets.cash + assets.receivable + assets.inventory;
+  const totalAssets = assets.cash + assets.receivable + assets.inventory + assets.fixedAssets;
   const totalLiabilities = liabilities.payable + liabilities.shareholderAdvance;
   const netAssets = totalAssets - totalLiabilities;
 
@@ -9136,6 +9648,7 @@ function buildAssetsLiabilitiesSheet() {
     ["應收帳款", assets.receivable, "已發生收入但尚未實際入帳，包含平台待撥款與帳期款"],
     ["　其中：平台待撥款", arAp.platformReceivableTotal, "平台收入尚未實際入帳的待撥款"],
     ["庫存成本", assets.inventory, "目前庫存表計算之庫存成本"],
+    ["固定資產", assets.fixedAssets, "固定資產清冊列示之購入金額；折舊與資本化門檻待會計師確認"],
     ["資產合計", totalAssets, ""],
     [],
     ["負債"],
@@ -10065,6 +10578,18 @@ function loadLocalInventoryRecords() {
 
 function saveLocalInventoryRecords() {
   localStorage.setItem("inventoryRecordsPreview", JSON.stringify(inventoryCache));
+}
+
+function loadLocalAssetRecords() {
+  try {
+    return JSON.parse(localStorage.getItem("assetRecordsPreview") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalAssetRecords() {
+  localStorage.setItem("assetRecordsPreview", JSON.stringify(assetCache));
 }
 
 function loadLocalBankTransactions() {
