@@ -4,6 +4,8 @@
   rootFolderName: "\u9686\u535aERP\u6191\u8b49",
   adminVoucherListFolderId: "1POTpxGEPNQB3xDp4gkzjPQ-nYLuQAFsZ",
   adminVoucherImageFolderId: "1oCzWPjoL5lIwaJJxpnAx_hQ0x2m5yHfI",
+  fixedAssetSpreadsheetId: "1SEqDeO6_yXkRwva0h4PldoeBI7divMWCQE8KQQ3E3kE",
+  fixedAssetSheetName: "\u8cc7\u7522\u6e05\u518a",
   sharedSecret: "CHANGE_ME_SHARED_SECRET",
 };
 
@@ -53,6 +55,10 @@ function doPost(event) {
 
     if (payload.action === "readAdminVoucherFolders") {
       return jsonOutput(readAdminVoucherFolders(payload));
+    }
+
+    if (payload.action === "syncFixedAsset") {
+      return jsonOutput(syncFixedAssetToSheet(payload));
     }
 
     const draft = payload.draft || {};
@@ -112,6 +118,102 @@ function doPost(event) {
 function parsePayload(event) {
   const raw = String(event && event.postData && event.postData.contents ? event.postData.contents : "{}");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
+}
+
+function syncFixedAssetToSheet(payload) {
+  if (payload.secret !== CONFIG.sharedSecret) {
+    return { ok: false, error: "secret is invalid" };
+  }
+
+  const asset = payload.asset || {};
+  const spreadsheetId = payload.spreadsheetId || CONFIG.fixedAssetSpreadsheetId;
+  const sheetName = payload.sheetName || CONFIG.fixedAssetSheetName;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) throw new Error("asset sheet not found: " + sheetName);
+
+    const headerRow = findFixedAssetHeaderRow(sheet);
+    const headers = sheet.getRange(headerRow, 1, 1, Math.max(sheet.getLastColumn(), 12)).getValues()[0];
+    const normalizedHeaders = headers.map(normalizeFixedAssetHeader);
+    const numberColumn = normalizedHeaders.indexOf(normalizeFixedAssetHeader("\u8cc7\u7522\u7de8\u865f")) + 1;
+    if (!numberColumn) throw new Error("asset number column not found");
+
+    const rowValues = buildFixedAssetSheetRow(asset);
+    const targetRow = findFixedAssetTargetRow(sheet, headerRow, numberColumn, asset.assetNumber);
+    const action = targetRow > sheet.getLastRow() ? "append" : "update";
+    sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
+
+    return {
+      ok: true,
+      action: action,
+      assetNumber: asset.assetNumber || "",
+      row: targetRow,
+      checkedAt: new Date().toISOString(),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function findFixedAssetHeaderRow(sheet) {
+  const maxRows = Math.min(sheet.getLastRow(), 20);
+  const values = sheet.getRange(1, 1, maxRows, Math.max(sheet.getLastColumn(), 12)).getValues();
+  for (var rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const headers = values[rowIndex].map(normalizeFixedAssetHeader);
+    if (headers.indexOf(normalizeFixedAssetHeader("\u8cc7\u7522\u7de8\u865f")) >= 0 && headers.indexOf(normalizeFixedAssetHeader("\u540d\u7a31")) >= 0) {
+      return rowIndex + 1;
+    }
+  }
+  throw new Error("asset header row not found");
+}
+
+function findFixedAssetTargetRow(sheet, headerRow, numberColumn, assetNumber) {
+  const lastRow = sheet.getLastRow();
+  const normalizedNumber = String(assetNumber || "").trim();
+  if (normalizedNumber && lastRow > headerRow) {
+    const numbers = sheet.getRange(headerRow + 1, numberColumn, lastRow - headerRow, 1).getValues();
+    for (var index = 0; index < numbers.length; index += 1) {
+      if (String(numbers[index][0] || "").trim() === normalizedNumber) {
+        return headerRow + 1 + index;
+      }
+    }
+  }
+  return lastRow + 1;
+}
+
+function buildFixedAssetSheetRow(asset) {
+  const warrantyMonths = asset.warrantyMonths === "" || asset.warrantyMonths === null || asset.warrantyMonths === undefined
+    ? ""
+    : Number(asset.warrantyMonths || 0);
+  return [
+    asset.assetNumber || "",
+    asset.category || "",
+    asset.name || "",
+    Number(asset.quantity || 0),
+    normalizeSheetDate(asset.purchaseDate),
+    Number(asset.amount || 0),
+    warrantyMonths,
+    normalizeSheetDate(asset.warrantyEndDate),
+    asset.warrantyStatus || "",
+    asset.labelStatus || "\u672a\u8cbc",
+    asset.note || "",
+    asset.pendingReason || "",
+  ];
+}
+
+function normalizeSheetDate(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value;
+  const date = new Date(String(value) + "T00:00:00");
+  return Number.isNaN(date.getTime()) ? String(value) : date;
+}
+
+function normalizeFixedAssetHeader(value) {
+  return String(value || "").replace(/\s+/g, "").toLowerCase();
 }
 
 function uploadVoucherFiles(files, draft) {

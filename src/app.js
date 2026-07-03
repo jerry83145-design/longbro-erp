@@ -224,6 +224,17 @@ const clearInventoryButton = document.querySelector("#clearInventoryButton");
 const saveInventoryButton = document.querySelector("#saveInventoryButton");
 const inventorySummary = document.querySelector("#inventorySummary");
 const inventoryList = document.querySelector("#inventoryList");
+const assetForm = document.querySelector("#assetForm");
+const assetCategorySelect = document.querySelector("#assetCategorySelect");
+const assetNameInput = document.querySelector("#assetNameInput");
+const assetQtyInput = document.querySelector("#assetQtyInput");
+const assetPurchaseDateInput = document.querySelector("#assetPurchaseDateInput");
+const assetAmountInput = document.querySelector("#assetAmountInput");
+const assetWarrantyMonthsInput = document.querySelector("#assetWarrantyMonthsInput");
+const assetNoteInput = document.querySelector("#assetNoteInput");
+const clearAssetButton = document.querySelector("#clearAssetButton");
+const saveAssetButton = document.querySelector("#saveAssetButton");
+const openAssetSheetButton = document.querySelector("#openAssetSheetButton");
 const importAssetSheetButton = document.querySelector("#importAssetSheetButton");
 const assetSummary = document.querySelector("#assetSummary");
 const assetList = document.querySelector("#assetList");
@@ -389,6 +400,7 @@ const pageMeta = {
 
 setDefaultDate();
 setDefaultInventoryDate();
+setDefaultAssetDate();
 setDefaultReportDates();
 setDefaultCashflowDates();
 loadCashflowSettings();
@@ -538,6 +550,11 @@ saveInventorySettingsButton.addEventListener("click", () => {
 });
 
 importAssetSheetButton?.addEventListener("click", importSeedAssetRecords);
+openAssetSheetButton?.addEventListener("click", () => {
+  window.open(lineEndpointConfig.fixedAssetSheetUrl, "_blank", "noopener,noreferrer");
+});
+clearAssetButton?.addEventListener("click", clearAssetForm);
+assetForm?.addEventListener("submit", saveManualAssetRecord);
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
 refreshAuditLogButton?.addEventListener("click", loadAuditLogs);
 exportBackupButton?.addEventListener("click", exportFullBackup);
@@ -7572,6 +7589,7 @@ async function handleLedgerAssetSync(record) {
 
   for (const asset of assets) {
     await addAssetRecord(asset);
+    await syncAssetRecordToGoogleSheet(asset);
   }
 
   if (isConfigured) await loadAssetRecords();
@@ -7694,6 +7712,118 @@ async function importSeedAssetRecords() {
   if (isConfigured) await loadAssetRecords();
   renderAssets();
   showToast(`固定資產已匯入 ${toImport.length} 筆。`);
+}
+
+function setDefaultAssetDate() {
+  if (!assetPurchaseDateInput) return;
+  const today = new Date();
+  const year = Math.min(Math.max(today.getFullYear(), 2026), 2035);
+  assetPurchaseDateInput.value = `${year}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function clearAssetForm() {
+  assetForm?.reset();
+  if (assetQtyInput) assetQtyInput.value = "1";
+  setDefaultAssetDate();
+}
+
+async function saveManualAssetRecord(event) {
+  event.preventDefault();
+
+  if (isConfigured && (!currentUser || !db)) {
+    showToast("請先登入後再新增固定資產。");
+    return;
+  }
+
+  const record = buildManualAssetRecord();
+  if (!record) return;
+
+  const originalText = saveAssetButton?.textContent || "新增固定資產";
+  if (saveAssetButton) {
+    saveAssetButton.disabled = true;
+    saveAssetButton.textContent = "新增中...";
+  }
+
+  try {
+    await addAssetRecord(record);
+    await syncAssetRecordToGoogleSheet(record);
+    if (isConfigured) await loadAssetRecords();
+    else renderAssets();
+    clearAssetForm();
+    renderCustomReport();
+    showToast("固定資產已新增，並已送出 Google Sheet 同步。");
+  } catch (error) {
+    showToast(`新增固定資產失敗：${error.message || error}`);
+  } finally {
+    if (saveAssetButton) {
+      saveAssetButton.disabled = false;
+      saveAssetButton.textContent = originalText;
+    }
+  }
+}
+
+function buildManualAssetRecord() {
+  const category = normalizeAssetCategory(assetCategorySelect?.value) || "直播設備";
+  const name = String(assetNameInput?.value || "").trim();
+  const quantity = Number(assetQtyInput?.value || 0);
+  const purchaseDate = assetPurchaseDateInput?.value || "";
+  const amount = Number(assetAmountInput?.value || 0);
+  const warrantyMonths = Number(assetWarrantyMonthsInput?.value || 0);
+  const warrantyEndDate = warrantyMonths ? addMonthsToDate(purchaseDate, warrantyMonths) : purchaseDate;
+
+  if (!name) {
+    showToast("請輸入固定資產名稱。");
+    return null;
+  }
+
+  if (!quantity || quantity <= 0) {
+    showToast("請輸入大於 0 的資產數量。");
+    return null;
+  }
+
+  if (!purchaseDate || purchaseDate < "2026-01-01" || purchaseDate > "2035-12-31") {
+    showToast("請選擇 2026-2035 之間的購買日期。");
+    return null;
+  }
+
+  if (amount < 0) {
+    showToast("金額不可小於 0。");
+    return null;
+  }
+
+  return {
+    assetNumber: generateNextAssetNumber(category),
+    category,
+    name,
+    quantity,
+    purchaseDate,
+    amount,
+    warrantyMonths,
+    warrantyEndDate,
+    warrantyStatus: warrantyMonths ? resolveWarrantyStatus(warrantyEndDate) : "已過保",
+    labelStatus: "未貼",
+    note: String(assetNoteInput?.value || "").trim(),
+    source: "ERP手動新增",
+  };
+}
+
+async function syncAssetRecordToGoogleSheet(asset) {
+  if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.fixedAssetSpreadsheetId) return;
+
+  await fetch(lineEndpointConfig.endpointUrl, {
+    method: "POST",
+    mode: "no-cors",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify({
+      action: "syncFixedAsset",
+      secret: lineEndpointConfig.sharedSecret,
+      spreadsheetId: lineEndpointConfig.fixedAssetSpreadsheetId,
+      sheetName: lineEndpointConfig.fixedAssetSheetName || "資產清冊",
+      asset,
+    }),
+  });
 }
 
 function parseFixedAssetSeedRows() {

@@ -497,8 +497,49 @@
             </div>
 
             <div class="form-footer">
+              <button id="openAssetSheetButton" class="secondary-button" type="button">開啟 Google Sheet</button>
               <button id="importAssetSheetButton" type="button">匯入固定資產清冊</button>
             </div>
+
+            <form id="assetForm" class="ledger-form inventory-form">
+              <div class="field">
+                <label for="assetCategorySelect">分類 <b>*</b></label>
+                <select id="assetCategorySelect" required>
+                  <option value="資訊設備">資訊設備</option>
+                  <option value="直播設備">直播設備</option>
+                  <option value="辦公家具">辦公家具</option>
+                  <option value="電器設備">電器設備</option>
+                </select>
+              </div>
+              <div class="field wide">
+                <label for="assetNameInput">名稱 <b>*</b></label>
+                <input id="assetNameInput" type="text" placeholder="例如：直播鏡頭、辦公椅、冷氣" required />
+              </div>
+              <div class="field">
+                <label for="assetQtyInput">數量 <b>*</b></label>
+                <input id="assetQtyInput" type="number" min="1" step="1" inputmode="numeric" value="1" required />
+              </div>
+              <div class="field">
+                <label for="assetPurchaseDateInput">購買日期 <b>*</b></label>
+                <input id="assetPurchaseDateInput" type="date" min="2026-01-01" max="2035-12-31" required />
+              </div>
+              <div class="field">
+                <label for="assetAmountInput">金額 <b>*</b></label>
+                <input id="assetAmountInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" required />
+              </div>
+              <div class="field">
+                <label for="assetWarrantyMonthsInput">保固期限(月)</label>
+                <input id="assetWarrantyMonthsInput" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field wide">
+                <label for="assetNoteInput">備註</label>
+                <textarea id="assetNoteInput" rows="2" placeholder="品牌、型號、購買來源或保固說明"></textarea>
+              </div>
+              <div class="form-footer">
+                <button id="clearAssetButton" class="secondary-button" type="button">清除資產</button>
+                <button id="saveAssetButton" type="submit">新增固定資產</button>
+              </div>
+            </form>
 
             <div id="assetSummary" class="inventory-summary">
               <div class="empty-state">尚無固定資產資料。</div>
