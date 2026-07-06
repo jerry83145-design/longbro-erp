@@ -236,6 +236,7 @@ const clearAssetButton = document.querySelector("#clearAssetButton");
 const saveAssetButton = document.querySelector("#saveAssetButton");
 const openAssetSheetButton = document.querySelector("#openAssetSheetButton");
 const importAssetSheetButton = document.querySelector("#importAssetSheetButton");
+const syncAssetSheetButton = document.querySelector("#syncAssetSheetButton");
 const assetSummary = document.querySelector("#assetSummary");
 const assetList = document.querySelector("#assetList");
 const inventoryOpeningBoxQtyInput = document.querySelector("#inventoryOpeningBoxQtyInput");
@@ -553,6 +554,7 @@ importAssetSheetButton?.addEventListener("click", importSeedAssetRecords);
 openAssetSheetButton?.addEventListener("click", () => {
   window.open(lineEndpointConfig.fixedAssetSheetUrl, "_blank", "noopener,noreferrer");
 });
+syncAssetSheetButton?.addEventListener("click", syncAllAssetRecordsToGoogleSheet);
 clearAssetButton?.addEventListener("click", clearAssetForm);
 assetForm?.addEventListener("submit", saveManualAssetRecord);
 refreshRecycleBinButton?.addEventListener("click", loadRecycleBinRecords);
@@ -900,8 +902,9 @@ document.querySelectorAll("[data-add-option]").forEach((button) => {
   });
 });
 
-fields.note.addEventListener("change", () => {
-  fields.noteText.hidden = fields.note.value !== "自訂";
+fields.note.addEventListener("input", () => {
+  fields.noteText.hidden = true;
+  fields.noteText.value = "";
 });
 
 fields.inventorySync.addEventListener("change", renderLedgerInventorySync);
@@ -1114,6 +1117,7 @@ ledgerForm.addEventListener("submit", async (event) => {
     }
 
     rememberOptionValue("counterparties", record.counterparty);
+    rememberOptionValue("notes", record.note);
     clearButton.click();
     showToast(previousRecord ? "紀錄已更新。" : "紀錄已儲存。");
   } catch (error) {
@@ -1248,7 +1252,8 @@ function renderAllOptions() {
   fillSelect(fields.major, options.majors);
   fillSelect(fields.middle, options.middles);
   fillSelect(fields.minor, options.minors);
-  fillSelect(fields.note, options.notes);
+  fillDatalist("noteOptions", options.notes);
+  if (!fields.note.value) fields.note.value = options.notes[0] || "";
 }
 
 function fillSelect(select, values) {
@@ -1501,7 +1506,7 @@ function buildRecord() {
   const date = fields.date.value;
   const amount = Number(fields.amount.value);
   const counterparty = fields.counterparty.value.trim();
-  const note = fields.note.value === "自訂" ? fields.noteText.value.trim() : fields.note.value;
+  const note = fields.note.value.trim();
   const voucherFiles = getVoucherFiles();
   const voucherFileNames = voucherFiles.map((file) => file.name);
   const dueDate = fields.dueDate.value;
@@ -1864,23 +1869,9 @@ function ensureSelectValue(select, value) {
 }
 
 function setNoteValue(note) {
-  if (!note) {
-    fields.noteText.hidden = true;
-    return;
-  }
-
-  const exists = Array.from(fields.note.options).some((option) => option.value === note);
-  if (exists) {
-    fields.note.value = note;
-    fields.noteText.hidden = true;
-    fields.noteText.value = "";
-    return;
-  }
-
-  const customValue = optionsByType[recordType].notes.at(-1);
-  fields.note.value = customValue;
-  fields.noteText.hidden = false;
-  fields.noteText.value = note;
+  fields.note.value = note || "無";
+  fields.noteText.hidden = true;
+  fields.noteText.value = "";
 }
 
 async function saveRecordToFirebase(record) {
@@ -7622,6 +7613,14 @@ function inferAssetCategory(record) {
   return "直播設備";
 }
 
+function buildAssetNoteFromExpense(record) {
+  const parts = [];
+  if (record.counterparty) parts.push(`由支出新增：${record.counterparty}`);
+  else parts.push("由支出新增");
+  if (record.note && record.note !== "無") parts.push(record.note);
+  return parts.join("｜");
+}
+
 function parseAssetPrompt(text, sourceRecord) {
   const reservations = new Map();
   return String(text || "")
@@ -7647,7 +7646,7 @@ function parseAssetPrompt(text, sourceRecord) {
         warrantyEndDate: warrantyMonths ? addMonthsToDate(purchaseDate, warrantyMonths) : purchaseDate,
         warrantyStatus: warrantyMonths ? resolveWarrantyStatus(addMonthsToDate(purchaseDate, warrantyMonths)) : "已過保",
         labelStatus: "未貼",
-        note: sourceRecord.counterparty ? `由支出新增：${sourceRecord.counterparty}` : "由支出新增",
+        note: buildAssetNoteFromExpense(sourceRecord),
         source: "支出同步新增資產",
         sourceLedgerId: sourceRecord.id,
       };
@@ -7707,6 +7706,7 @@ async function importSeedAssetRecords() {
 
   for (const asset of toImport) {
     await addAssetRecord(asset);
+    await syncAssetRecordToGoogleSheet(asset);
   }
 
   if (isConfigured) await loadAssetRecords();
@@ -7824,6 +7824,34 @@ async function syncAssetRecordToGoogleSheet(asset) {
       asset,
     }),
   });
+}
+
+async function syncAllAssetRecordsToGoogleSheet() {
+  if (!assetCache.length) {
+    showToast("目前沒有固定資產可同步。");
+    return;
+  }
+
+  const originalText = syncAssetSheetButton?.textContent || "同步全部到 Google Sheet";
+  if (syncAssetSheetButton) {
+    syncAssetSheetButton.disabled = true;
+    syncAssetSheetButton.textContent = "同步中...";
+  }
+
+  try {
+    const activeAssets = [...assetCache].filter((asset) => !asset.deletedAt).sort(compareAssets);
+    for (const asset of activeAssets) {
+      await syncAssetRecordToGoogleSheet(asset);
+    }
+    showToast(`已送出 ${activeAssets.length} 筆固定資產到 Google Sheet。`);
+  } catch (error) {
+    showToast(`同步固定資產失敗：${error.message || error}`);
+  } finally {
+    if (syncAssetSheetButton) {
+      syncAssetSheetButton.disabled = false;
+      syncAssetSheetButton.textContent = originalText;
+    }
+  }
 }
 
 function parseFixedAssetSeedRows() {
@@ -8007,6 +8035,15 @@ async function handleDeleteAssetRecord(record) {
 }
 
 function compareAssets(a, b) {
+  const categoryOrder = Object.keys(assetCategoryCodes);
+  const aCategoryIndex = categoryOrder.includes(a.category) ? categoryOrder.indexOf(a.category) : categoryOrder.length;
+  const bCategoryIndex = categoryOrder.includes(b.category) ? categoryOrder.indexOf(b.category) : categoryOrder.length;
+  const categoryCompare = aCategoryIndex - bCategoryIndex;
+  if (categoryCompare) return categoryCompare;
+
+  const dateCompare = String(b.purchaseDate || "").localeCompare(String(a.purchaseDate || ""));
+  if (dateCompare) return dateCompare;
+
   const numberCompare = String(a.assetNumber || "").localeCompare(String(b.assetNumber || ""), "zh-Hant");
   if (numberCompare) return numberCompare;
   return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant");

@@ -241,7 +241,8 @@
 
               <div class="field wide">
                 <label for="noteSelect">備註</label>
-                <select id="noteSelect"></select>
+                <input id="noteSelect" type="text" list="noteOptions" placeholder="輸入或選擇備註" autocomplete="off" value="無" />
+                <datalist id="noteOptions"></datalist>
                 <textarea id="noteInput" rows="2" placeholder="選擇自訂後可輸入備註" hidden></textarea>
               </div>
 
@@ -499,6 +500,7 @@
             <div class="form-footer">
               <button id="openAssetSheetButton" class="secondary-button" type="button">開啟 Google Sheet</button>
               <button id="importAssetSheetButton" type="button">匯入固定資產清冊</button>
+              <button id="syncAssetSheetButton" class="secondary-button" type="button">同步全部到 Google Sheet</button>
             </div>
 
             <form id="assetForm" class="ledger-form inventory-form">
