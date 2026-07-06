@@ -1044,6 +1044,11 @@ assetList?.addEventListener("click", async (event) => {
     return;
   }
 
+  if (button.dataset.assetAction === "rename") {
+    await handleRenameAssetRecord(record);
+    return;
+  }
+
   if (button.dataset.assetAction === "delete") {
     await handleDeleteAssetRecord(record);
   }
@@ -7597,11 +7602,21 @@ function buildAssetDraftFromExpense(record) {
   const category = inferAssetCategory(record);
   return {
     category,
-    name: record.minor && record.minor !== "待確認" ? record.minor : record.item || "未命名資產",
+    name: inferAssetNameFromExpense(record),
     quantity: 1,
     amount: Number(record.amount || 0),
     warrantyMonths: 0,
   };
+}
+
+function inferAssetNameFromExpense(record) {
+  const item = String(record.item || "").trim();
+  if (item) return item;
+
+  const note = String(record.note || "").trim();
+  if (note && note !== "無") return note;
+
+  return "未命名資產";
 }
 
 function inferAssetCategory(record) {
@@ -7989,6 +8004,7 @@ function renderAssetRecord(record) {
       <span>${escapeHtml(record.purchaseDate || "未填日期")} · ${escapeHtml(record.warrantyStatus || "待確認")} · ${escapeHtml(record.labelStatus || "未貼")}</span>
       <div class="record-actions">
         <button type="button" data-asset-action="details" data-asset-id="${escapeHtml(record.id)}">看明細</button>
+        <button type="button" data-asset-action="rename" data-asset-id="${escapeHtml(record.id)}">改名稱</button>
         <button type="button" class="danger" data-asset-action="delete" data-asset-id="${escapeHtml(record.id)}">刪除</button>
       </div>
     </article>
@@ -8012,6 +8028,38 @@ function showAssetDetailDialog(record) {
   ];
 
   window.alert(rows.map(([label, value]) => `${label}：${value}`).join("\n"));
+}
+
+async function handleRenameAssetRecord(record) {
+  const nextName = window.prompt("請輸入固定資產名稱", record.name || "");
+  if (nextName === null) return;
+
+  const name = nextName.trim();
+  if (!name) {
+    showToast("固定資產名稱不可空白。");
+    return;
+  }
+
+  if (name === record.name) return;
+
+  const updates = {
+    name,
+    updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+  };
+
+  if (isConfigured) {
+    await firebaseApi.updateDoc(firebaseApi.doc(db, "assetRecords", record.id), updates);
+    const syncedAsset = { ...record, name };
+    await syncAssetRecordToGoogleSheet(syncedAsset);
+    await loadAssetRecords();
+  } else {
+    assetCache = assetCache.map((item) => (item.id === record.id ? { ...item, ...updates } : item));
+    saveLocalAssetRecords();
+    renderAssets();
+  }
+
+  renderCustomReport();
+  showToast("固定資產名稱已更新。");
 }
 
 async function handleDeleteAssetRecord(record) {
