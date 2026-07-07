@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260630-shareholder-repayment-match" />
+    <link rel="stylesheet" href="./styles.css?v=20260707-payroll" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -52,6 +52,11 @@
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
             <span class="nav-icon">◇</span>
             固定資產
+          </button>
+          <button class="nav-item" type="button" data-view="payroll">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">薪</span>
+            薪資計算
           </button>
           <button class="nav-item" type="button" data-view="vouchers">
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
@@ -551,6 +556,40 @@
           </div>
         </section>
 
+        <section id="payrollView" class="view-panel">
+          <div class="placeholder-panel payroll-workspace">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">PAYROLL</p>
+                <h2>薪資計算</h2>
+                <p class="muted-text">選擇月份後輸入請假、加項、扣項，先預覽薪資單，確認後再輸出 PDF。</p>
+              </div>
+              <div class="payroll-actions">
+                <label class="payroll-month-field">
+                  <span>薪資月份</span>
+                  <input id="payrollMonthInput" type="month" />
+                </label>
+                <button id="payrollCalculateButton" type="button">計算薪資</button>
+                <button id="payrollPrintAllButton" class="secondary-button" type="button">輸出全員薪資單</button>
+              </div>
+            </div>
+
+            <div id="payrollSummary" class="payroll-summary"></div>
+            <div id="payrollTable" class="payroll-table-wrap"></div>
+
+            <div class="payroll-preview-shell">
+              <div class="section-heading compact">
+                <div>
+                  <p class="eyebrow">PREVIEW</p>
+                  <h2>薪資單預覽</h2>
+                </div>
+                <button id="payrollPrintSelectedButton" class="secondary-button" type="button">輸出目前預覽</button>
+              </div>
+              <div id="payrollPreview" class="payroll-preview empty-state">請先選擇一位員工預覽薪資單。</div>
+            </div>
+          </div>
+        </section>
+
         <section id="vouchersView" class="view-panel">
           <div class="placeholder-panel">
             <p class="eyebrow">VOUCHERS</p>
@@ -773,6 +812,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260630-shareholder-repayment-match"></script>
+    <script type="module" src="./src/app.js?v=20260707-payroll"></script>
   </body>
 </html>

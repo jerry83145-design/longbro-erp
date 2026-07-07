@@ -1,5 +1,6 @@
 import { allowedEmails, firebaseConfig } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
+import { initPayrollPage } from "./payroll.js";
 
 const defaultOptionsByType = {
   expense: {
@@ -385,6 +386,12 @@ const pageMeta = {
     subtitle: "管理資產編號、分類、保固、貼標與來源支出",
     action: "新增支出",
   },
+  payroll: {
+    eyebrow: "PAYROLL",
+    title: "薪資計算",
+    subtitle: "選擇薪資月份，輸入請假、加項與扣項，先預覽再輸出員工薪資單。",
+    action: "計算薪資",
+  },
   vouchers: {
     eyebrow: "VOUCHERS",
     title: "憑證中心",
@@ -431,6 +438,7 @@ renderPendingCenter();
 renderVoucherCenter();
 renderSettlementCenter();
 renderBankTransactions();
+initPayrollPage();
 
 if (isConfigured) {
   initializeFirebase();
@@ -511,6 +519,10 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 });
 
 topActionButton.addEventListener("click", () => {
+  if (currentView === "payroll") {
+    document.querySelector("#payrollCalculateButton")?.click();
+    return;
+  }
   if (currentView === "cashflow") setRecordType("expense");
   if (currentView === "inventory") setRecordType("income");
   showView("ledger");
@@ -1385,6 +1397,7 @@ function showView(view) {
   if (view === "settlement") renderSettlementCenter();
   if (view === "inventory") renderInventory();
   if (view === "assets") renderAssets();
+  if (view === "payroll") initPayrollPage();
   if (view === "pending") renderPendingCenter();
   if (view === "vouchers") renderVoucherCenter();
   if (view === "settings") {
