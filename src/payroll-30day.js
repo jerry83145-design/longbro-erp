@@ -146,6 +146,7 @@ function renderPayrollTable() {
           <th>其他加成</th>
           <th>其他扣款</th>
           <th>健保眷屬</th>
+          <th>眷屬健保費</th>
           <th>實領薪資</th>
           <th>薪資單</th>
         </tr>
@@ -172,6 +173,7 @@ function renderPayrollTableRow(row) {
       <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherAllowance || 0}" /></td>
       <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherDeduction || 0}" /></td>
       <td>${row.billableDependentCount}</td>
+      <td>${formatCurrency(row.dependentHealthPersonal)}</td>
       <td><strong>${formatCurrency(row.netPay)}</strong></td>
       <td><button class="secondary-button compact-button" type="button" data-payroll-preview="${escapePayrollHtml(row.id)}">預覽</button></td>
     </tr>
@@ -488,14 +490,15 @@ function calculatePayrollRow(row) {
     ? Math.min(healthDependentCount, 3)
     : 0;
   const laborPersonal = row.role === "雇主" ? 0 : Math.round(laborPersonalBase / 30 * employedDays);
-  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase * (1 + billableDependentCount);
+  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase;
+  const dependentHealthPersonal = row.role === "雇主" ? 0 : healthPersonalBase * billableDependentCount;
   const companyLaborTable = row.role === "雇主" ? ownerLaborCompany : employeeLaborCompany;
   const companyHealthTable = row.role === "雇主" ? ownerHealthCompany : employeeHealthCompany;
   const companyLabor = Math.round(lookupPremium(companyLaborTable, row.laborInsuredSalary) / 30 * employedDays);
   const companyHealth = lookupPremium(companyHealthTable, row.healthInsuredSalary);
   const otherAllowance = Number(row.otherAllowance || 0);
   const otherDeduction = Number(row.otherDeduction || 0);
-  const personalBurdenTotal = laborPersonal + healthPersonal;
+  const personalBurdenTotal = laborPersonal + healthPersonal + dependentHealthPersonal;
   const netPay = grossPay + otherAllowance - otherDeduction - personalBurdenTotal;
 
   return {
@@ -515,6 +518,7 @@ function calculatePayrollRow(row) {
     grossPay,
     laborPersonal,
     healthPersonal,
+    dependentHealthPersonal,
     healthPersonalBase,
     healthDependentCount,
     billableDependentCount,
@@ -592,6 +596,7 @@ function buildPayslipHtml(row, month, printMode) {
     ["病假扣薪", Math.round(row.sickLeaveDeduction)],
     ["勞保費", row.laborPersonal],
     ["健保費", row.healthPersonal],
+    ["眷屬健保費", row.dependentHealthPersonal],
     ["其他扣款", row.otherDeduction],
   ].filter(([, amount]) => amount || printMode);
   const maxRows = Math.max(8, allowanceRows.length, deductionRows.length);
