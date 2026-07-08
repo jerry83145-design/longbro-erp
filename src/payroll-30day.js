@@ -1,8 +1,8 @@
 const payrollEmployees = [
-  { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 30000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
-  { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 40000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
-  { id: "PH002", name: "徐振睿", role: "員工", department: "營運", baseSalary: 30000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
-  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 60000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
+  { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 27000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
+  { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 37000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
+  { id: "PH002", name: "徐振睿", role: "員工", department: "營運", baseSalary: 27000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
+  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 57000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
 ];
 
 const employeeLaborPersonal = [[30300, 758], [40100, 1002]];
@@ -11,6 +11,7 @@ const employeeLaborCompany = [[30300, 2651], [40100, 3508]];
 const employeeHealthCompany = [[30300, 1466], [40100, 1939]];
 const ownerLaborCompany = [[45800, 1053]];
 const ownerHealthCompany = [[60800, 3143]];
+const fixedMealAllowance = 3000;
 
 let payrollRows = [];
 let selectedPayrollId = "";
@@ -136,7 +137,7 @@ function renderPayrollTableRow(row) {
       <td>${escapePayrollHtml(row.role)}</td>
       <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.baseSalary}" /></td>
       <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.dutyAllowance || 0}" /></td>
-      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.mealAllowance || 0}" /></td>
+      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.mealAllowance || fixedMealAllowance}" readonly /></td>
       <td><strong>${formatCurrency(row.monthlySalaryTotal)}</strong></td>
       <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}" /></td>
       <td>${row.employedDays}</td>
@@ -170,7 +171,7 @@ function readPayrollInputs() {
       ...row,
       baseSalary: Number(findValue("baseSalary") || row.baseSalary || 0),
       dutyAllowance: Number(findValue("dutyAllowance") || 0),
-      mealAllowance: Number(findValue("mealAllowance") || 0),
+      mealAllowance: fixedMealAllowance,
       hireDate: findValue("hireDate") || row.hireDate,
       personalLeaveDays: Number(findValue("personalLeaveDays") || 0),
       sickLeaveDays: Number(findValue("sickLeaveDays") || 0),
@@ -205,6 +206,8 @@ function mergePayrollEmployee(saved) {
   return {
     ...employee,
     ...saved,
+    baseSalary: employee.baseSalary ?? Number(saved.baseSalary || 0),
+    mealAllowance: fixedMealAllowance,
     personalLeaveDays: Number(saved.personalLeaveDays ?? saved.leaveDays ?? 0),
     sickLeaveDays: Number(saved.sickLeaveDays ?? 0),
   };
