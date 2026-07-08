@@ -16,6 +16,7 @@ const fixedMealAllowance = 3000;
 let payrollRows = [];
 let selectedPayrollId = "";
 let payrollInitialized = false;
+let employeeMasterRows = [];
 
 export function initPayrollPage() {
   const monthInput = document.querySelector("#payrollMonthInput");
@@ -24,6 +25,7 @@ export function initPayrollPage() {
 
   if (!payrollInitialized) {
     monthInput.value = getCurrentMonth();
+    employeeMasterRows = loadEmployeeMasterRows();
     payrollRows = loadPayrollRows(monthInput.value);
     selectedPayrollId = payrollRows[0]?.id || "";
     bindPayrollEvents();
@@ -36,6 +38,7 @@ export function initPayrollPage() {
 function bindPayrollEvents() {
   const monthInput = document.querySelector("#payrollMonthInput");
   const table = document.querySelector("#payrollTable");
+  const masterTable = document.querySelector("#payrollEmployeeMaster");
 
   monthInput?.addEventListener("change", () => {
     payrollRows = loadPayrollRows(monthInput.value);
@@ -73,12 +76,24 @@ function bindPayrollEvents() {
     selectedPayrollId = button.dataset.payrollPreview;
     renderPayroll();
   });
+
+  masterTable?.addEventListener("input", (event) => {
+    if (!event.target.matches("[data-employee-master-field]")) return;
+    employeeMasterRows = readEmployeeMasterInputs();
+    saveEmployeeMasterRows(employeeMasterRows);
+    payrollRows = getCalculatedRows();
+    renderPayrollSummary();
+    renderPayrollTable();
+    renderPayrollPreview();
+    renderEmployeeMasterTable();
+  });
 }
 
 function renderPayroll() {
   renderPayrollSummary();
   renderPayrollTable();
   renderPayrollPreview();
+  renderEmployeeMasterTable();
 }
 
 function renderPayrollSummary() {
@@ -120,6 +135,7 @@ function renderPayrollTable() {
           <th>病假天數</th>
           <th>其他加成</th>
           <th>其他扣款</th>
+          <th>健保眷屬</th>
           <th>實領薪資</th>
           <th>薪資單</th>
         </tr>
@@ -145,6 +161,7 @@ function renderPayrollTableRow(row) {
       <td><input data-payroll-field="sickLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.sickLeaveDays || 0}" /></td>
       <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherAllowance || 0}" /></td>
       <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherDeduction || 0}" /></td>
+      <td>${row.billableDependentCount}</td>
       <td><strong>${formatCurrency(row.netPay)}</strong></td>
       <td><button class="secondary-button compact-button" type="button" data-payroll-preview="${escapePayrollHtml(row.id)}">預覽</button></td>
     </tr>
@@ -162,6 +179,46 @@ function renderPayrollPreview() {
   }
   preview.className = "payroll-preview";
   preview.innerHTML = buildPayslipHtml(row, getPayrollMonth(), false);
+}
+
+function renderEmployeeMasterTable() {
+  const container = document.querySelector("#payrollEmployeeMaster");
+  if (!container) return;
+  const rows = getEmployeeMasterRows();
+  container.innerHTML = `
+    <table class="payroll-master-table">
+      <thead>
+        <tr>
+          <th>員工編號</th>
+          <th>姓名</th>
+          <th>健保眷屬人數</th>
+          <th>眷屬加保日期</th>
+          <th>計費說明</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(renderEmployeeMasterRow).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderEmployeeMasterRow(row) {
+  const payrollRow = getCalculatedRows().find((item) => item.id === row.id);
+  const billableCount = payrollRow?.billableDependentCount || 0;
+  const cappedText = Number(row.healthDependentCount || 0) > 3 ? "，最多以 3 人計" : "";
+  const activeText = billableCount
+    ? `本月計 ${billableCount} 位眷屬${cappedText}`
+    : "本月未計眷屬";
+  return `
+    <tr>
+      <td>${escapePayrollHtml(row.id)}</td>
+      <td>${escapePayrollHtml(row.name)}</td>
+      <td><input data-employee-master-field="healthDependentCount" data-employee-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="10" step="1" value="${row.healthDependentCount || 0}" /></td>
+      <td><input data-employee-master-field="healthDependentStartDate" data-employee-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.healthDependentStartDate || "")}" /></td>
+      <td>${escapePayrollHtml(activeText)}</td>
+    </tr>
+  `;
 }
 
 function readPayrollInputs() {
@@ -199,6 +256,48 @@ function loadPayrollRows(month) {
     otherAllowance: 0,
     otherDeduction: 0,
   }));
+}
+
+function getEmployeeMasterRows() {
+  if (!employeeMasterRows.length) employeeMasterRows = loadEmployeeMasterRows();
+  return employeeMasterRows;
+}
+
+function loadEmployeeMasterRows() {
+  const saved = localStorage.getItem("longbroEmployeeMasterRows");
+  let savedRows = [];
+  if (saved) {
+    try {
+      savedRows = JSON.parse(saved);
+    } catch {
+      localStorage.removeItem("longbroEmployeeMasterRows");
+    }
+  }
+
+  return payrollEmployees.map((employee) => {
+    const savedRow = Array.isArray(savedRows) ? savedRows.find((item) => item.id === employee.id) : null;
+    return {
+      id: employee.id,
+      name: employee.name,
+      healthDependentCount: Number(savedRow?.healthDependentCount || employee.healthDependentCount || 0),
+      healthDependentStartDate: savedRow?.healthDependentStartDate || employee.healthDependentStartDate || "",
+    };
+  });
+}
+
+function readEmployeeMasterInputs() {
+  return getEmployeeMasterRows().map((row) => {
+    const findValue = (field) => document.querySelector(`[data-employee-id="${CSS.escape(row.id)}"][data-employee-master-field="${field}"]`)?.value;
+    return {
+      ...row,
+      healthDependentCount: Math.max(0, Number(findValue("healthDependentCount") || 0)),
+      healthDependentStartDate: findValue("healthDependentStartDate") || "",
+    };
+  });
+}
+
+function saveEmployeeMasterRows(rows) {
+  localStorage.setItem("longbroEmployeeMasterRows", JSON.stringify(rows));
 }
 
 function mergePayrollEmployee(saved) {
@@ -239,8 +338,13 @@ function calculatePayrollRow(row) {
   const grossPay = Math.round(Math.max(0, regularPayBeforeLeave - personalLeaveDeduction - sickLeaveDeduction));
   const laborPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeLaborPersonal, row.laborInsuredSalary);
   const healthPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeHealthPersonal, row.healthInsuredSalary);
+  const employeeMaster = getEmployeeMasterRows().find((item) => item.id === row.id);
+  const healthDependentCount = Number(employeeMaster?.healthDependentCount || 0);
+  const billableDependentCount = isHealthDependentBillable(month, employeeMaster?.healthDependentStartDate)
+    ? Math.min(healthDependentCount, 3)
+    : 0;
   const laborPersonal = row.role === "雇主" ? 0 : Math.round(laborPersonalBase / 30 * employedDays);
-  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase;
+  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase * (1 + billableDependentCount);
   const companyLaborTable = row.role === "雇主" ? ownerLaborCompany : employeeLaborCompany;
   const companyHealthTable = row.role === "雇主" ? ownerHealthCompany : employeeHealthCompany;
   const companyLabor = Math.round(lookupPremium(companyLaborTable, row.laborInsuredSalary) / 30 * employedDays);
@@ -267,6 +371,10 @@ function calculatePayrollRow(row) {
     grossPay,
     laborPersonal,
     healthPersonal,
+    healthPersonalBase,
+    healthDependentCount,
+    billableDependentCount,
+    healthDependentStartDate: employeeMaster?.healthDependentStartDate || "",
     personalBurdenTotal,
     companyLabor,
     companyHealth,
@@ -285,6 +393,14 @@ function calculateEmployedDays(month, hireDate) {
   if (hire > monthEnd) return 0;
   if (hire <= monthStart) return 30;
   return Math.min(30, monthEnd.getDate() - hire.getDate() + 1);
+}
+
+function isHealthDependentBillable(month, startDate) {
+  if (!month || !startDate) return false;
+  const monthStart = new Date(`${month}-01T00:00:00`);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  const start = new Date(`${startDate}T00:00:00`);
+  return start <= monthEnd;
 }
 
 function lookupPremium(table, insuredSalary) {
@@ -339,7 +455,7 @@ function buildPayslipHtml(row, month, printMode) {
           <tr class="net-row"><th>實領</th><td class="money" colspan="3">${formatCurrency(row.netPay)}</td></tr>
         </tbody>
       </table>
-      <p class="payslip-note">月薪總額 ${formatCurrency(row.monthlySalaryTotal)}，一日工資 ${formatCurrency(Math.round(row.dailyWage))}，平日每小時工資 ${formatCurrency(Math.round(row.hourlyWage))}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。</p>
+      <p class="payslip-note">月薪總額 ${formatCurrency(row.monthlySalaryTotal)}，一日工資 ${formatCurrency(Math.round(row.dailyWage))}，平日每小時工資 ${formatCurrency(Math.round(row.hourlyWage))}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。健保眷屬 ${row.healthDependentCount || 0} 人，眷屬加保日 ${escapePayrollHtml(row.healthDependentStartDate || "未填")}，本月計費眷屬 ${row.billableDependentCount || 0} 人。</p>
     </article>
   `;
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260708-health-full" />
+    <link rel="stylesheet" href="./styles.css?v=20260708-dependent-master" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -587,6 +587,23 @@
               </div>
               <div id="payrollPreview" class="payroll-preview empty-state">請先選擇一位員工預覽薪資單。</div>
             </div>
+
+            <div class="payroll-master-panel">
+              <div class="section-heading compact">
+                <div>
+                  <p class="eyebrow">EMPLOYEE MASTER</p>
+                  <h2>員工資料建檔</h2>
+                  <p class="muted-text">健保眷屬人數與加保日期屬於員工主檔；薪資計算會依加保日期判斷當月是否帶入眷屬健保費。</p>
+                </div>
+                <a
+                  class="secondary-button"
+                  href="https://docs.google.com/spreadsheets/d/16JZXXikxsVGf1angzAXxZqWJXuA5Gtw3MRuXCZw8oyU/edit?gid=861933518#gid=861933518"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >開啟 Google 員工資料</a>
+              </div>
+              <div id="payrollEmployeeMaster" class="payroll-master-table-wrap"></div>
+            </div>
           </div>
         </section>
 
@@ -812,6 +829,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260708-health-full"></script>
+    <script type="module" src="./src/app.js?v=20260708-dependent-master"></script>
   </body>
 </html>

@@ -247,6 +247,49 @@ body {
   overflow-x: auto;
 }
 
+.payroll-master-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  padding: 14px;
+}
+
+.payroll-master-table-wrap {
+  overflow-x: auto;
+}
+
+.payroll-master-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.payroll-master-table th,
+.payroll-master-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.payroll-master-table th {
+  background: #eef6f4;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.payroll-master-table input {
+  width: 150px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  padding: 0 10px;
+}
+
 .payslip-card {
   width: min(100%, 820px);
   margin: 0 auto;
@@ -313,6 +356,7 @@ body {
   .payroll-actions {
     justify-content: flex-start;
   }
+
 }
 
 @media (max-width: 640px) {
