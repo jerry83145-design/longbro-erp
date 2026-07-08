@@ -1,3 +1,8 @@
+import { lineEndpointConfig } from "./line-endpoint-config.js";
+
+const payrollEmployeeMasterSpreadsheetId = "16JZXXikxsVGf1angzAXxZqWJXuA5Gtw3MRuXCZw8oyU";
+const payrollEmployeeMasterSheetName = "員工資料建檔";
+
 const payrollEmployees = [
   { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 27000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
   { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 37000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
@@ -39,6 +44,7 @@ function bindPayrollEvents() {
   const monthInput = document.querySelector("#payrollMonthInput");
   const table = document.querySelector("#payrollTable");
   const masterTable = document.querySelector("#payrollEmployeeMaster");
+  const syncMasterButton = document.querySelector("#syncPayrollEmployeeMasterButton");
 
   monthInput?.addEventListener("change", () => {
     payrollRows = loadPayrollRows(monthInput.value);
@@ -87,6 +93,8 @@ function bindPayrollEvents() {
     renderPayrollPreview();
     renderEmployeeMasterTable();
   });
+
+  syncMasterButton?.addEventListener("click", syncPayrollEmployeeMasterFromGoogle);
 }
 
 function renderPayroll() {
@@ -300,6 +308,95 @@ function saveEmployeeMasterRows(rows) {
   localStorage.setItem("longbroEmployeeMasterRows", JSON.stringify(rows));
 }
 
+async function syncPayrollEmployeeMasterFromGoogle() {
+  const button = document.querySelector("#syncPayrollEmployeeMasterButton");
+  const originalText = button?.textContent || "同步 Google 員工資料";
+  if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
+    showPayrollToast("Google 同步端點尚未設定。");
+    return;
+  }
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = "同步中...";
+    }
+    const result = await requestPayrollEndpointJsonp({
+      action: "readPayrollEmployeeMaster",
+      secret: lineEndpointConfig.sharedSecret,
+      spreadsheetId: payrollEmployeeMasterSpreadsheetId,
+      sheetName: payrollEmployeeMasterSheetName,
+    });
+    const importedRows = Array.isArray(result.employees) ? result.employees : [];
+    if (!importedRows.length) throw new Error("Google 員工資料沒有讀到可同步資料");
+
+    const currentRows = getEmployeeMasterRows();
+    employeeMasterRows = payrollEmployees.map((employee) => {
+      const currentRow = currentRows.find((item) => item.id === employee.id) || {};
+      const importedRow = importedRows.find((item) => item.id === employee.id) || {};
+      return {
+        id: employee.id,
+        name: importedRow.name || employee.name,
+        healthDependentCount: Math.max(0, Number(importedRow.healthDependentCount ?? currentRow.healthDependentCount ?? 0)),
+        healthDependentStartDate: normalizeDateInput(importedRow.healthDependentStartDate || currentRow.healthDependentStartDate || ""),
+      };
+    });
+
+    saveEmployeeMasterRows(employeeMasterRows);
+    payrollRows = getCalculatedRows();
+    savePayrollRows(getPayrollMonth(), payrollRows);
+    renderPayroll();
+    showPayrollToast(`已同步 ${importedRows.length} 筆 Google 員工資料。`);
+  } catch (error) {
+    showPayrollToast(`同步失敗：${error.message || error}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function requestPayrollEndpointJsonp(payload) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `payrollMasterCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google 員工資料同步逾時"));
+    }, 45000);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    };
+
+    window[callbackName] = (result) => {
+      cleanup();
+      if (!result?.ok) {
+        reject(new Error(result?.error || "Google 員工資料同步失敗"));
+        return;
+      }
+      resolve(result);
+    };
+
+    const url = new URL(lineEndpointConfig.endpointUrl);
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      url.searchParams.set(key, Array.isArray(value) || typeof value === "object" ? JSON.stringify(value) : String(value));
+    });
+    url.searchParams.set("callback", callbackName);
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("無法連到 Google 員工資料同步端點"));
+    };
+    script.src = url.toString();
+    document.body.appendChild(script);
+  });
+}
+
 function mergePayrollEmployee(saved) {
   const employee = payrollEmployees.find((item) => item.id === saved.id) || {};
   return {
@@ -401,6 +498,21 @@ function isHealthDependentBillable(month, startDate) {
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   const start = new Date(`${startDate}T00:00:00`);
   return start <= monthEnd;
+}
+
+function normalizeDateInput(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const text = String(value).trim();
+  if (!text) return "";
+  const slashMatch = text.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (slashMatch) {
+    const [, year, month, day] = slashMatch;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return "";
 }
 
 function lookupPremium(table, insuredSalary) {

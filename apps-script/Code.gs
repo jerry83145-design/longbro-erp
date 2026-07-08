@@ -6,6 +6,8 @@
   adminVoucherImageFolderId: "1oCzWPjoL5lIwaJJxpnAx_hQ0x2m5yHfI",
   fixedAssetSpreadsheetId: "1SEqDeO6_yXkRwva0h4PldoeBI7divMWCQE8KQQ3E3kE",
   fixedAssetSheetName: "\u8cc7\u7522\u6e05\u518a",
+  payrollSpreadsheetId: "16JZXXikxsVGf1angzAXxZqWJXuA5Gtw3MRuXCZw8oyU",
+  payrollEmployeeMasterSheetName: "\u54e1\u5de5\u8cc7\u6599\u5efa\u6a94",
   sharedSecret: "CHANGE_ME_SHARED_SECRET",
 };
 
@@ -28,6 +30,16 @@ function doGet(event) {
         userEmail: params.userEmail || "",
       };
       const result = readAdminVoucherFolders(payload);
+      return jsonpOrJsonOutput(result, params.callback);
+    }
+
+    if (params.action === "readPayrollEmployeeMaster") {
+      const payload = {
+        secret: params.secret || "",
+        spreadsheetId: params.spreadsheetId || "",
+        sheetName: params.sheetName || "",
+      };
+      const result = readPayrollEmployeeMasterFromSheet(payload);
       return jsonpOrJsonOutput(result, params.callback);
     }
 
@@ -59,6 +71,10 @@ function doPost(event) {
 
     if (payload.action === "syncFixedAsset") {
       return jsonOutput(syncFixedAssetToSheet(payload));
+    }
+
+    if (payload.action === "readPayrollEmployeeMaster") {
+      return jsonOutput(readPayrollEmployeeMasterFromSheet(payload));
     }
 
     const draft = payload.draft || {};
@@ -157,6 +173,96 @@ function syncFixedAssetToSheet(payload) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function readPayrollEmployeeMasterFromSheet(payload) {
+  if (payload.secret !== CONFIG.sharedSecret) {
+    return { ok: false, error: "secret is invalid" };
+  }
+
+  const spreadsheetId = payload.spreadsheetId || CONFIG.payrollSpreadsheetId;
+  const sheetName = payload.sheetName || CONFIG.payrollEmployeeMasterSheetName;
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) throw new Error("payroll employee master sheet not found: " + sheetName);
+
+  const headerRow = findPayrollEmployeeMasterHeaderRow(sheet);
+  ensurePayrollEmployeeMasterDependentDateHeader(sheet, headerRow);
+  const values = sheet.getRange(headerRow, 1, Math.max(sheet.getLastRow() - headerRow + 1, 1), sheet.getLastColumn()).getDisplayValues();
+  const headers = values[0].map(normalizePayrollHeader);
+  const employeeIdIndex = findPayrollHeaderIndex(headers, ["員工編號", "員編"]);
+  const nameIndex = findPayrollHeaderIndex(headers, ["姓名", "員工姓名"]);
+  const dependentCountIndex = findPayrollHeaderIndex(headers, ["健保眷屬人數", "眷屬人數"]);
+  const dependentDateIndex = findPayrollHeaderIndex(headers, ["眷屬加保日期", "健保眷屬加保日期", "加保日期"]);
+  if (employeeIdIndex < 0) throw new Error("employee id column not found");
+
+  const employees = [];
+  for (var rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
+    const row = values[rowIndex];
+    const employeeId = String(row[employeeIdIndex] || "").trim();
+    if (!employeeId) continue;
+    employees.push({
+      id: employeeId,
+      name: nameIndex >= 0 ? String(row[nameIndex] || "").trim() : "",
+      healthDependentCount: dependentCountIndex >= 0 ? parsePayrollNumber(row[dependentCountIndex]) : 0,
+      healthDependentStartDate: dependentDateIndex >= 0 ? normalizePayrollDate(row[dependentDateIndex]) : "",
+      sourceRow: headerRow + rowIndex,
+    });
+  }
+
+  return {
+    ok: true,
+    employees: employees,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function findPayrollEmployeeMasterHeaderRow(sheet) {
+  const maxRows = Math.min(sheet.getLastRow(), 20);
+  const values = sheet.getRange(1, 1, maxRows, Math.max(sheet.getLastColumn(), 12)).getDisplayValues();
+  for (var rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+    const headers = values[rowIndex].map(normalizePayrollHeader);
+    if (findPayrollHeaderIndex(headers, ["員工編號", "員編"]) >= 0 && findPayrollHeaderIndex(headers, ["姓名", "員工姓名"]) >= 0) {
+      return rowIndex + 1;
+    }
+  }
+  throw new Error("payroll employee master header row not found");
+}
+
+function ensurePayrollEmployeeMasterDependentDateHeader(sheet, headerRow) {
+  const headers = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(normalizePayrollHeader);
+  if (findPayrollHeaderIndex(headers, ["眷屬加保日期", "健保眷屬加保日期", "加保日期"]) >= 0) return;
+  const nextColumn = sheet.getLastColumn() + 1;
+  sheet.getRange(headerRow, nextColumn).setValue("眷屬加保日期");
+}
+
+function findPayrollHeaderIndex(headers, candidates) {
+  const normalizedCandidates = candidates.map(normalizePayrollHeader);
+  for (var index = 0; index < headers.length; index += 1) {
+    if (normalizedCandidates.indexOf(headers[index]) >= 0) return index;
+  }
+  return -1;
+}
+
+function normalizePayrollHeader(value) {
+  return String(value || "").replace(/\s+/g, "").trim();
+}
+
+function parsePayrollNumber(value) {
+  const number = Number(String(value || "").replace(/,/g, "").trim());
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizePayrollDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (match) {
+    return match[1] + "-" + ("0" + match[2]).slice(-2) + "-" + ("0" + match[3]).slice(-2);
+  }
+  const date = new Date(text);
+  if (isNaN(date.getTime())) return "";
+  return Utilities.formatDate(date, "Asia/Taipei", "yyyy-MM-dd");
 }
 
 function findFixedAssetHeaderRow(sheet) {

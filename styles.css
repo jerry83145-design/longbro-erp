@@ -256,6 +256,13 @@ body {
   padding: 14px;
 }
 
+.payroll-master-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .payroll-master-table-wrap {
   overflow-x: auto;
 }
