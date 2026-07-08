@@ -200,7 +200,7 @@ body {
 
 .payroll-table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 1360px;
   border-collapse: collapse;
   border: 1px solid var(--line);
   background: #fff;

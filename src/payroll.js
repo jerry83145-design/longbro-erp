@@ -1,8 +1,8 @@
 const payrollEmployees = [
-  { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 30000, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
-  { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 40000, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
-  { id: "PH002", name: "徐振睿", role: "員工", department: "營運", baseSalary: 30000, hireDate: "2026-06-15", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
-  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 60000, hireDate: "2026-06-15", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
+  { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 30000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
+  { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 40000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
+  { id: "PH002", name: "徐振睿", role: "員工", department: "營運", baseSalary: 30000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
+  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 60000, dutyAllowance: 0, mealAllowance: 0, hireDate: "2026-06-15", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
 ];
 
 const employeeLaborPersonal = [[30300, 758], [40100, 1002]];
@@ -84,13 +84,16 @@ function renderPayrollSummary() {
   const summary = document.querySelector("#payrollSummary");
   if (!summary) return;
   const rows = getCalculatedRows();
-  const gross = rows.reduce((sum, row) => sum + row.grossPay, 0);
-  const deductions = rows.reduce((sum, row) => sum + row.personalBurdenTotal + row.otherDeduction, 0);
+  const gross = rows.reduce((sum, row) => sum + row.regularPay, 0);
+  const deductions = rows.reduce(
+    (sum, row) => sum + row.personalBurdenTotal + row.otherDeduction + Math.round(row.personalLeaveDeduction) + Math.round(row.sickLeaveDeduction),
+    0,
+  );
   const net = rows.reduce((sum, row) => sum + row.netPay, 0);
 
   summary.innerHTML = `
     <article><span>人數</span><strong>${rows.length}</strong></article>
-    <article><span>本薪應領</span><strong>${formatCurrency(gross)}</strong></article>
+    <article><span>應領固定薪資</span><strong>${formatCurrency(gross)}</strong></article>
     <article><span>本人扣款</span><strong>${formatCurrency(deductions)}</strong></article>
     <article><span>實領合計</span><strong>${formatCurrency(net)}</strong></article>
   `;
@@ -107,9 +110,13 @@ function renderPayrollTable() {
           <th>姓名</th>
           <th>身分</th>
           <th>底薪</th>
+          <th>職務加給</th>
+          <th>伙食津貼</th>
+          <th>月薪總額</th>
           <th>到職日期</th>
           <th>在職天數</th>
-          <th>請假天數</th>
+          <th>事假天數</th>
+          <th>病假天數</th>
           <th>其他加成</th>
           <th>其他扣款</th>
           <th>實領薪資</th>
@@ -128,9 +135,13 @@ function renderPayrollTableRow(row) {
       <td>${escapePayrollHtml(row.name)}</td>
       <td>${escapePayrollHtml(row.role)}</td>
       <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.baseSalary}" /></td>
+      <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.dutyAllowance || 0}" /></td>
+      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.mealAllowance || 0}" /></td>
+      <td><strong>${formatCurrency(row.monthlySalaryTotal)}</strong></td>
       <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}" /></td>
       <td>${row.employedDays}</td>
-      <td><input data-payroll-field="leaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.leaveDays || 0}" /></td>
+      <td><input data-payroll-field="personalLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.personalLeaveDays || 0}" /></td>
+      <td><input data-payroll-field="sickLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.sickLeaveDays || 0}" /></td>
       <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherAllowance || 0}" /></td>
       <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherDeduction || 0}" /></td>
       <td><strong>${formatCurrency(row.netPay)}</strong></td>
@@ -158,8 +169,11 @@ function readPayrollInputs() {
     return {
       ...row,
       baseSalary: Number(findValue("baseSalary") || row.baseSalary || 0),
+      dutyAllowance: Number(findValue("dutyAllowance") || 0),
+      mealAllowance: Number(findValue("mealAllowance") || 0),
       hireDate: findValue("hireDate") || row.hireDate,
-      leaveDays: Number(findValue("leaveDays") || 0),
+      personalLeaveDays: Number(findValue("personalLeaveDays") || 0),
+      sickLeaveDays: Number(findValue("sickLeaveDays") || 0),
       otherAllowance: Number(findValue("otherAllowance") || 0),
       otherDeduction: Number(findValue("otherDeduction") || 0),
     };
@@ -179,7 +193,8 @@ function loadPayrollRows(month) {
 
   return payrollEmployees.map((employee) => calculatePayrollRow({
     ...employee,
-    leaveDays: employee.id === "PH005" && month === "2026-07" ? 10 : 0,
+    personalLeaveDays: employee.id === "PH005" && month === "2026-07" ? 10 : 0,
+    sickLeaveDays: 0,
     otherAllowance: 0,
     otherDeduction: 0,
   }));
@@ -187,7 +202,12 @@ function loadPayrollRows(month) {
 
 function mergePayrollEmployee(saved) {
   const employee = payrollEmployees.find((item) => item.id === saved.id) || {};
-  return { ...employee, ...saved };
+  return {
+    ...employee,
+    ...saved,
+    personalLeaveDays: Number(saved.personalLeaveDays ?? saved.leaveDays ?? 0),
+    sickLeaveDays: Number(saved.sickLeaveDays ?? 0),
+  };
 }
 
 function savePayrollRows(month, rows) {
@@ -202,8 +222,18 @@ function getCalculatedRows() {
 function calculatePayrollRow(row) {
   const month = getPayrollMonth();
   const employedDays = calculateEmployedDays(month, row.hireDate);
-  const payableDays = Math.max(0, employedDays - Number(row.leaveDays || 0));
-  const grossPay = Math.round(Number(row.baseSalary || 0) / 30 * payableDays);
+  const baseSalary = Number(row.baseSalary || 0);
+  const dutyAllowance = Number(row.dutyAllowance || 0);
+  const mealAllowance = Number(row.mealAllowance || 0);
+  const monthlySalaryTotal = baseSalary + dutyAllowance + mealAllowance;
+  const dailyWage = monthlySalaryTotal / 30;
+  const hourlyWage = monthlySalaryTotal / 240;
+  const personalLeaveDays = Number(row.personalLeaveDays ?? row.leaveDays ?? 0);
+  const sickLeaveDays = Number(row.sickLeaveDays || 0);
+  const regularPayBeforeLeave = dailyWage * employedDays;
+  const personalLeaveDeduction = dailyWage * personalLeaveDays;
+  const sickLeaveDeduction = dailyWage * sickLeaveDays * 0.5;
+  const grossPay = Math.round(Math.max(0, regularPayBeforeLeave - personalLeaveDeduction - sickLeaveDeduction));
   const laborPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeLaborPersonal, row.laborInsuredSalary);
   const healthPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeHealthPersonal, row.healthInsuredSalary);
   const laborPersonal = row.role === "雇主" ? 0 : Math.round(laborPersonalBase / 30 * employedDays);
@@ -219,8 +249,18 @@ function calculatePayrollRow(row) {
 
   return {
     ...row,
+    baseSalary,
+    dutyAllowance,
+    mealAllowance,
+    monthlySalaryTotal,
+    dailyWage,
+    hourlyWage,
     employedDays,
-    payableDays,
+    personalLeaveDays,
+    sickLeaveDays,
+    personalLeaveDeduction,
+    sickLeaveDeduction,
+    regularPay: grossPay,
     grossPay,
     laborPersonal,
     healthPersonal,
@@ -257,8 +297,19 @@ function lookupPremium(table, insuredSalary) {
 }
 
 function buildPayslipHtml(row, month, printMode) {
-  const allowanceRows = [["本薪", row.grossPay], ["其他加成", row.otherAllowance]].filter(([, amount]) => amount || printMode);
-  const deductionRows = [["勞保費", row.laborPersonal], ["健保費", row.healthPersonal], ["其他扣款", row.otherDeduction]].filter(([, amount]) => amount || printMode);
+  const allowanceRows = [
+    ["本薪", Math.round(row.baseSalary / 30 * row.employedDays)],
+    ["職務加給", Math.round(row.dutyAllowance / 30 * row.employedDays)],
+    ["伙食津貼", Math.round(row.mealAllowance / 30 * row.employedDays)],
+    ["其他加成", row.otherAllowance],
+  ].filter(([, amount]) => amount || printMode);
+  const deductionRows = [
+    ["事假扣薪", Math.round(row.personalLeaveDeduction)],
+    ["病假扣薪", Math.round(row.sickLeaveDeduction)],
+    ["勞保費", row.laborPersonal],
+    ["健保費", row.healthPersonal],
+    ["其他扣款", row.otherDeduction],
+  ].filter(([, amount]) => amount || printMode);
   const maxRows = Math.max(8, allowanceRows.length, deductionRows.length);
   const lines = Array.from({ length: maxRows }, (_, index) => {
     const allowance = allowanceRows[index] || ["", ""];
@@ -285,11 +336,11 @@ function buildPayslipHtml(row, month, printMode) {
           <tr><th>姓名：</th><td>${escapePayrollHtml(row.name)}</td><th>部門：</th><td>${escapePayrollHtml(row.department || "")}</td></tr>
           <tr><th>加項</th><th>金額</th><th>減項</th><th>金額</th></tr>
           ${lines}
-          <tr><th>小計</th><td class="money">${formatCurrency(row.grossPay + row.otherAllowance)}</td><th>小計</th><td class="money">${formatCurrency(row.personalBurdenTotal + row.otherDeduction)}</td></tr>
+          <tr><th>小計</th><td class="money">${formatCurrency(row.regularPay + Math.round(row.personalLeaveDeduction) + Math.round(row.sickLeaveDeduction) + row.otherAllowance)}</td><th>小計</th><td class="money">${formatCurrency(Math.round(row.personalLeaveDeduction) + Math.round(row.sickLeaveDeduction) + row.personalBurdenTotal + row.otherDeduction)}</td></tr>
           <tr class="net-row"><th>實領</th><td class="money" colspan="3">${formatCurrency(row.netPay)}</td></tr>
         </tbody>
       </table>
-      <p class="payslip-note">到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，請假 ${row.leaveDays || 0} 天。</p>
+      <p class="payslip-note">月薪總額 ${formatCurrency(row.monthlySalaryTotal)}，一日工資 ${formatCurrency(Math.round(row.dailyWage))}，平日每小時工資 ${formatCurrency(Math.round(row.hourlyWage))}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。</p>
     </article>
   `;
 }
