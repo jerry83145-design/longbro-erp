@@ -629,7 +629,7 @@ function buildPayslipHtml(row, month, printMode) {
           <tr class="net-row"><th>實領</th><td class="money" colspan="3">${formatCurrency(row.netPay)}</td></tr>
         </tbody>
       </table>
-      <p class="payslip-note">月薪總額 ${formatCurrency(row.monthlySalaryTotal)}，一日工資 ${formatCurrency(Math.round(row.dailyWage))}，平日每小時工資 ${formatCurrency(Math.round(row.hourlyWage))}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。健保眷屬 ${row.healthDependentCount || 0} 人，眷屬加保日 ${escapePayrollHtml(row.healthDependentStartDate || "未填")}，本月計費眷屬 ${row.billableDependentCount || 0} 人。</p>
+      <p class="payslip-note">月本薪 ${formatCurrency(row.baseSalary)}，伙食津貼 ${formatCurrency(row.mealAllowance)}，合計總額 ${formatCurrency(row.monthlySalaryTotal)}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。健保眷屬 ${row.healthDependentCount || 0} 人，眷屬加保日 ${escapePayrollHtml(row.healthDependentStartDate || "未填")}，本月計費眷屬 ${row.billableDependentCount || 0} 人。</p>
     </article>
   `;
 }
