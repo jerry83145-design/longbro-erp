@@ -45,6 +45,7 @@ function bindPayrollEvents() {
   const table = document.querySelector("#payrollTable");
   const masterTable = document.querySelector("#payrollEmployeeMaster");
   const syncMasterButton = document.querySelector("#syncPayrollEmployeeMasterButton");
+  const saveMasterButton = document.querySelector("#savePayrollEmployeeMasterButton");
 
   monthInput?.addEventListener("change", () => {
     payrollRows = loadPayrollRows(monthInput.value);
@@ -95,6 +96,7 @@ function bindPayrollEvents() {
   });
 
   syncMasterButton?.addEventListener("click", syncPayrollEmployeeMasterFromGoogle);
+  saveMasterButton?.addEventListener("click", savePayrollEmployeeMasterToGoogle);
 }
 
 function renderPayroll() {
@@ -310,7 +312,7 @@ function saveEmployeeMasterRows(rows) {
 
 async function syncPayrollEmployeeMasterFromGoogle() {
   const button = document.querySelector("#syncPayrollEmployeeMasterButton");
-  const originalText = button?.textContent || "同步 Google 員工資料";
+  const originalText = button?.textContent || "從 Google 讀取";
   if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
     showPayrollToast("Google 同步端點尚未設定。");
     return;
@@ -349,6 +351,51 @@ async function syncPayrollEmployeeMasterFromGoogle() {
     showPayrollToast(`已同步 ${importedRows.length} 筆 Google 員工資料。`);
   } catch (error) {
     showPayrollToast(`同步失敗：${error.message || error}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+async function savePayrollEmployeeMasterToGoogle() {
+  const button = document.querySelector("#savePayrollEmployeeMasterButton");
+  const originalText = button?.textContent || "儲存到 Google";
+  if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
+    showPayrollToast("Google 同步端點尚未設定。");
+    return;
+  }
+
+  try {
+    employeeMasterRows = readEmployeeMasterInputs();
+    saveEmployeeMasterRows(employeeMasterRows);
+    payrollRows = getCalculatedRows();
+    savePayrollRows(getPayrollMonth(), payrollRows);
+    renderPayrollSummary();
+    renderPayrollTable();
+    renderPayrollPreview();
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "儲存中...";
+    }
+
+    const result = await requestPayrollEndpointJsonp({
+      action: "updatePayrollEmployeeMaster",
+      secret: lineEndpointConfig.sharedSecret,
+      spreadsheetId: payrollEmployeeMasterSpreadsheetId,
+      sheetName: payrollEmployeeMasterSheetName,
+      employees: employeeMasterRows.map((row) => ({
+        id: row.id,
+        healthDependentCount: Math.min(Math.max(Number(row.healthDependentCount || 0), 0), 3),
+        healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate || ""),
+      })),
+    });
+
+    showPayrollToast(`已儲存 ${result.updatedCount || 0} 筆員工眷屬資料到 Google。`);
+  } catch (error) {
+    showPayrollToast(`儲存失敗：${error.message || error}`);
   } finally {
     if (button) {
       button.disabled = false;
@@ -509,6 +556,16 @@ function normalizeDateInput(value) {
   if (slashMatch) {
     const [, year, month, day] = slashMatch;
     return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const compactMatch = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compactMatch) {
+    const [, year, month, day] = compactMatch;
+    return `${year}-${month}-${day}`;
+  }
+  const rocMatch = text.match(/^(\d{2,3})[/-]?(\d{2})[/-]?(\d{2})$/);
+  if (rocMatch) {
+    const [, rocYear, month, day] = rocMatch;
+    return `${Number(rocYear) + 1911}-${month}-${day}`;
   }
   const date = new Date(text);
   if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);

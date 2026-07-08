@@ -43,6 +43,17 @@ function doGet(event) {
       return jsonpOrJsonOutput(result, params.callback);
     }
 
+    if (params.action === "updatePayrollEmployeeMaster") {
+      const payload = {
+        secret: params.secret || "",
+        spreadsheetId: params.spreadsheetId || "",
+        sheetName: params.sheetName || "",
+        employees: params.employees ? JSON.parse(params.employees) : [],
+      };
+      const result = updatePayrollEmployeeMasterToSheet(payload);
+      return jsonpOrJsonOutput(result, params.callback);
+    }
+
     return jsonpOrJsonOutput({
       ok: true,
       service: "longbro-erp-line-backend",
@@ -75,6 +86,10 @@ function doPost(event) {
 
     if (payload.action === "readPayrollEmployeeMaster") {
       return jsonOutput(readPayrollEmployeeMasterFromSheet(payload));
+    }
+
+    if (payload.action === "updatePayrollEmployeeMaster") {
+      return jsonOutput(updatePayrollEmployeeMasterToSheet(payload));
     }
 
     const draft = payload.draft || {};
@@ -217,6 +232,64 @@ function readPayrollEmployeeMasterFromSheet(payload) {
   };
 }
 
+function updatePayrollEmployeeMasterToSheet(payload) {
+  if (payload.secret !== CONFIG.sharedSecret) {
+    return { ok: false, error: "secret is invalid" };
+  }
+
+  const employees = Array.isArray(payload.employees) ? payload.employees : [];
+  if (!employees.length) return { ok: false, error: "employees is empty" };
+
+  const spreadsheetId = payload.spreadsheetId || CONFIG.payrollSpreadsheetId;
+  const sheetName = payload.sheetName || CONFIG.payrollEmployeeMasterSheetName;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) throw new Error("payroll employee master sheet not found: " + sheetName);
+
+    const headerRow = findPayrollEmployeeMasterHeaderRow(sheet);
+    ensurePayrollEmployeeMasterDependentDateHeader(sheet, headerRow);
+    const headers = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(normalizePayrollHeader);
+    const employeeIdColumn = findPayrollHeaderIndex(headers, ["員工編號", "員編"]) + 1;
+    const dependentCountColumn = findPayrollHeaderIndex(headers, ["健保眷屬人數", "眷屬人數"]) + 1;
+    const dependentDateColumn = findPayrollHeaderIndex(headers, ["眷屬加保日期", "健保眷屬加保日期", "加保日期"]) + 1;
+    if (!employeeIdColumn) throw new Error("employee id column not found");
+    if (!dependentCountColumn) throw new Error("dependent count column not found");
+    if (!dependentDateColumn) throw new Error("dependent start date column not found");
+
+    const lastRow = sheet.getLastRow();
+    const ids = sheet.getRange(headerRow + 1, employeeIdColumn, Math.max(lastRow - headerRow, 1), 1).getDisplayValues();
+    const rowByEmployeeId = {};
+    ids.forEach(function (row, index) {
+      const employeeId = String(row[0] || "").trim();
+      if (employeeId) rowByEmployeeId[employeeId] = headerRow + 1 + index;
+    });
+
+    let updatedCount = 0;
+    employees.forEach(function (employee) {
+      const employeeId = String(employee.id || "").trim();
+      const targetRow = rowByEmployeeId[employeeId];
+      if (!targetRow) return;
+      const dependentCount = Math.min(Math.max(parsePayrollNumber(employee.healthDependentCount), 0), 3);
+      const dependentStartDate = normalizePayrollDate(employee.healthDependentStartDate);
+      sheet.getRange(targetRow, dependentCountColumn).setValue(dependentCount);
+      sheet.getRange(targetRow, dependentDateColumn).setValue(dependentStartDate || "");
+      updatedCount += 1;
+    });
+
+    return {
+      ok: true,
+      updatedCount: updatedCount,
+      checkedAt: new Date().toISOString(),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function findPayrollEmployeeMasterHeaderRow(sheet) {
   const maxRows = Math.min(sheet.getLastRow(), 20);
   const values = sheet.getRange(1, 1, maxRows, Math.max(sheet.getLastColumn(), 12)).getDisplayValues();
@@ -259,6 +332,14 @@ function normalizePayrollDate(value) {
   const match = text.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (match) {
     return match[1] + "-" + ("0" + match[2]).slice(-2) + "-" + ("0" + match[3]).slice(-2);
+  }
+  const compactMatch = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compactMatch) {
+    return compactMatch[1] + "-" + compactMatch[2] + "-" + compactMatch[3];
+  }
+  const rocMatch = text.match(/^(\d{2,3})[\/\-]?(\d{2})[\/\-]?(\d{2})$/);
+  if (rocMatch) {
+    return String(Number(rocMatch[1]) + 1911) + "-" + rocMatch[2] + "-" + rocMatch[3];
   }
   const date = new Date(text);
   if (isNaN(date.getTime())) return "";
