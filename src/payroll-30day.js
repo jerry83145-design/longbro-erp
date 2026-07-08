@@ -240,11 +240,11 @@ function calculatePayrollRow(row) {
   const laborPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeLaborPersonal, row.laborInsuredSalary);
   const healthPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeHealthPersonal, row.healthInsuredSalary);
   const laborPersonal = row.role === "雇主" ? 0 : Math.round(laborPersonalBase / 30 * employedDays);
-  const healthPersonal = row.role === "雇主" || isMidMonthHire(month, row.hireDate) ? 0 : healthPersonalBase;
+  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase;
   const companyLaborTable = row.role === "雇主" ? ownerLaborCompany : employeeLaborCompany;
   const companyHealthTable = row.role === "雇主" ? ownerHealthCompany : employeeHealthCompany;
   const companyLabor = Math.round(lookupPremium(companyLaborTable, row.laborInsuredSalary) / 30 * employedDays);
-  const companyHealth = isMidMonthHire(month, row.hireDate) ? 0 : lookupPremium(companyHealthTable, row.healthInsuredSalary);
+  const companyHealth = lookupPremium(companyHealthTable, row.healthInsuredSalary);
   const otherAllowance = Number(row.otherAllowance || 0);
   const otherDeduction = Number(row.otherDeduction || 0);
   const personalBurdenTotal = laborPersonal + healthPersonal;
@@ -285,10 +285,6 @@ function calculateEmployedDays(month, hireDate) {
   if (hire > monthEnd) return 0;
   if (hire <= monthStart) return 30;
   return Math.min(30, monthEnd.getDate() - hire.getDate() + 1);
-}
-
-function isMidMonthHire(month, hireDate) {
-  return Boolean(month && hireDate && hireDate.slice(0, 7) === month && !hireDate.endsWith("-01"));
 }
 
 function lookupPremium(table, insuredSalary) {
