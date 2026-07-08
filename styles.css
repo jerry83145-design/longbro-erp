@@ -227,7 +227,7 @@ body {
 }
 
 .payroll-table input {
-  width: 78px;
+  width: 70px;
   min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -237,7 +237,20 @@ body {
 }
 
 .payroll-table input[type="date"] {
-  width: 112px;
+  width: 132px;
+}
+
+.payroll-table input[data-payroll-field="baseSalary"],
+.payroll-table input[data-payroll-field="dutyAllowance"],
+.payroll-table input[data-payroll-field="mealAllowance"],
+.payroll-table input[data-payroll-field="otherAllowance"],
+.payroll-table input[data-payroll-field="otherDeduction"] {
+  width: 94px;
+}
+
+.payroll-table input[data-payroll-field="personalLeaveDays"],
+.payroll-table input[data-payroll-field="sickLeaveDays"] {
+  width: 46px;
 }
 
 .compact-button {

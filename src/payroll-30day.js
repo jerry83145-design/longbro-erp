@@ -62,11 +62,11 @@ function bindPayrollEvents() {
 
   document.querySelector("#payrollPrintSelectedButton")?.addEventListener("click", () => {
     const row = getCalculatedRows().find((item) => item.id === selectedPayrollId);
-    if (row) printPayrollSlips([row], getPayrollMonth());
+    if (row) exportPayrollSlips([row], getPayrollMonth());
   });
 
   document.querySelector("#payrollPrintAllButton")?.addEventListener("click", () => {
-    printPayrollSlips(getCalculatedRows(), getPayrollMonth());
+    exportPayrollSlips(getCalculatedRows(), getPayrollMonth());
   });
 
   table?.addEventListener("input", (event) => {
@@ -631,6 +631,92 @@ function buildPayslipHtml(row, month, printMode) {
       </table>
       <p class="payslip-note">月本薪 ${formatCurrency(row.baseSalary)}，伙食津貼 ${formatCurrency(row.mealAllowance)}，合計總額 ${formatCurrency(row.monthlySalaryTotal)}。到職日 ${escapePayrollHtml(row.hireDate)}，本月在職 ${row.employedDays} 天，事假 ${row.personalLeaveDays || 0} 天，病假 ${row.sickLeaveDays || 0} 天。健保眷屬 ${row.healthDependentCount || 0} 人，眷屬加保日 ${escapePayrollHtml(row.healthDependentStartDate || "未填")}，本月計費眷屬 ${row.billableDependentCount || 0} 人。</p>
     </article>
+  `;
+}
+
+async function exportPayrollSlips(rows, month) {
+  if (!rows.length) return;
+  if (!("showDirectoryPicker" in window)) {
+    printPayrollSlips(rows, month);
+    return;
+  }
+
+  try {
+    await savePayrollSlipsToFolder(rows, month);
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    console.warn(error);
+    showPayrollToast("無法直接存入資料夾，已改用列印視窗。");
+    printPayrollSlips(rows, month);
+  }
+}
+
+async function savePayrollSlipsToFolder(rows, month) {
+  const rootHandle = await window.showDirectoryPicker({
+    id: "longbro-payroll-slips",
+    mode: "readwrite",
+  });
+  await createPayrollMonthFolders(rootHandle);
+  const monthFolderName = formatPayrollMonthFolder(month);
+  const monthHandle = await rootHandle.getDirectoryHandle(monthFolderName, { create: true });
+
+  for (const row of rows) {
+    const fileHandle = await monthHandle.getFileHandle(buildPayrollSlipFileName(month, row), { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(buildPayrollDocumentHtml([row], month));
+    await writable.close();
+  }
+
+  showPayrollToast(`已儲存 ${rows.length} 份薪資單到 ${monthFolderName} 資料夾。`);
+}
+
+async function createPayrollMonthFolders(rootHandle) {
+  for (let year = 2026; year <= 2027; year += 1) {
+    for (let month = 1; month <= 12; month += 1) {
+      const folderName = `${year}${String(month).padStart(2, "0")}`;
+      if (folderName >= "202607" && folderName <= "202712") {
+        await rootHandle.getDirectoryHandle(folderName, { create: true });
+      }
+    }
+  }
+}
+
+function buildPayrollSlipFileName(month, row) {
+  return `隆博股份有限公司 ${formatPayrollMonthLabel(month)}薪資單_${sanitizePayrollFileName(row.name)}.html`;
+}
+
+function sanitizePayrollFileName(value) {
+  return String(value || "未命名").replace(/[\\/:*?"<>|]/g, "").trim() || "未命名";
+}
+
+function formatPayrollMonthFolder(month) {
+  return String(month || getCurrentMonth()).replace("-", "");
+}
+
+function buildPayrollDocumentHtml(rows, month) {
+  return `
+    <!doctype html>
+    <html lang="zh-Hant">
+      <head>
+        <meta charset="UTF-8" />
+        <title>隆博股份有限公司 ${formatPayrollMonthLabel(month)}薪資單</title>
+        <style>
+          body { margin: 0; padding: 24px; color: #111; font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; }
+          .payslip-card { width: 760px; margin: 0 auto 28px; page-break-after: always; }
+          .payslip-card:last-child { page-break-after: auto; }
+          h3 { margin: 0; border: 2px solid #111; border-bottom: 0; padding: 10px; text-align: center; font-size: 30px; font-weight: 500; }
+          .payslip-meta { display: flex; justify-content: center; gap: 28px; border: 2px solid #111; border-bottom: 0; padding: 8px; font-size: 18px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th, td { border: 2px solid #111; padding: 8px 12px; font-size: 20px; text-align: center; height: 38px; }
+          th { font-weight: 700; }
+          .money { text-align: right; }
+          .net-row th, .net-row td { font-size: 26px; font-weight: 800; }
+          .payslip-note { margin: 8px 0 0; font-size: 13px; color: #444; }
+          @media print { body { padding: 0; } .payslip-card { width: 100%; max-width: 760px; } }
+        </style>
+      </head>
+      <body>${rows.map((row) => buildPayslipHtml(row, month, true)).join("")}</body>
+    </html>
   `;
 }
 
