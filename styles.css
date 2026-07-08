@@ -200,7 +200,7 @@ body {
 
 .payroll-table {
   width: 100%;
-  min-width: 1360px;
+  min-width: 1160px;
   border-collapse: collapse;
   border: 1px solid var(--line);
   background: #fff;
@@ -209,15 +209,17 @@ body {
 .payroll-table th,
 .payroll-table td {
   border-bottom: 1px solid var(--line);
-  padding: 10px;
+  padding: 6px 7px;
   text-align: left;
   white-space: nowrap;
+  font-size: 14px;
 }
 
 .payroll-table th {
   background: #eef6f4;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .payroll-table tr.active {
@@ -225,17 +227,22 @@ body {
 }
 
 .payroll-table input {
-  width: 120px;
-  min-height: 36px;
+  width: 78px;
+  min-height: 30px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--field);
-  padding: 0 10px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.payroll-table input[type="date"] {
+  width: 112px;
 }
 
 .compact-button {
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 30px;
+  padding: 0 9px;
 }
 
 .payroll-preview-shell {
