@@ -628,12 +628,24 @@ function isVisibleToCurrentUser(record = {}) {
   return isReadOnlyUser || !record.userId || record.userId === currentUser?.uid;
 }
 
+function isReadOnlyAllowedDetailControl(element) {
+  const dataset = element.dataset || {};
+  return (
+    Object.prototype.hasOwnProperty.call(dataset, "inventorySummaryDetail") ||
+    dataset.inventoryAction === "details" ||
+    dataset.assetAction === "details" ||
+    Object.prototype.hasOwnProperty.call(dataset, "inventoryTypeClose") ||
+    Object.prototype.hasOwnProperty.call(dataset, "inventoryDetailClose")
+  );
+}
+
 function isReadOnlyBlockedControl(element) {
   if (!isReadOnlyUser || !element) return false;
   if (element.id && readOnlyAllowedControlIds.has(element.id)) return false;
   if (element.closest?.(".sidebar-nav")) return false;
   if (element.classList?.contains("segment")) return false;
   if (element.dataset?.pendingTarget || element.dataset?.voucherFilter) return false;
+  if (isReadOnlyAllowedDetailControl(element)) return false;
   if (element.id && readOnlyBlockedIdPattern.test(element.id)) return true;
   return readOnlyBlockedDataAttributes.some((name) => Object.prototype.hasOwnProperty.call(element.dataset || {}, name));
 }
