@@ -609,6 +609,20 @@ function cleanPayrollRowForStorage(row) {
     sickLeaveDays: Number(row.sickLeaveDays || 0),
     otherAllowance: Number(row.otherAllowance || 0),
     otherDeduction: Number(row.otherDeduction || 0),
+    employedDays: Number(row.employedDays || 0),
+    monthlySalaryTotal: Number(row.monthlySalaryTotal || 0),
+    regularPay: Number(row.regularPay || 0),
+    personalLeaveDeduction: Number(row.personalLeaveDeduction || 0),
+    sickLeaveDeduction: Number(row.sickLeaveDeduction || 0),
+    laborPersonal: Number(row.laborPersonal || 0),
+    healthPersonal: Number(row.healthPersonal || 0),
+    dependentHealthPersonal: Number(row.dependentHealthPersonal || 0),
+    personalBurdenTotal: Number(row.personalBurdenTotal || 0),
+    companyLabor: Number(row.companyLabor || 0),
+    companyHealth: Number(row.companyHealth || 0),
+    companyBurdenTotal: Number(row.companyBurdenTotal || 0),
+    billableDependentCount: Number(row.billableDependentCount || 0),
+    netPay: Number(row.netPay || 0),
   };
 }
 

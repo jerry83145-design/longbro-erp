@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-payroll-master-cloud-sync";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-decision-report-export";
 
 const defaultOptionsByType = {
   expense: {
@@ -9856,7 +9856,7 @@ function getBackupTimestamp() {
   ].join("");
 }
 
-function exportCurrentReport() {
+async function exportCurrentReport() {
   if (!window.XLSX) {
     showToast("Excel 套件尚未載入，請確認網路可連線後重試。");
     return;
@@ -9867,22 +9867,30 @@ function exportCurrentReport() {
     return;
   }
 
-  const workbook = window.XLSX.utils.book_new();
-  appendSheet(workbook, "損益", buildIncomeStatementSheet());
-  appendSheet(workbook, "庫存表", buildInventoryReportSheet());
-  appendSheet(workbook, "固定資產", buildAssetReportSheet());
-  appendSheet(workbook, "公司資產及負債", buildAssetsLiabilitiesSheet());
-  appendSheet(workbook, "憑證核對表", buildVoucherReconciliationSheet());
-  appendSheet(workbook, "分錄草稿", buildJournalDraftSheet());
-  window.XLSX.writeFile(workbook, buildReportExportFileName(lastReportSummary.start, lastReportSummary.end));
+  try {
+    const workbook = window.XLSX.utils.book_new();
+    const payrollRows = await loadPayrollRowsForReport(lastReportSummary.start, lastReportSummary.end);
+    appendSheet(workbook, "經營摘要", buildExecutiveDecisionSummarySheet(payrollRows));
+    appendSheet(workbook, "收入彙總", buildDecisionIncomeSummarySheet());
+    appendSheet(workbook, "收入明細", buildDecisionIncomeDetailSheet());
+    appendSheet(workbook, "支出彙總", buildDecisionExpenseSummarySheet(payrollRows));
+    appendSheet(workbook, "支出明細", buildDecisionExpenseDetailSheet());
+    appendSheet(workbook, "薪資成本", buildDecisionPayrollSheet(payrollRows));
+    appendSheet(workbook, "庫存與成本", buildInventoryReportSheet());
+    appendSheet(workbook, "固定資產", buildAssetReportSheet());
+    appendSheet(workbook, "待確認與風險", buildDecisionRiskSheet());
+    appendSheet(workbook, "原始流水帳", buildTransactionDetailSheet());
+    window.XLSX.writeFile(workbook, buildReportExportFileName(lastReportSummary.start, lastReportSummary.end));
+    showToast("經營決策報表已匯出。");
+  } catch (error) {
+    console.error("Report export failed", error);
+    showToast(`報表匯出失敗：${error.message || error}`);
+  }
 }
 
 function buildReportExportFileName(start, end) {
-  const startMonth = String(start || "").slice(0, 7).replace("-", "");
-  const endMonth = String(end || "").slice(0, 7).replace("-", "");
-  if (startMonth && startMonth === endMonth) return `隆博ERP_月報_${startMonth}.xlsx`;
-  if (startMonth && endMonth) return `隆博ERP_區間報表_${startMonth}-${endMonth}.xlsx`;
-  return "隆博ERP_區間報表.xlsx";
+  if (start && end) return `${start}_${end}_經營決策報表.xlsx`;
+  return "經營決策報表.xlsx";
 }
 
 function appendSheet(workbook, name, rows) {
@@ -9903,6 +9911,310 @@ function inferColumnWidths(rows) {
     );
     return { wch: width + 2 };
   });
+}
+
+function buildExecutiveDecisionSummarySheet(payrollRows = []) {
+  const payrollTotal = sumPayrollNetPay(payrollRows);
+  const cashflowSummary = getReportCashflowSummary();
+  const riskRows = buildReportIssues();
+  const topExpenses = buildCategorySummaryRows(lastReportRows.filter((record) => record.type === "expense"))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 8);
+
+  return [
+    ["經營決策報表"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    ["匯出時間", formatDateTime(new Date())],
+    ["幣別", "TWD"],
+    ["報表定位", "給老闆、股東與經營團隊使用；毛利與淨利為內部管理參考值。"],
+    [],
+    ["核心指標", "金額／數值", "說明"],
+    ["總收入", lastReportSummary.income, "區間內全部收入流水帳"],
+    ["銷售收入", lastReportSummary.salesIncome, "用於毛利分析的銷售收入"],
+    ["總支出", lastReportSummary.expense, "區間內全部支出流水帳"],
+    ["薪資成本", payrollTotal || getLedgerPayrollExpenseTotal(), payrollTotal ? "依薪資頁雲端或本機資料彙總" : "薪資頁資料未讀到，改用流水帳薪資支出估算"],
+    ["已售商品成本", lastReportSummary.productCost, "依收入配對庫存或匯入成本"],
+    ["金流／物流／平台成本", lastReportSummary.logisticsCost, "含銀行差額標記為銷貨成本者"],
+    ["包材成本", lastReportSummary.packagingCost, "依配對包材或匯入資料"],
+    ["營業費用", lastReportSummary.operatingExpense, "支出大類為營業費用"],
+    ["毛利參考值", lastReportSummary.grossProfit, "銷售收入減已售成本、金流物流成本、包材成本"],
+    ["毛利率參考值", formatPercent(lastReportSummary.grossMargin), "毛利參考值／銷售收入"],
+    ["淨利參考值", lastReportSummary.net, "毛利參考值減營業費用；未含折舊、所得稅與月底調整"],
+    ["淨利率參考值", formatPercent(lastReportSummary.netMargin), "淨利參考值／銷售收入"],
+    ["公司現金流入", cashflowSummary.cashIn, "依目前金流分類"],
+    ["公司現金流出", cashflowSummary.cashOut, "依目前金流分類"],
+    ["期末可用現金參考", cashflowSummary.endingCash, "依現金流設定與區間交易估算"],
+    ["待確認筆數", riskRows.length, "包含憑證、庫存、銀行配對等風險項目"],
+    [],
+    ["前八大支出類別", "金額", "筆數", "占總支出"],
+    ...topExpenses.map((row) => [
+      row.path,
+      row.amount,
+      row.count,
+      lastReportSummary.expense ? row.amount / lastReportSummary.expense : 0,
+    ]),
+    [],
+    ["管理提醒"],
+    ["1", "毛利、淨利為經營參考值，庫存成本未完整配對時會低估或高估。"],
+    ["2", "固定資產先列清冊，不先計算折舊。"],
+    ["3", "待確認與風險頁籤的項目會影響股東檢視與經營判斷。"],
+  ];
+}
+
+function buildDecisionIncomeSummarySheet() {
+  const incomeRecords = lastReportRows.filter((record) => record.type === "income");
+  return [
+    ["收入彙總"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    [],
+    ["收入總額", lastReportSummary.income],
+    ["收入筆數", incomeRecords.length],
+    [],
+    ["大類", "中類", "細項", "金流方式", "筆數", "金額", "占收入"],
+    ...buildCategorySummaryRows(incomeRecords, { includeCashflow: true }).map((row) => [
+      row.major,
+      row.middle,
+      row.minor,
+      row.cashflow,
+      row.count,
+      row.amount,
+      lastReportSummary.income ? row.amount / lastReportSummary.income : 0,
+    ]),
+  ];
+}
+
+function buildDecisionIncomeDetailSheet() {
+  const incomeRecords = lastReportRows.filter((record) => record.type === "income");
+  return [
+    ["收入明細"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    [],
+    ["日期", "交易對象", "摘要", "金額", "大類", "中類", "細項", "金流方式", "帳戶", "收款狀態", "預計收款日", "發票狀態", "發票號碼", "備註", "來源"],
+    ...incomeRecords.map((record) => [
+      record.date,
+      record.counterparty,
+      record.item,
+      Number(record.amount || 0),
+      record.major || "",
+      record.middle || "",
+      record.minor || "",
+      record.cashflow || "",
+      record.account || "",
+      record.settlementStatus || "",
+      record.dueDate || "",
+      record.invoiceStatus || (record.hasVoucher ? "有" : "無"),
+      record.invoiceNumber || "",
+      record.note || "",
+      formatRecordSource(record),
+    ]),
+  ];
+}
+
+function buildDecisionExpenseSummarySheet(payrollRows = []) {
+  const expenseRecords = lastReportRows.filter((record) => record.type === "expense");
+  const payrollTotal = sumPayrollNetPay(payrollRows);
+  return [
+    ["支出彙總"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    [],
+    ["支出總額", lastReportSummary.expense],
+    ["支出筆數", expenseRecords.length],
+    ["薪資成本參考", payrollTotal || getLedgerPayrollExpenseTotal(), payrollTotal ? "薪資頁資料" : "流水帳薪資支出估算"],
+    [],
+    ["大類", "中類", "細項", "付款方式", "筆數", "金額", "占支出"],
+    ...buildCategorySummaryRows(expenseRecords, { includeCashflow: true }).map((row) => [
+      row.major,
+      row.middle,
+      row.minor,
+      row.cashflow,
+      row.count,
+      row.amount,
+      lastReportSummary.expense ? row.amount / lastReportSummary.expense : 0,
+    ]),
+  ];
+}
+
+function buildDecisionExpenseDetailSheet() {
+  const expenseRecords = lastReportRows.filter((record) => record.type === "expense");
+  return [
+    ["支出明細"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    [],
+    ["日期", "交易對象", "摘要", "金額", "大類", "中類", "細項", "付款方式", "帳戶", "付款狀態", "預計付款日", "發票狀態", "發票號碼", "待確認原因", "備註", "來源"],
+    ...expenseRecords.map((record) => [
+      record.date,
+      record.counterparty,
+      record.item,
+      Number(record.amount || 0),
+      record.major || "",
+      record.middle || "",
+      record.minor || "",
+      record.cashflow || "",
+      record.account || "",
+      record.settlementStatus || "",
+      record.dueDate || "",
+      record.invoiceStatus || (record.hasVoucher ? "有" : "無"),
+      record.invoiceNumber || "",
+      record.pendingReason || "",
+      record.note || "",
+      formatRecordSource(record),
+    ]),
+  ];
+}
+
+function buildDecisionPayrollSheet(payrollRows = []) {
+  const rows = payrollRows.length ? payrollRows : [];
+  return [
+    ["薪資成本"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    ["資料來源", rows.length ? "薪資頁雲端／本機資料" : "未讀到薪資頁資料，請先用主帳號開啟薪資頁同步"],
+    [],
+    ["薪資月份", "員工編號", "姓名", "身分", "底薪", "職務加給", "伙食津貼", "月薪總額", "到職日", "在職天數", "事假", "病假", "其他加成", "其他扣款", "健保眷屬", "眷屬健保費", "實領薪資"],
+    ...rows.map((row) => [
+      row.month,
+      row.id,
+      row.name,
+      row.role,
+      Number(row.baseSalary || 0),
+      Number(row.dutyAllowance || 0),
+      Number(row.mealAllowance || 0),
+      getPayrollMonthlyTotal(row),
+      row.hireDate || "",
+      Number(row.employedDays || 0),
+      Number(row.personalLeaveDays || 0),
+      Number(row.sickLeaveDays || 0),
+      Number(row.otherAllowance || 0),
+      Number(row.otherDeduction || 0),
+      Number(row.billableDependentCount || 0),
+      Number(row.dependentHealthPersonal || 0),
+      getPayrollNetPay(row),
+    ]),
+    [],
+    ["薪資合計", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", sumPayrollNetPay(rows)],
+    ["公司負擔參考", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", rows.reduce((sum, row) => sum + getPayrollCompanyBurden(row), 0)],
+  ];
+}
+
+function buildDecisionRiskSheet() {
+  const issues = buildReportIssues();
+  const pendingAmount = issues.reduce((sum, issue) => sum + Number(issue.amount || 0), 0);
+  return [
+    ["待確認與風險"],
+    ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
+    [],
+    ["待確認筆數", issues.length],
+    ["待確認相關金額", pendingAmount],
+    [],
+    ["類型", "日期", "對象／來源", "摘要", "金額", "原因", "建議處理"],
+    ...issues.map((issue) => [
+      issue.type,
+      issue.date,
+      issue.party,
+      issue.summary,
+      issue.amount,
+      issue.reason,
+      issue.action,
+    ]),
+  ];
+}
+
+function buildCategorySummaryRows(records, options = {}) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const major = record.major || "未分類";
+    const middle = record.middle || "未分類";
+    const minor = record.minor || "未分類";
+    const cashflow = options.includeCashflow ? record.cashflow || "未填" : "";
+    const key = [major, middle, minor, cashflow].join("||");
+    const current = groups.get(key) || { major, middle, minor, cashflow, count: 0, amount: 0 };
+    current.count += 1;
+    current.amount += Number(record.amount || 0);
+    groups.set(key, current);
+  });
+  return Array.from(groups.values())
+    .map((row) => ({ ...row, path: [row.major, row.middle, row.minor].filter(Boolean).join(" / ") }))
+    .sort((a, b) => b.amount - a.amount || a.path.localeCompare(b.path, "zh-Hant"));
+}
+
+async function loadPayrollRowsForReport(start, end) {
+  const months = getMonthRange(start, end);
+  const cloudRows = [];
+  for (const month of months) {
+    const rows = await loadPayrollRowsForMonthFromCloud(month);
+    if (rows.length) cloudRows.push(...rows.map((row) => ({ ...row, month })));
+  }
+  if (cloudRows.length) return cloudRows;
+  return months.flatMap((month) => loadPayrollRowsForMonthFromLocal(month).map((row) => ({ ...row, month })));
+}
+
+async function loadPayrollRowsForMonthFromCloud(month) {
+  if (!isConfigured || !currentUser || !db || !firebaseApi.getDoc) return [];
+  try {
+    const reference = firebaseApi.doc(db, "systemSettings", `payrollRows_${month.replace("-", "_")}`);
+    const snapshot = await firebaseApi.getDoc(reference);
+    if (!snapshot.exists()) return [];
+    const rows = snapshot.data()?.rows;
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadPayrollRowsForMonthFromLocal(month) {
+  try {
+    const rows = JSON.parse(localStorage.getItem(`longbroPayrollRows:${month}`) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function getMonthRange(start, end) {
+  if (!start || !end) return [];
+  const months = [];
+  const cursor = new Date(`${start.slice(0, 7)}-01T00:00:00`);
+  const last = new Date(`${end.slice(0, 7)}-01T00:00:00`);
+  while (cursor <= last) {
+    const year = cursor.getFullYear();
+    const month = String(cursor.getMonth() + 1).padStart(2, "0");
+    months.push(`${year}-${month}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}
+
+function sumPayrollNetPay(rows = []) {
+  return rows.reduce((sum, row) => sum + getPayrollNetPay(row), 0);
+}
+
+function getPayrollMonthlyTotal(row) {
+  return Number(row.monthlySalaryTotal || 0) || Number(row.baseSalary || 0) + Number(row.dutyAllowance || 0) + Number(row.mealAllowance || 0);
+}
+
+function getPayrollNetPay(row) {
+  return Number(row.netPay || 0) || Math.max(0, getPayrollMonthlyTotal(row) + Number(row.otherAllowance || 0) - Number(row.otherDeduction || 0));
+}
+
+function getPayrollCompanyBurden(row) {
+  return Number(row.companyBurdenTotal || 0) || Number(row.companyLabor || 0) + Number(row.companyHealth || 0);
+}
+
+function getLedgerPayrollExpenseTotal() {
+  return lastReportRows
+    .filter((record) => record.type === "expense")
+    .filter((record) => /薪資|本薪|員工福利|勞健保/.test([record.major, record.middle, record.minor, record.item].join(" ")))
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+}
+
+function formatRecordSource(record) {
+  return record.importSource ? `${record.importSource}｜第 ${record.sourceRow || ""} 列` : "網頁輸入";
+}
+
+function formatDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function buildTransactionDetailSheet() {
