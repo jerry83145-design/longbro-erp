@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-payroll-cloud-sync";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-payroll-master-cloud-sync";
 
 const defaultOptionsByType = {
   expense: {

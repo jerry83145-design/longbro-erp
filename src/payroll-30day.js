@@ -336,6 +336,10 @@ function readEmployeeMasterInputs() {
 
 function saveEmployeeMasterRows(rows) {
   localStorage.setItem("longbroEmployeeMasterRows", JSON.stringify(rows));
+  saveEmployeeMasterRowsToCloud(rows).catch((error) => {
+    console.warn("Payroll employee master cloud save failed", error);
+    showPayrollToast("員工主檔已先存本機，雲端同步稍後再試。");
+  });
 }
 
 async function syncPayrollEmployeeMasterFromGoogle() {
@@ -510,35 +514,48 @@ async function refreshPayrollRowsFromCloud() {
   if (!payrollInitialized || !canUsePayrollCloud()) return;
   const token = ++payrollCloudLoadToken;
   const month = getPayrollMonth();
-  const rows = await loadPayrollRowsFromCloud(month).catch((error) => {
+  if (canWritePayrollCloud()) {
+    await savePayrollDataToCloud(month, getCalculatedRows(), getEmployeeMasterRows()).catch((error) => {
+      console.warn("Payroll owner cloud refresh failed", error);
+    });
+    return;
+  }
+  const cloudData = await loadPayrollDataFromCloud(month).catch((error) => {
     console.warn("Payroll cloud load failed", error);
     if (payrollCloudContext?.isReadOnlyUser) showPayrollToast("薪資雲端資料讀取失敗，請重新整理後再試。");
     return null;
   });
-  if (token === payrollCloudLoadToken && !rows?.length && canWritePayrollCloud() && payrollRows.length) {
-    await savePayrollRowsToCloud(month, getCalculatedRows()).catch((error) => {
-      console.warn("Payroll initial cloud seed failed", error);
-    });
-    return;
-  }
+  const rows = Array.isArray(cloudData?.rows) ? cloudData.rows : null;
+  const masterRows = Array.isArray(cloudData?.employeeMasterRows) ? cloudData.employeeMasterRows : null;
   if (token !== payrollCloudLoadToken || !rows?.length || month !== getPayrollMonth()) return;
 
+  if (masterRows?.length) {
+    employeeMasterRows = normalizeEmployeeMasterRows(masterRows);
+    saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
+  }
   payrollRows = rows.map(mergePayrollEmployee).map(calculatePayrollRow);
   savePayrollRowsLocalOnly(month, payrollRows);
   selectedPayrollId = payrollRows.find((row) => row.id === selectedPayrollId)?.id || payrollRows[0]?.id || "";
   renderPayroll();
 }
 
-async function loadPayrollRowsFromCloud(month) {
+async function loadPayrollDataFromCloud(month) {
   const { firebaseApi, db } = payrollCloudContext || {};
   const reference = firebaseApi.doc(db, "systemSettings", getPayrollCloudDocId(month));
   const snapshot = await firebaseApi.getDoc(reference);
   if (!snapshot.exists()) return null;
-  const rows = snapshot.data()?.rows;
-  return Array.isArray(rows) ? rows : null;
+  return snapshot.data() || null;
 }
 
 async function savePayrollRowsToCloud(month, rows) {
+  return savePayrollDataToCloud(month, rows, getEmployeeMasterRows());
+}
+
+async function saveEmployeeMasterRowsToCloud(rows) {
+  return savePayrollDataToCloud(getPayrollMonth(), getCalculatedRows(), rows);
+}
+
+async function savePayrollDataToCloud(month, rows, masterRows) {
   if (!canWritePayrollCloud()) return;
   const { firebaseApi, db, currentUser } = payrollCloudContext;
   const reference = firebaseApi.doc(db, "systemSettings", getPayrollCloudDocId(month));
@@ -547,6 +564,7 @@ async function savePayrollRowsToCloud(month, rows) {
     {
       month,
       rows: rows.map(cleanPayrollRowForStorage),
+      employeeMasterRows: normalizeEmployeeMasterRows(masterRows),
       updatedAt: firebaseApi.serverTimestamp(),
       updatedBy: currentUser.email,
       userId: currentUser.uid,
@@ -557,6 +575,22 @@ async function savePayrollRowsToCloud(month, rows) {
 
 function savePayrollRowsLocalOnly(month, rows) {
   localStorage.setItem(getPayrollStorageKey(month), JSON.stringify(rows));
+}
+
+function saveEmployeeMasterRowsLocalOnly(rows) {
+  localStorage.setItem("longbroEmployeeMasterRows", JSON.stringify(rows));
+}
+
+function normalizeEmployeeMasterRows(rows) {
+  return payrollEmployees.map((employee) => {
+    const row = Array.isArray(rows) ? rows.find((item) => item.id === employee.id) : null;
+    return {
+      id: employee.id,
+      name: row?.name || employee.name,
+      healthDependentCount: Math.max(0, Number(row?.healthDependentCount || 0)),
+      healthDependentStartDate: normalizeDateInput(row?.healthDependentStartDate || ""),
+    };
+  });
 }
 
 function cleanPayrollRowForStorage(row) {
