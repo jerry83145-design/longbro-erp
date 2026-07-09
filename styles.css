@@ -250,25 +250,43 @@ body {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--field);
-  padding: 0 8px;
+  padding: 0 7px;
   font-size: 14px;
+}
+
+.payroll-table input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.payroll-table input[type="number"]::-webkit-outer-spin-button,
+.payroll-table input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
 }
 
 .payroll-table input[type="date"] {
   width: 132px;
 }
 
-.payroll-table input[data-payroll-field="baseSalary"],
+.payroll-table input[data-payroll-field="baseSalary"] {
+  width: 7.5ch;
+}
+
 .payroll-table input[data-payroll-field="dutyAllowance"],
-.payroll-table input[data-payroll-field="mealAllowance"],
 .payroll-table input[data-payroll-field="otherAllowance"],
 .payroll-table input[data-payroll-field="otherDeduction"] {
-  width: 82px;
+  width: 6.5ch;
+}
+
+.payroll-table input[data-payroll-field="mealAllowance"],
+.payroll-table input[data-employee-master-field="healthDependentCount"] {
+  width: 5.5ch;
 }
 
 .payroll-table input[data-payroll-field="personalLeaveDays"],
 .payroll-table input[data-payroll-field="sickLeaveDays"] {
-  width: 46px;
+  width: 4.5ch;
 }
 
 .compact-button {
@@ -333,6 +351,18 @@ body {
   border-radius: 8px;
   background: var(--field);
   padding: 0 10px;
+}
+
+.payroll-master-table input[type="number"] {
+  width: 4.5ch;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.payroll-master-table input[type="number"]::-webkit-outer-spin-button,
+.payroll-master-table input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
 }
 
 .payslip-card {
