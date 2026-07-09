@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage } from "./payroll-30day.js?v=20260709-payroll-6digit";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-payroll-cloud-sync";
 
 const defaultOptionsByType = {
   expense: {
@@ -1408,6 +1408,7 @@ async function handleAuthState(user) {
   isReadOnlyUser = false;
 
   if (!user) {
+    setPayrollCloudContext(null);
     authStatus.textContent = "尚未登入";
     sidebarStatusTitle.textContent = "前端預覽模式";
     sidebarStatusDetail.textContent = "登入後會同步 Firebase 雲端資料";
@@ -1441,6 +1442,7 @@ async function handleAuthState(user) {
   }
 
   await loadSharedOptions();
+  setPayrollCloudContext({ firebaseApi, db, currentUser, isReadOnlyUser });
   loadRecords();
   window.setTimeout(loadSecondaryData, 800);
   window.setTimeout(applyReadOnlyMode, 1200);

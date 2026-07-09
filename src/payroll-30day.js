@@ -23,6 +23,8 @@ let payrollRows = [];
 let selectedPayrollId = "";
 let payrollInitialized = false;
 let employeeMasterRows = [];
+let payrollCloudContext = null;
+let payrollCloudLoadToken = 0;
 const payrollReadOnlyMessage = "此帳號僅可查閱與匯出，不能新增、刪除、修改、匯入或同步資料。";
 
 function isPayrollReadOnly() {
@@ -50,6 +52,13 @@ export function initPayrollPage() {
   }
 
   renderPayroll();
+  refreshPayrollRowsFromCloud();
+}
+
+export function setPayrollCloudContext(context) {
+  payrollCloudContext = context;
+  window.longbroReadOnlyMode = Boolean(context?.isReadOnlyUser);
+  refreshPayrollRowsFromCloud();
 }
 
 function bindPayrollEvents() {
@@ -63,6 +72,7 @@ function bindPayrollEvents() {
     payrollRows = loadPayrollRows(monthInput.value);
     selectedPayrollId = payrollRows[0]?.id || "";
     renderPayroll();
+    refreshPayrollRowsFromCloud();
   });
 
   document.querySelector("#payrollCalculateButton")?.addEventListener("click", () => {
@@ -478,6 +488,94 @@ function mergePayrollEmployee(saved) {
 
 function savePayrollRows(month, rows) {
   localStorage.setItem(getPayrollStorageKey(month), JSON.stringify(rows));
+  savePayrollRowsToCloud(month, rows).catch((error) => {
+    console.warn("Payroll cloud save failed", error);
+    showPayrollToast("薪資已先存本機，雲端同步稍後再試。");
+  });
+}
+
+function canUsePayrollCloud() {
+  return Boolean(payrollCloudContext?.firebaseApi && payrollCloudContext?.db && payrollCloudContext?.currentUser);
+}
+
+function canWritePayrollCloud() {
+  return canUsePayrollCloud() && !payrollCloudContext.isReadOnlyUser;
+}
+
+function getPayrollCloudDocId(month) {
+  return `payrollRows_${String(month || getCurrentMonth()).replace("-", "_")}`;
+}
+
+async function refreshPayrollRowsFromCloud() {
+  if (!payrollInitialized || !canUsePayrollCloud()) return;
+  const token = ++payrollCloudLoadToken;
+  const month = getPayrollMonth();
+  const rows = await loadPayrollRowsFromCloud(month).catch((error) => {
+    console.warn("Payroll cloud load failed", error);
+    if (payrollCloudContext?.isReadOnlyUser) showPayrollToast("薪資雲端資料讀取失敗，請重新整理後再試。");
+    return null;
+  });
+  if (token === payrollCloudLoadToken && !rows?.length && canWritePayrollCloud() && payrollRows.length) {
+    await savePayrollRowsToCloud(month, getCalculatedRows()).catch((error) => {
+      console.warn("Payroll initial cloud seed failed", error);
+    });
+    return;
+  }
+  if (token !== payrollCloudLoadToken || !rows?.length || month !== getPayrollMonth()) return;
+
+  payrollRows = rows.map(mergePayrollEmployee).map(calculatePayrollRow);
+  savePayrollRowsLocalOnly(month, payrollRows);
+  selectedPayrollId = payrollRows.find((row) => row.id === selectedPayrollId)?.id || payrollRows[0]?.id || "";
+  renderPayroll();
+}
+
+async function loadPayrollRowsFromCloud(month) {
+  const { firebaseApi, db } = payrollCloudContext || {};
+  const reference = firebaseApi.doc(db, "systemSettings", getPayrollCloudDocId(month));
+  const snapshot = await firebaseApi.getDoc(reference);
+  if (!snapshot.exists()) return null;
+  const rows = snapshot.data()?.rows;
+  return Array.isArray(rows) ? rows : null;
+}
+
+async function savePayrollRowsToCloud(month, rows) {
+  if (!canWritePayrollCloud()) return;
+  const { firebaseApi, db, currentUser } = payrollCloudContext;
+  const reference = firebaseApi.doc(db, "systemSettings", getPayrollCloudDocId(month));
+  await firebaseApi.setDoc(
+    reference,
+    {
+      month,
+      rows: rows.map(cleanPayrollRowForStorage),
+      updatedAt: firebaseApi.serverTimestamp(),
+      updatedBy: currentUser.email,
+      userId: currentUser.uid,
+    },
+    { merge: true },
+  );
+}
+
+function savePayrollRowsLocalOnly(month, rows) {
+  localStorage.setItem(getPayrollStorageKey(month), JSON.stringify(rows));
+}
+
+function cleanPayrollRowForStorage(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    department: row.department,
+    baseSalary: Number(row.baseSalary || 0),
+    dutyAllowance: Number(row.dutyAllowance || 0),
+    mealAllowance: fixedMealAllowance,
+    hireDate: row.hireDate || "",
+    laborInsuredSalary: Number(row.laborInsuredSalary || 0),
+    healthInsuredSalary: Number(row.healthInsuredSalary || 0),
+    personalLeaveDays: Number(row.personalLeaveDays || 0),
+    sickLeaveDays: Number(row.sickLeaveDays || 0),
+    otherAllowance: Number(row.otherAllowance || 0),
+    otherDeduction: Number(row.otherDeduction || 0),
+  };
 }
 
 function getCalculatedRows() {
