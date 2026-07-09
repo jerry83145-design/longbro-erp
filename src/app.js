@@ -1,6 +1,6 @@
-import { allowedEmails, firebaseConfig } from "./firebase-config.js";
+import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage } from "./payroll-30day.js?v=20260708-dependent-master";
+import { initPayrollPage } from "./payroll-30day.js?v=20260709-readonly-management";
 
 const defaultOptionsByType = {
   expense: {
@@ -179,8 +179,10 @@ const expenseSummaryLabel = document.querySelector("#expenseSummaryLabel");
 const incomeSummaryLabel = document.querySelector("#incomeSummaryLabel");
 const countSummaryLabel = document.querySelector("#countSummaryLabel");
 const pendingSummaryLabel = document.querySelector("#pendingSummaryLabel");
-const summaryMonthInput = document.querySelector("#summaryMonthInput");
+const summaryStartMonthInput = document.querySelector("#summaryStartMonthInput");
+const summaryEndMonthInput = document.querySelector("#summaryEndMonthInput");
 const summaryMonthCurrentButton = document.querySelector("#summaryMonthCurrentButton");
+if (summaryMonthCurrentButton) summaryMonthCurrentButton.textContent = "本月";
 const importLedgerButton = document.querySelector("#importLedgerButton");
 const importLedgerInput = document.querySelector("#importLedgerInput");
 const ledgerImportPreview = document.querySelector("#ledgerImportPreview");
@@ -309,7 +311,8 @@ let currentVoucherOcrRecordId = "";
 let activeVoucherMatchId = "";
 let activeVoucherEditId = "";
 let voucherInboxStatusFilter = "open";
-let selectedSummaryMonth = "";
+let selectedSummaryStartMonth = "";
+let selectedSummaryEndMonth = "";
 let duplicateImportDecisionResolver = null;
 let editingRecordId = null;
 let editingInventoryId = null;
@@ -319,6 +322,64 @@ let shareholderAdvanceCleanupPlan = [];
 let secondaryDataLoadPromise = null;
 let pendingLedgerImportPreview = null;
 let pendingBankImportPreview = null;
+let isReadOnlyUser = false;
+
+const readOnlyWritableBlockMessage = "此帳號僅可查閱與匯出，不能新增、刪除、修改、匯入或同步資料。";
+const readOnlyAllowedControlIds = new Set([
+  "signInButton",
+  "signOutButton",
+  "summaryStartMonthInput",
+  "summaryEndMonthInput",
+  "summaryMonthCurrentButton",
+  "reportStartInput",
+  "reportEndInput",
+  "generateReportButton",
+  "exportReportButton",
+  "cashflowStartInput",
+  "cashflowEndInput",
+  "generateCashflowButton",
+  "payrollMonthInput",
+  "payrollPrintSelectedButton",
+  "payrollPrintAllButton",
+  "openAssetSheetButton",
+  "exportBackupButton",
+  "runSystemCheckButton",
+  "refreshRecordsButton",
+  "refreshRecycleBinButton",
+  "refreshAuditLogButton",
+]);
+const readOnlyBlockedIdPattern = /(topAction|save|clear|import|sync|apply|restore|delete|reset|toggle|ocr|calculate|reconcile|previewShareholderAdvanceCleanup)/i;
+const readOnlyBlockedDataAttributes = [
+  "addOption",
+  "recordAction",
+  "bankAction",
+  "bankImportAction",
+  "ledgerImportAction",
+  "inventoryAction",
+  "assetAction",
+  "settlementAction",
+  "lineDraftAction",
+  "voucherEdit",
+  "voucherSaveEdit",
+  "voucherRemoveMatch",
+  "voucherApplyMatch",
+  "voucherMatch",
+  "voucherScan",
+  "applyInvoiceNumber",
+  "duplicateImportAction",
+  "restorePlan",
+  "confirmRestore",
+  "recycleRestore",
+];
+const readOnlyAllowedInputIds = new Set([
+  "summaryStartMonthInput",
+  "summaryEndMonthInput",
+  "reportStartInput",
+  "reportEndInput",
+  "cashflowStartInput",
+  "cashflowEndInput",
+  "payrollMonthInput",
+]);
 
 const recycleCollections = [
   { name: "ledgerRecords", label: "流水帳" },
@@ -417,12 +478,18 @@ restoreOrder(".sidebar-nav", ".nav-item", "sidebarNavOrder", getNavKey);
 restoreOrder(".summary-grid", ".summary-card", "summaryCardOrder", (item) => item.dataset.cardId);
 enableDragSort(".sidebar-nav", ".nav-item", ".drag-handle", "sidebarNavOrder", getNavKey);
 enableDragSort(".summary-grid", ".summary-card", ".card-drag-handle", "summaryCardOrder", (item) => item.dataset.cardId);
-summaryMonthInput?.addEventListener("change", () => {
-  selectedSummaryMonth = normalizeSummaryMonth(summaryMonthInput.value);
+summaryStartMonthInput?.addEventListener("change", () => {
+  selectedSummaryStartMonth = normalizeSummaryMonth(summaryStartMonthInput.value);
+  updateSummary(recordsCache);
+});
+summaryEndMonthInput?.addEventListener("change", () => {
+  selectedSummaryEndMonth = normalizeSummaryMonth(summaryEndMonthInput.value);
   updateSummary(recordsCache);
 });
 summaryMonthCurrentButton?.addEventListener("click", () => {
-  selectedSummaryMonth = getCurrentSummaryMonth();
+  const currentMonth = getCurrentSummaryMonth();
+  selectedSummaryStartMonth = currentMonth;
+  selectedSummaryEndMonth = currentMonth;
   updateSummary(recordsCache);
 });
 updatePageMeta("overview");
@@ -471,6 +538,7 @@ async function initializeFirebase() {
     ...firestoreModule,
     ...storageModule,
   };
+  protectFirebaseWrites();
 
   app = appModule.initializeApp(firebaseConfig);
   auth = authModule.getAuth(app);
@@ -478,6 +546,131 @@ async function initializeFirebase() {
   storage = storageModule.getStorage(app);
   authModule.onAuthStateChanged(auth, handleAuthState);
 }
+
+function protectFirebaseWrites() {
+  ["addDoc", "setDoc", "updateDoc", "deleteDoc", "writeBatch", "uploadBytes", "uploadBytesResumable"].forEach((method) => {
+    if (typeof firebaseApi[method] !== "function") return;
+    const original = firebaseApi[method];
+    firebaseApi[method] = (...args) => {
+      assertCanWrite();
+      return original(...args);
+    };
+  });
+}
+
+function canWrite() {
+  return !isReadOnlyUser;
+}
+
+function assertCanWrite() {
+  if (canWrite()) return true;
+  showToast(readOnlyWritableBlockMessage);
+  throw new Error("READ_ONLY_ACCOUNT");
+}
+
+function isReadonlyEmail(email) {
+  return readonlyEmails.includes(String(email || "").toLowerCase());
+}
+
+function isReadOnlyBlockedControl(element) {
+  if (!isReadOnlyUser || !element) return false;
+  if (element.id && readOnlyAllowedControlIds.has(element.id)) return false;
+  if (element.closest?.(".sidebar-nav")) return false;
+  if (element.classList?.contains("segment")) return false;
+  if (element.dataset?.pendingTarget || element.dataset?.voucherFilter) return false;
+  if (element.id && readOnlyBlockedIdPattern.test(element.id)) return true;
+  return readOnlyBlockedDataAttributes.some((name) => Object.prototype.hasOwnProperty.call(element.dataset || {}, name));
+}
+
+function isReadOnlyBlockedInput(element) {
+  if (!isReadOnlyUser || !element?.matches?.("input, select, textarea")) return false;
+  if (readOnlyAllowedInputIds.has(element.id)) return false;
+  if (element.type === "hidden") return false;
+  if (element.closest?.(".match-dialog-overlay[hidden]")) return false;
+  return true;
+}
+
+function handleReadOnlyClick(event) {
+  const control = event.target.closest?.("button, input[type='button'], input[type='submit'], label, a");
+  if (!control || !isReadOnlyBlockedControl(control)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  showToast(readOnlyWritableBlockMessage);
+}
+
+function handleReadOnlyChange(event) {
+  if (!isReadOnlyBlockedInput(event.target)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  event.target.blur?.();
+  showToast(readOnlyWritableBlockMessage);
+}
+
+function handleReadOnlySubmit(event) {
+  if (!isReadOnlyUser) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  showToast(readOnlyWritableBlockMessage);
+}
+
+function applyReadOnlyMode() {
+  document.body.classList.toggle("readonly-mode", isReadOnlyUser);
+  window.longbroReadOnlyMode = isReadOnlyUser;
+
+  if (!isReadOnlyUser) {
+    document.querySelectorAll("[data-readonly-disabled='true']").forEach((control) => {
+      control.disabled = false;
+      delete control.dataset.readonlyDisabled;
+      control.classList.remove("readonly-disabled");
+      control.removeAttribute("title");
+    });
+    document.querySelectorAll(".drag-handle, .card-drag-handle").forEach((handle) => {
+      handle.draggable = true;
+      handle.classList.remove("readonly-disabled");
+    });
+    return;
+  }
+
+  document.querySelectorAll("input, select, textarea").forEach((input) => {
+    if (input.type === "hidden") return;
+    const blocked = isReadOnlyBlockedInput(input);
+    if (!blocked) return;
+    input.disabled = true;
+    input.dataset.readonlyDisabled = "true";
+    input.classList.add("readonly-disabled");
+    input.title = readOnlyWritableBlockMessage;
+  });
+
+  document.querySelectorAll("button").forEach((button) => {
+    const blocked = isReadOnlyBlockedControl(button);
+    if (!blocked) return;
+    button.disabled = true;
+    button.dataset.readonlyDisabled = "true";
+    button.classList.add("readonly-disabled");
+    button.title = readOnlyWritableBlockMessage;
+  });
+
+  document.querySelectorAll(".drag-handle, .card-drag-handle").forEach((handle) => {
+    handle.draggable = !isReadOnlyUser;
+    handle.classList.toggle("readonly-disabled", isReadOnlyUser);
+  });
+}
+
+let readOnlyApplyScheduled = false;
+const readOnlyObserver = new MutationObserver(() => {
+  if (!isReadOnlyUser || readOnlyApplyScheduled) return;
+  readOnlyApplyScheduled = true;
+  window.requestAnimationFrame(() => {
+    readOnlyApplyScheduled = false;
+    applyReadOnlyMode();
+  });
+});
+
+document.addEventListener("click", handleReadOnlyClick, true);
+document.addEventListener("change", handleReadOnlyChange, true);
+document.addEventListener("input", handleReadOnlyChange, true);
+document.addEventListener("submit", handleReadOnlySubmit, true);
+readOnlyObserver.observe(document.body, { childList: true, subtree: true });
 
 signInButton.addEventListener("click", async () => {
   if (!isConfigured) {
@@ -1148,6 +1341,7 @@ ledgerForm.addEventListener("submit", async (event) => {
 async function handleAuthState(user) {
   currentUser = user;
   secondaryDataLoadPromise = null;
+  isReadOnlyUser = false;
 
   if (!user) {
     authStatus.textContent = "尚未登入";
@@ -1156,10 +1350,12 @@ async function handleAuthState(user) {
     signInButton.hidden = false;
     signOutButton.hidden = true;
     saveButton.disabled = true;
+    applyReadOnlyMode();
     return;
   }
 
   const allowed = allowedEmails.includes(user.email);
+  isReadOnlyUser = allowed && isReadonlyEmail(user.email);
   authStatus.textContent = allowed ? user.email : `${user.email} 未授權`;
   sidebarStatusTitle.textContent = allowed ? "雲端同步模式" : "登入未授權";
   sidebarStatusDetail.textContent = allowed
@@ -1167,7 +1363,13 @@ async function handleAuthState(user) {
     : "此帳號目前無法讀寫雲端資料";
   signInButton.hidden = true;
   signOutButton.hidden = false;
-  saveButton.disabled = !allowed;
+  saveButton.disabled = !allowed || isReadOnlyUser;
+  if (isReadOnlyUser) {
+    authStatus.textContent = `${user.email}（只讀）`;
+    sidebarStatusTitle.textContent = "只讀查閱模式";
+    sidebarStatusDetail.textContent = "可查閱、調整日期與匯出；不可新增、刪除、修改、匯入或同步。";
+  }
+  applyReadOnlyMode();
 
   if (!allowed) {
     showToast("此 Gmail 尚未列入允許清單。");
@@ -1177,6 +1379,7 @@ async function handleAuthState(user) {
   await loadSharedOptions();
   loadRecords();
   window.setTimeout(loadSecondaryData, 800);
+  window.setTimeout(applyReadOnlyMode, 1200);
 }
 
 function loadSecondaryData() {
@@ -10610,16 +10813,21 @@ function renderInventoryMatchOption(lot) {
 }
 
 function updateSummary(records) {
-  const summaryMonth = selectedSummaryMonth || pickSummaryMonth(records);
-  const monthRecords = summaryMonth ? records.filter((record) => record.month === summaryMonth) : [];
+  const range = resolveSummaryMonthRange(records);
+  const monthRecords = range.start && range.end
+    ? records.filter((record) => record.month >= range.start && record.month <= range.end)
+    : [];
   const adjustedMonthRecords = applyLedgerAdjustments(monthRecords, buildLedgerAdjustmentSummary(monthRecords));
   const expense = sumByType(adjustedMonthRecords, "expense");
   const income = sumByType(adjustedMonthRecords, "income");
   const pending = monthRecords.filter(hasReportablePendingReason).length;
-  const label = formatSummaryMonthLabel(summaryMonth);
+  const label = formatSummaryMonthRangeLabel(range.start, range.end);
 
-  if (summaryMonthInput) {
-    summaryMonthInput.value = formatSummaryMonthInput(summaryMonth);
+  if (summaryStartMonthInput) {
+    summaryStartMonthInput.value = formatSummaryMonthInput(range.start);
+  }
+  if (summaryEndMonthInput) {
+    summaryEndMonthInput.value = formatSummaryMonthInput(range.end);
   }
 
   expenseSummaryLabel.textContent = `${label}支出`;
@@ -10642,6 +10850,29 @@ function formatSummaryMonthInput(month) {
   return compact ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}` : "";
 }
 
+function resolveSummaryMonthRange(records) {
+  let start = selectedSummaryStartMonth;
+  let end = selectedSummaryEndMonth;
+  const fallback = pickSummaryMonth(records);
+
+  if (!start && !end) {
+    start = fallback;
+    end = fallback;
+  } else if (start && !end) {
+    end = start;
+  } else if (!start && end) {
+    start = end;
+  }
+
+  if (start && end && start > end) {
+    [start, end] = [end, start];
+  }
+
+  selectedSummaryStartMonth = start || "";
+  selectedSummaryEndMonth = end || "";
+  return { start: selectedSummaryStartMonth, end: selectedSummaryEndMonth };
+}
+
 function formatSummaryMonthLabel(month) {
   const compact = normalizeSummaryMonth(month);
   return compact ? `${compact.slice(0, 4)}/${compact.slice(4, 6)}` : "本月";
@@ -10649,6 +10880,12 @@ function formatSummaryMonthLabel(month) {
 
 function getCurrentSummaryMonth() {
   return toDateValue(new Date()).slice(0, 7).replace("-", "");
+}
+
+function formatSummaryMonthRangeLabel(start, end) {
+  const startLabel = formatSummaryMonthLabel(start);
+  const endLabel = formatSummaryMonthLabel(end);
+  return start && end && start !== end ? `${startLabel}-${endLabel}` : startLabel;
 }
 
 function pickSummaryMonth(records) {

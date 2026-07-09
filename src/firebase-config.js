@@ -7,4 +7,5 @@ export const firebaseConfig = {
   appId: "1:49459598812:web:527a265c4f027c7a0cab19",
 };
 
-export const allowedEmails = ["jerry83145@gmail.com"];
+export const allowedEmails = ["jerry83145@gmail.com", "management@parahoodtw.com"];
+export const readonlyEmails = ["management@parahoodtw.com"];

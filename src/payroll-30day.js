@@ -22,6 +22,17 @@ let payrollRows = [];
 let selectedPayrollId = "";
 let payrollInitialized = false;
 let employeeMasterRows = [];
+const payrollReadOnlyMessage = "此帳號僅可查閱與匯出，不能新增、刪除、修改、匯入或同步資料。";
+
+function isPayrollReadOnly() {
+  return Boolean(window.longbroReadOnlyMode);
+}
+
+function blockPayrollReadOnly() {
+  if (!isPayrollReadOnly()) return false;
+  showPayrollToast(payrollReadOnlyMessage);
+  return true;
+}
 
 export function initPayrollPage() {
   const monthInput = document.querySelector("#payrollMonthInput");
@@ -54,6 +65,7 @@ function bindPayrollEvents() {
   });
 
   document.querySelector("#payrollCalculateButton")?.addEventListener("click", () => {
+    if (blockPayrollReadOnly()) return;
     payrollRows = readPayrollInputs().map(calculatePayrollRow);
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayroll();
@@ -71,6 +83,7 @@ function bindPayrollEvents() {
 
   table?.addEventListener("input", (event) => {
     if (!event.target.matches("[data-payroll-field]")) return;
+    if (blockPayrollReadOnly()) return;
     payrollRows = readPayrollInputs().map(calculatePayrollRow);
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayrollSummary();
@@ -86,6 +99,7 @@ function bindPayrollEvents() {
 
   masterTable?.addEventListener("input", (event) => {
     if (!event.target.matches("[data-employee-master-field]")) return;
+    if (blockPayrollReadOnly()) return;
     employeeMasterRows = readEmployeeMasterInputs();
     saveEmployeeMasterRows(employeeMasterRows);
     payrollRows = getCalculatedRows();
@@ -313,6 +327,7 @@ function saveEmployeeMasterRows(rows) {
 }
 
 async function syncPayrollEmployeeMasterFromGoogle() {
+  if (blockPayrollReadOnly()) return;
   const button = document.querySelector("#syncPayrollEmployeeMasterButton");
   const originalText = button?.textContent || "從 Google 讀取";
   if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
@@ -362,6 +377,7 @@ async function syncPayrollEmployeeMasterFromGoogle() {
 }
 
 async function savePayrollEmployeeMasterToGoogle() {
+  if (blockPayrollReadOnly()) return;
   const button = document.querySelector("#savePayrollEmployeeMasterButton");
   const originalText = button?.textContent || "儲存到 Google";
   if (!lineEndpointConfig.endpointUrl || !lineEndpointConfig.sharedSecret) {
