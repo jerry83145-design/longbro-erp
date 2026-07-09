@@ -23,6 +23,49 @@ const defaultOptionsByType = {
   },
 };
 
+const defaultExpenseAccountTree = {
+  進貨成本: {
+    貨品: ["盒卡", "單卡", "套組", "待確認", "自訂"],
+    包材: ["卡套", "磁吸磚", "紙箱", "耗材", "待確認", "自訂"],
+    運費: ["國內運費", "海外運費", "待確認", "自訂"],
+    稅捐規費: ["關稅", "進口稅費", "待確認", "自訂"],
+  },
+  行銷與業務: {
+    廣告: ["Logo", "活動與贈品", "平台推廣", "廣告素材", "待確認", "自訂"],
+    顧問費: ["顧問費", "待會計師確認", "自訂"],
+    手續費: ["平台費", "金流手續費", "待確認", "自訂"],
+  },
+  辦公設備: {
+    設備: ["直播設備", "資訊設備", "攝影設備", "辦公設備", "待確認", "自訂"],
+    資訊軟體費: ["網路費", "訂閱服務", "軟體授權", "平台費", "待確認", "自訂"],
+    文具費: ["文具", "耗材", "待確認", "自訂"],
+  },
+  營業費用: {
+    薪資支出: ["本薪", "伙食津貼", "員工福利", "勞健保", "待確認", "自訂"],
+    雜費: ["郵務費", "員工福利", "其他雜費", "待確認", "自訂"],
+    運費: ["國內運費", "海外運費", "待確認", "自訂"],
+    訂閱服務: ["平台費", "軟體訂閱", "待確認", "自訂"],
+  },
+  稅捐規費: {
+    規費: ["規費", "營業稅", "稅捐", "待確認", "自訂"],
+    手續費: ["銀行手續費", "平台費", "待確認", "自訂"],
+  },
+  "固定資產-待確認": {
+    設備: ["直播設備", "資訊設備", "攝影設備", "辦公設備", "待確認", "自訂"],
+    待確認: ["待確認", "自訂"],
+  },
+  其他費用: {
+    雜費: ["其他雜費", "待確認", "自訂"],
+    待確認: ["待確認", "自訂"],
+  },
+  待確認: {
+    待確認: ["待確認", "自訂"],
+  },
+  自訂: {
+    自訂: ["自訂"],
+  },
+};
+
 const optionLabels = {
   counterparties: "交易對象",
   cashflows: "金流方式",
@@ -1113,6 +1156,14 @@ fields.note.addEventListener("input", () => {
 });
 
 fields.inventorySync.addEventListener("change", renderLedgerInventorySync);
+fields.major.addEventListener("change", () => {
+  if (recordType === "expense") renderExpenseDependentOptions({ preserveMiddle: false, preserveMinor: false });
+  renderLedgerInventorySync();
+});
+fields.middle.addEventListener("change", () => {
+  if (recordType === "expense") renderExpenseDependentOptions({ preserveMiddle: true, preserveMinor: false });
+  renderLedgerInventorySync();
+});
 fields.minor.addEventListener("change", renderLedgerInventorySync);
 
 voucherInput.addEventListener("change", () => {
@@ -1466,20 +1517,103 @@ function saveInventorySettings() {
 
 function renderAllOptions() {
   const options = optionsByType[recordType];
+  const currentMajor = fields.major.value;
+  const currentMiddle = fields.middle.value;
+  const currentMinor = fields.minor.value;
   fillDatalist("counterpartyOptions", options.counterparties);
   fillSelect(fields.cashflow, options.cashflows);
   fillSelect(fields.account, options.accounts);
-  fillSelect(fields.major, options.majors);
-  fillSelect(fields.middle, options.middles);
-  fillSelect(fields.minor, options.minors);
+  if (recordType === "expense") {
+    const majorOptions = getExpenseMajorOptions(options);
+    const shouldPreserveExpenseBranch = majorOptions.includes(currentMajor);
+    fillSelect(fields.major, majorOptions, currentMajor);
+    renderExpenseDependentOptions({
+      preserveMiddle: shouldPreserveExpenseBranch,
+      preserveMinor: shouldPreserveExpenseBranch,
+      middleValue: currentMiddle,
+      minorValue: currentMinor,
+    });
+  } else {
+    fillSelect(fields.major, options.majors, currentMajor);
+    fillSelect(fields.middle, options.middles, currentMiddle);
+    fillSelect(fields.minor, options.minors, currentMinor);
+  }
   fillDatalist("noteOptions", options.notes);
   if (!fields.note.value) fields.note.value = options.notes[0] || "";
 }
 
-function fillSelect(select, values) {
+function renderExpenseDependentOptions({
+  preserveMiddle = true,
+  preserveMinor = true,
+  middleValue = fields.middle.value,
+  minorValue = fields.minor.value,
+} = {}) {
+  const middleSelection = preserveMiddle ? middleValue : "";
+  fillSelect(fields.middle, getExpenseMiddleOptions(fields.major.value, middleSelection), middleSelection);
+
+  const minorSelection = preserveMinor ? minorValue : "";
+  fillSelect(
+    fields.minor,
+    getExpenseMinorOptions(fields.major.value, fields.middle.value, minorSelection),
+    minorSelection,
+  );
+}
+
+function getExpenseMajorOptions(options) {
+  return uniqueOptions(options.majors, Object.keys(getExpenseAccountTree()));
+}
+
+function getExpenseMiddleOptions(major, currentValue = "") {
+  const tree = getExpenseAccountTree();
+  const middleOptions = tree[major] ? Object.keys(tree[major]) : [];
+  const fallback = middleOptions.length ? middleOptions : optionsByType.expense.middles;
+  return uniqueOptions(fallback, [currentValue], ["自訂"]);
+}
+
+function getExpenseMinorOptions(major, middle, currentValue = "") {
+  const tree = getExpenseAccountTree();
+  const minorOptions = tree[major]?.[middle] || [];
+  const fallback = minorOptions.length ? minorOptions : optionsByType.expense.minors;
+  return uniqueOptions(fallback, [currentValue], ["自訂"]);
+}
+
+function getExpenseAccountTree() {
+  const tree = structuredClone(defaultExpenseAccountTree);
+
+  recordsCache
+    .filter((record) => record.type === "expense" && record.major && record.middle)
+    .forEach((record) => {
+      tree[record.major] ||= {};
+      tree[record.major][record.middle] ||= [];
+      if (record.minor) tree[record.major][record.middle].push(record.minor);
+    });
+
+  return Object.fromEntries(
+    Object.entries(tree).map(([major, middles]) => [
+      major,
+      Object.fromEntries(
+        Object.entries(middles).map(([middle, minors]) => [middle, uniqueOptions(minors, ["自訂"])]),
+      ),
+    ]),
+  );
+}
+
+function uniqueOptions(...groups) {
+  return Array.from(
+    new Set(
+      groups
+        .flat()
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function fillSelect(select, values, selectedValue = select.value) {
   select.innerHTML = values
     .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
     .join("");
+  if (selectedValue && values.includes(selectedValue)) select.value = selectedValue;
 }
 
 function fillDatalist(id, values) {
@@ -2063,7 +2197,13 @@ function startEditingRecord(record) {
   fields.dueDate.value = record.dueDate || "";
   fields.invoiceNumber.value = record.invoiceNumber || "";
   ensureSelectValue(fields.major, record.major);
+  if (record.type === "expense") {
+    renderExpenseDependentOptions({ preserveMiddle: false, preserveMinor: false });
+  }
   ensureSelectValue(fields.middle, record.middle);
+  if (record.type === "expense") {
+    renderExpenseDependentOptions({ preserveMiddle: true, preserveMinor: false });
+  }
   ensureSelectValue(fields.minor, record.minor);
   setNoteValue(record.note);
   voucherInput.value = "";
