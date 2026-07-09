@@ -17,6 +17,7 @@ const employeeHealthCompany = [[30300, 1466], [40100, 1939]];
 const ownerLaborCompany = [[45800, 1053]];
 const ownerHealthCompany = [[60800, 3143]];
 const fixedMealAllowance = 3000;
+const payrollMoneyMax = 999999;
 
 let payrollRows = [];
 let selectedPayrollId = "";
@@ -176,16 +177,16 @@ function renderPayrollTableRow(row) {
       <td>${escapePayrollHtml(row.id)}</td>
       <td>${escapePayrollHtml(row.name)}</td>
       <td>${escapePayrollHtml(row.role)}</td>
-      <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.baseSalary}" /></td>
-      <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.dutyAllowance || 0}" /></td>
-      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.mealAllowance || fixedMealAllowance}" readonly /></td>
+      <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.baseSalary}" /></td>
+      <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.dutyAllowance || 0}" /></td>
+      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.mealAllowance || fixedMealAllowance}" readonly /></td>
       <td><strong>${formatCurrency(row.monthlySalaryTotal)}</strong></td>
       <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}" /></td>
       <td>${row.employedDays}</td>
       <td><input data-payroll-field="personalLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.personalLeaveDays || 0}" /></td>
       <td><input data-payroll-field="sickLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.sickLeaveDays || 0}" /></td>
-      <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherAllowance || 0}" /></td>
-      <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="1" value="${row.otherDeduction || 0}" /></td>
+      <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherAllowance || 0}" /></td>
+      <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherDeduction || 0}" /></td>
       <td>${row.billableDependentCount}</td>
       <td>${formatCurrency(row.dependentHealthPersonal)}</td>
       <td><strong>${formatCurrency(row.netPay)}</strong></td>
@@ -250,16 +251,17 @@ function renderEmployeeMasterRow(row) {
 function readPayrollInputs() {
   return getCalculatedRows().map((row) => {
     const findValue = (field) => document.querySelector(`[data-payroll-id="${CSS.escape(row.id)}"][data-payroll-field="${field}"]`)?.value;
+    const moneyValue = (field, fallback = 0) => Math.min(payrollMoneyMax, Math.max(0, Number(findValue(field) || fallback || 0)));
     return {
       ...row,
-      baseSalary: Number(findValue("baseSalary") || row.baseSalary || 0),
-      dutyAllowance: Number(findValue("dutyAllowance") || 0),
+      baseSalary: moneyValue("baseSalary", row.baseSalary),
+      dutyAllowance: moneyValue("dutyAllowance"),
       mealAllowance: fixedMealAllowance,
       hireDate: findValue("hireDate") || row.hireDate,
       personalLeaveDays: Number(findValue("personalLeaveDays") || 0),
       sickLeaveDays: Number(findValue("sickLeaveDays") || 0),
-      otherAllowance: Number(findValue("otherAllowance") || 0),
-      otherDeduction: Number(findValue("otherDeduction") || 0),
+      otherAllowance: moneyValue("otherAllowance"),
+      otherDeduction: moneyValue("otherDeduction"),
     };
   });
 }

@@ -263,7 +263,7 @@ body {
 .payroll-table input[data-payroll-field="mealAllowance"],
 .payroll-table input[data-payroll-field="otherAllowance"],
 .payroll-table input[data-payroll-field="otherDeduction"] {
-  width: 94px;
+  width: 82px;
 }
 
 .payroll-table input[data-payroll-field="personalLeaveDays"],

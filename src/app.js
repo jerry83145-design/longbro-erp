@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage } from "./payroll-30day.js?v=20260709-readonly-management";
+import { initPayrollPage } from "./payroll-30day.js?v=20260709-payroll-6digit";
 
 const defaultOptionsByType = {
   expense: {
