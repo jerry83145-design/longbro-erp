@@ -6,48 +6,87 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function allowedUser() {
+    function ownerUser() {
       return signedIn() && request.auth.token.email == "jerry83145@gmail.com";
     }
 
+    function readonlyUser() {
+      return signedIn() && request.auth.token.email == "management@parahoodtw.com";
+    }
+
+    function allowedReader() {
+      return ownerUser() || readonlyUser();
+    }
+
     function isOwner() {
-      return allowedUser() && request.auth.uid == resource.data.userId;
+      return ownerUser() && request.auth.uid == resource.data.userId;
     }
 
     function createsOwnRecord() {
-      return allowedUser()
+      return ownerUser()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.createdBy == request.auth.token.email;
     }
 
     match /accountingUploads/{uploadId} {
       allow create: if createsOwnRecord();
-      allow read, update: if isOwner();
+      allow read: if allowedReader();
+      allow update: if isOwner();
       allow delete: if false;
     }
 
     match /ledgerRecords/{recordId} {
       allow create: if createsOwnRecord();
-      allow read, update: if isOwner();
+      allow read: if allowedReader();
+      allow update: if isOwner();
       allow delete: if isOwner();
     }
 
     match /inventoryRecords/{recordId} {
       allow create: if createsOwnRecord();
-      allow read, update: if isOwner();
+      allow read: if allowedReader();
+      allow update: if isOwner();
       allow delete: if isOwner();
     }
 
     match /assetRecords/{recordId} {
       allow create: if createsOwnRecord();
-      allow read, update: if isOwner();
+      allow read: if allowedReader();
+      allow update: if isOwner();
       allow delete: if isOwner();
     }
 
     match /bankTransactions/{recordId} {
       allow create: if createsOwnRecord();
-      allow read, update: if isOwner();
+      allow read: if allowedReader();
+      allow update: if isOwner();
       allow delete: if isOwner();
+    }
+
+    match /voucherInbox/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read: if allowedReader();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    match /lineDrafts/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read: if allowedReader();
+      allow update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    match /auditLogs/{recordId} {
+      allow create: if createsOwnRecord();
+      allow read: if allowedReader();
+      allow update, delete: if false;
+    }
+
+    match /systemSettings/{settingId} {
+      allow read: if allowedReader();
+      allow create, update: if ownerUser();
+      allow delete: if false;
     }
   }
 }

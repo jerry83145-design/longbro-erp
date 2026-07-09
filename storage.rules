@@ -6,22 +6,33 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    function allowedUser() {
+    function ownerUser() {
       return signedIn() && request.auth.token.email == "jerry83145@gmail.com";
     }
 
+    function readonlyUser() {
+      return signedIn() && request.auth.token.email == "management@parahoodtw.com";
+    }
+
+    function allowedReader() {
+      return ownerUser() || readonlyUser();
+    }
+
     match /raw/{month}/{category}/{fileName} {
-      allow read, write: if allowedUser();
+      allow read: if allowedReader();
+      allow write: if ownerUser();
       allow delete: if false;
     }
 
     match /pending/{fileName} {
-      allow read, write: if allowedUser();
+      allow read: if allowedReader();
+      allow write: if ownerUser();
       allow delete: if false;
     }
 
     match /vouchers/{month}/{type}/{fileName} {
-      allow read, write: if allowedUser();
+      allow read: if allowedReader();
+      allow write: if ownerUser();
       allow delete: if false;
     }
   }

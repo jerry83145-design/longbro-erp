@@ -615,6 +615,19 @@ function isReadonlyEmail(email) {
   return readonlyEmails.includes(String(email || "").toLowerCase());
 }
 
+function readableCollectionQuery(collectionName, resultLimit = 1000) {
+  const constraints = [];
+  if (!isReadOnlyUser) {
+    constraints.push(firebaseApi.where("userId", "==", currentUser.uid));
+  }
+  constraints.push(firebaseApi.limit(resultLimit));
+  return firebaseApi.query(firebaseApi.collection(db, collectionName), ...constraints);
+}
+
+function isVisibleToCurrentUser(record = {}) {
+  return isReadOnlyUser || !record.userId || record.userId === currentUser?.uid;
+}
+
 function isReadOnlyBlockedControl(element) {
   if (!isReadOnlyUser || !element) return false;
   if (element.id && readOnlyAllowedControlIds.has(element.id)) return false;
@@ -2280,8 +2293,7 @@ async function loadLineDrafts() {
   lineDraftsCache = snapshot.docs
     .map((doc) => normalizeLineDraft({ id: doc.id, ...doc.data() }))
     .filter((draft) => {
-      const belongsToCurrentUser = !draft.userId || draft.userId === currentUser.uid;
-      return belongsToCurrentUser && !draft.deletedAt && !["confirmed", "ignored"].includes(draft.status);
+      return isVisibleToCurrentUser(draft) && !draft.deletedAt && !["confirmed", "ignored"].includes(draft.status);
     })
     .sort((a, b) => getRecordTimeValue(b) - getRecordTimeValue(a));
   renderPendingCenter();
@@ -3349,11 +3361,7 @@ async function loadRecords() {
   if (!currentUser || !db) return;
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "ledgerRecords"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(1000),
-    ),
+    readableCollectionQuery("ledgerRecords", 1000),
   );
   recordsCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -4014,11 +4022,7 @@ async function loadAuditLogs() {
   }
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "auditLogs"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(100),
-    ),
+    readableCollectionQuery("auditLogs", 100),
   );
 
   auditLogCache = snapshot.docs
@@ -4147,11 +4151,7 @@ async function loadRecycleBinRecords() {
 
   for (const collectionInfo of recycleCollections) {
     const snapshot = await firebaseApi.getDocs(
-      firebaseApi.query(
-        firebaseApi.collection(db, collectionInfo.name),
-        firebaseApi.where("userId", "==", currentUser.uid),
-        firebaseApi.limit(200),
-      ),
+      readableCollectionQuery(collectionInfo.name, 200),
     );
 
     snapshot.docs
@@ -4715,11 +4715,7 @@ async function loadBankTransactions() {
   if (!currentUser || !db) return;
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "bankTransactions"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(1000),
-    ),
+    readableCollectionQuery("bankTransactions", 1000),
   );
   bankTransactionsCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -5701,11 +5697,7 @@ async function loadVoucherInbox() {
   }
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "voucherInbox"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(100),
-    ),
+    readableCollectionQuery("voucherInbox", 100),
   );
 
   voucherInboxCache = snapshot.docs
@@ -7744,11 +7736,7 @@ async function loadInventoryRecords() {
   if (!currentUser || !db) return;
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "inventoryRecords"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(200),
-    ),
+    readableCollectionQuery("inventoryRecords", 200),
   );
   inventoryCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -8257,11 +8245,7 @@ async function loadAssetRecords() {
   if (!currentUser || !db) return;
 
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, "assetRecords"),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(500),
-    ),
+    readableCollectionQuery("assetRecords", 500),
   );
   assetCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -8904,11 +8888,7 @@ async function buildFirebaseReadCheck() {
 
   try {
     await firebaseApi.getDocs(
-      firebaseApi.query(
-        firebaseApi.collection(db, "ledgerRecords"),
-        firebaseApi.where("userId", "==", currentUser.uid),
-        firebaseApi.limit(1),
-      ),
+      readableCollectionQuery("ledgerRecords", 1),
     );
     return {
       title: "雲端讀取",
@@ -9779,11 +9759,7 @@ async function collectBackupData() {
 
 async function fetchUserCollectionForBackup(collectionName, maxRows) {
   const snapshot = await firebaseApi.getDocs(
-    firebaseApi.query(
-      firebaseApi.collection(db, collectionName),
-      firebaseApi.where("userId", "==", currentUser.uid),
-      firebaseApi.limit(maxRows),
-    ),
+    readableCollectionQuery(collectionName, maxRows),
   );
 
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
