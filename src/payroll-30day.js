@@ -7,7 +7,7 @@ const payrollEmployees = [
   { id: "PH005", name: "董秉澤", role: "員工", department: "營運", baseSalary: 27000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-07-01", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
   { id: "PH003", name: "林煒昕", role: "員工", department: "營運", baseSalary: 37000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 40100, healthInsuredSalary: 40100 },
   { id: "PH002", name: "徐振睿", role: "員工", department: "營運", baseSalary: 27000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 30300, healthInsuredSalary: 30300 },
-  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 57000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-06-15", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
+  { id: "PH004", name: "張晟睿", role: "雇主", department: "管理", baseSalary: 57000, dutyAllowance: 0, mealAllowance: 3000, hireDate: "2026-07-01", laborInsuredSalary: 45800, healthInsuredSalary: 60800 },
 ];
 
 const employeeLaborPersonal = [[30300, 758], [40100, 1002]];
@@ -46,7 +46,7 @@ export function initPayrollPage() {
     monthInput.value = getCurrentMonth();
     employeeMasterRows = loadEmployeeMasterRows();
     payrollRows = loadPayrollRows(monthInput.value);
-    selectedPayrollId = payrollRows[0]?.id || "";
+    syncSelectedPayrollId();
     bindPayrollEvents();
     payrollInitialized = true;
   }
@@ -70,7 +70,7 @@ function bindPayrollEvents() {
 
   monthInput?.addEventListener("change", () => {
     payrollRows = loadPayrollRows(monthInput.value);
-    selectedPayrollId = payrollRows[0]?.id || "";
+    syncSelectedPayrollId();
     renderPayroll();
     refreshPayrollRowsFromCloud();
   });
@@ -84,12 +84,12 @@ function bindPayrollEvents() {
   });
 
   document.querySelector("#payrollPrintSelectedButton")?.addEventListener("click", () => {
-    const row = getCalculatedRows().find((item) => item.id === selectedPayrollId);
+    const row = getVisiblePayrollRows().find((item) => item.id === selectedPayrollId);
     if (row) exportPayrollSlips([row], getPayrollMonth());
   });
 
   document.querySelector("#payrollPrintAllButton")?.addEventListener("click", () => {
-    exportPayrollSlips(getCalculatedRows(), getPayrollMonth());
+    exportPayrollSlips(getVisiblePayrollRows(), getPayrollMonth());
   });
 
   table?.addEventListener("input", (event) => {
@@ -125,6 +125,7 @@ function bindPayrollEvents() {
 }
 
 function renderPayroll() {
+  syncSelectedPayrollId();
   renderPayrollSummary();
   renderPayrollTable();
   renderPayrollPreview();
@@ -134,7 +135,7 @@ function renderPayroll() {
 function renderPayrollSummary() {
   const summary = document.querySelector("#payrollSummary");
   if (!summary) return;
-  const rows = getCalculatedRows();
+  const rows = getVisiblePayrollRows();
   const gross = rows.reduce((sum, row) => sum + row.regularPay, 0);
   const deductions = rows.reduce(
     (sum, row) => sum + row.personalBurdenTotal + row.otherDeduction + Math.round(row.personalLeaveDeduction) + Math.round(row.sickLeaveDeduction),
@@ -176,7 +177,7 @@ function renderPayrollTable() {
           <th>薪資單</th>
         </tr>
       </thead>
-      <tbody>${getCalculatedRows().map(renderPayrollTableRow).join("")}</tbody>
+      <tbody>${getVisiblePayrollRows().map(renderPayrollTableRow).join("")}</tbody>
     </table>
   `;
 }
@@ -208,7 +209,7 @@ function renderPayrollTableRow(row) {
 function renderPayrollPreview() {
   const preview = document.querySelector("#payrollPreview");
   if (!preview) return;
-  const row = getCalculatedRows().find((item) => item.id === selectedPayrollId);
+  const row = getVisiblePayrollRows().find((item) => item.id === selectedPayrollId);
   if (!row) {
     preview.className = "payroll-preview empty-state";
     preview.textContent = "請先選擇一位員工預覽薪資單。";
@@ -483,6 +484,7 @@ function mergePayrollEmployee(saved) {
   return {
     ...employee,
     ...saved,
+    hireDate: employee.hireDate || saved.hireDate || "",
     baseSalary: employee.baseSalary ?? Number(saved.baseSalary || 0),
     mealAllowance: fixedMealAllowance,
     personalLeaveDays: Number(saved.personalLeaveDays ?? saved.leaveDays ?? 0),
@@ -535,7 +537,7 @@ async function refreshPayrollRowsFromCloud() {
   }
   payrollRows = rows.map(mergePayrollEmployee).map(calculatePayrollRow);
   savePayrollRowsLocalOnly(month, payrollRows);
-  selectedPayrollId = payrollRows.find((row) => row.id === selectedPayrollId)?.id || payrollRows[0]?.id || "";
+  syncSelectedPayrollId();
   renderPayroll();
 }
 
@@ -631,9 +633,19 @@ function getCalculatedRows() {
   return payrollRows;
 }
 
+function getVisiblePayrollRows(rows = getCalculatedRows()) {
+  return rows.filter((row) => Number(row.employedDays || 0) > 0);
+}
+
+function syncSelectedPayrollId() {
+  const rows = getVisiblePayrollRows();
+  selectedPayrollId = rows.find((row) => row.id === selectedPayrollId)?.id || rows[0]?.id || "";
+}
+
 function calculatePayrollRow(row) {
   const month = getPayrollMonth();
   const employedDays = calculateEmployedDays(month, row.hireDate);
+  const isEmployedInMonth = employedDays > 0;
   const baseSalary = Number(row.baseSalary || 0);
   const dutyAllowance = Number(row.dutyAllowance || 0);
   const mealAllowance = Number(row.mealAllowance || 0);
@@ -650,18 +662,18 @@ function calculatePayrollRow(row) {
   const healthPersonalBase = row.role === "雇主" ? 0 : lookupPremium(employeeHealthPersonal, row.healthInsuredSalary);
   const employeeMaster = getEmployeeMasterRows().find((item) => item.id === row.id);
   const healthDependentCount = Number(employeeMaster?.healthDependentCount || 0);
-  const billableDependentCount = isHealthDependentBillable(month, employeeMaster?.healthDependentStartDate)
+  const billableDependentCount = isEmployedInMonth && isHealthDependentBillable(month, employeeMaster?.healthDependentStartDate)
     ? Math.min(healthDependentCount, 3)
     : 0;
-  const laborPersonal = row.role === "雇主" ? 0 : Math.round(laborPersonalBase / 30 * employedDays);
-  const healthPersonal = row.role === "雇主" ? 0 : healthPersonalBase;
-  const dependentHealthPersonal = row.role === "雇主" ? 0 : healthPersonalBase * billableDependentCount;
+  const laborPersonal = isEmployedInMonth && row.role !== "雇主" ? Math.round(laborPersonalBase / 30 * employedDays) : 0;
+  const healthPersonal = isEmployedInMonth && row.role !== "雇主" ? healthPersonalBase : 0;
+  const dependentHealthPersonal = isEmployedInMonth && row.role !== "雇主" ? healthPersonalBase * billableDependentCount : 0;
   const companyLaborTable = row.role === "雇主" ? ownerLaborCompany : employeeLaborCompany;
   const companyHealthTable = row.role === "雇主" ? ownerHealthCompany : employeeHealthCompany;
-  const companyLabor = Math.round(lookupPremium(companyLaborTable, row.laborInsuredSalary) / 30 * employedDays);
-  const companyHealth = lookupPremium(companyHealthTable, row.healthInsuredSalary);
-  const otherAllowance = Number(row.otherAllowance || 0);
-  const otherDeduction = Number(row.otherDeduction || 0);
+  const companyLabor = isEmployedInMonth ? Math.round(lookupPremium(companyLaborTable, row.laborInsuredSalary) / 30 * employedDays) : 0;
+  const companyHealth = isEmployedInMonth ? lookupPremium(companyHealthTable, row.healthInsuredSalary) : 0;
+  const otherAllowance = isEmployedInMonth ? Number(row.otherAllowance || 0) : 0;
+  const otherDeduction = isEmployedInMonth ? Number(row.otherDeduction || 0) : 0;
   const personalBurdenTotal = laborPersonal + healthPersonal + dependentHealthPersonal;
   const netPay = grossPay + otherAllowance - otherDeduction - personalBurdenTotal;
 

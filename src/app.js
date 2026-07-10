@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260709-decision-report-export";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260710-payroll-hire-date-filter";
 
 const defaultOptionsByType = {
   expense: {
@@ -10075,7 +10075,7 @@ function buildDecisionExpenseDetailSheet() {
 }
 
 function buildDecisionPayrollSheet(payrollRows = []) {
-  const rows = payrollRows.length ? payrollRows : [];
+  const rows = payrollRows.filter(isPayrollReportRowVisible);
   return [
     ["薪資成本"],
     ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
@@ -10153,10 +10153,59 @@ async function loadPayrollRowsForReport(start, end) {
   const cloudRows = [];
   for (const month of months) {
     const rows = await loadPayrollRowsForMonthFromCloud(month);
-    if (rows.length) cloudRows.push(...rows.map((row) => ({ ...row, month })));
+    if (rows.length) cloudRows.push(...rows.map((row) => normalizePayrollReportRow(row, month)));
   }
-  if (cloudRows.length) return cloudRows;
-  return months.flatMap((month) => loadPayrollRowsForMonthFromLocal(month).map((row) => ({ ...row, month })));
+  if (cloudRows.length) return cloudRows.filter(isPayrollReportRowVisible);
+  return months
+    .flatMap((month) => loadPayrollRowsForMonthFromLocal(month).map((row) => normalizePayrollReportRow(row, month)))
+    .filter(isPayrollReportRowVisible);
+}
+
+const payrollReportHireDateOverrides = {
+  PH004: "2026-07-01",
+  PH005: "2026-07-01",
+};
+
+function normalizePayrollReportRow(row, month) {
+  const hireDate = payrollReportHireDateOverrides[row.id] || row.hireDate || "";
+  const employedDays = calculatePayrollReportEmployedDays(month, hireDate);
+  if (employedDays > 0) return { ...row, month, hireDate, employedDays };
+  return {
+    ...row,
+    month,
+    hireDate,
+    employedDays: 0,
+    regularPay: 0,
+    grossPay: 0,
+    personalLeaveDeduction: 0,
+    sickLeaveDeduction: 0,
+    laborPersonal: 0,
+    healthPersonal: 0,
+    dependentHealthPersonal: 0,
+    personalBurdenTotal: 0,
+    companyLabor: 0,
+    companyHealth: 0,
+    companyBurdenTotal: 0,
+    otherAllowance: 0,
+    otherDeduction: 0,
+    billableDependentCount: 0,
+    netPay: 0,
+  };
+}
+
+function isPayrollReportRowVisible(row) {
+  return Number(row.employedDays || 0) > 0;
+}
+
+function calculatePayrollReportEmployedDays(month, hireDate) {
+  if (!month || !hireDate) return Number.POSITIVE_INFINITY;
+  const monthStart = new Date(`${month}-01T00:00:00`);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  const hire = new Date(`${hireDate}T00:00:00`);
+  if (Number.isNaN(hire.getTime())) return Number.POSITIVE_INFINITY;
+  if (hire > monthEnd) return 0;
+  if (hire <= monthStart) return 30;
+  return Math.min(30, monthEnd.getDate() - hire.getDate() + 1);
 }
 
 async function loadPayrollRowsForMonthFromCloud(month) {
