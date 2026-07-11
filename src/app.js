@@ -2556,18 +2556,9 @@ async function createInventoryInFromExpense(record) {
       totalCost: Number(item.totalCost || 0),
     }))
     : buildInventoryInDraftsFromExpense(record);
-  const inputText = window.prompt(
-    [
-      "請確認入庫品項，每行格式：品名｜數量｜總成本",
-      "可直接修改、刪除或新增一行。",
-      "",
-      "例如：卡模｜2｜1200",
-    ].join("\n"),
-    drafts.map((item) => `${item.name}｜${formatNumber(item.quantity)}｜${formatNumber(item.totalCost)}`).join("\n"),
-  );
-  if (inputText === null) return;
+  const inventoryItems = await confirmInventoryInDrafts(record, drafts);
+  if (inventoryItems === null) return;
 
-  const inventoryItems = parseInventoryInPrompt(inputText);
   if (!inventoryItems.length) {
     showToast("請至少保留一筆入庫品項。");
     return;
@@ -2595,6 +2586,121 @@ function buildInventoryInDraftsFromExpense(record) {
     quantity: inferInventoryQuantityFromText(record.item) || 1,
   }];
   return allocateInventoryCost(baseItems, Number(record.amount || 0));
+}
+
+function confirmInventoryInDrafts(record, drafts) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "match-dialog-overlay";
+    overlay.innerHTML = `
+      <div class="match-dialog inventory-draft-dialog" role="dialog" aria-modal="true" aria-label="確認入庫品項">
+        <div class="match-dialog-header">
+          <div>
+            <p class="eyebrow">INVENTORY ITEMS</p>
+            <h3>確認入庫品項</h3>
+            <p>${escapeHtml(record.item || "支出紀錄")} · 支出 NT$ ${formatNumber(record.amount || 0)}</p>
+          </div>
+          <button type="button" data-inventory-draft-cancel>×</button>
+        </div>
+        <div class="inventory-draft-table-wrap">
+          <table class="inventory-draft-table">
+            <thead>
+              <tr>
+                <th>品名</th>
+                <th>數量</th>
+                <th>單位成本</th>
+                <th>總成本</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody data-inventory-draft-rows></tbody>
+          </table>
+        </div>
+        <div class="inventory-draft-footer">
+          <button type="button" class="secondary-button" data-inventory-draft-add>＋新增細項</button>
+          <strong data-inventory-draft-total>總成本 NT$ 0</strong>
+        </div>
+        <div class="match-dialog-actions">
+          <button type="button" class="secondary-button" data-inventory-draft-cancel>取消</button>
+          <button type="button" data-inventory-draft-confirm>確認入庫</button>
+        </div>
+      </div>
+    `;
+
+    const tbody = overlay.querySelector("[data-inventory-draft-rows]");
+    const totalLabel = overlay.querySelector("[data-inventory-draft-total]");
+
+    const close = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+
+    const updateTotals = () => {
+      let grandTotal = 0;
+      tbody.querySelectorAll("tr").forEach((row) => {
+        const quantity = Number(row.querySelector("[data-inventory-draft-qty]")?.value || 0);
+        const unitCost = Number(row.querySelector("[data-inventory-draft-unit-cost]")?.value || 0);
+        const totalCost = Math.max(0, Math.round(quantity * unitCost));
+        const totalInput = row.querySelector("[data-inventory-draft-total-cost]");
+        if (totalInput) totalInput.value = totalCost || "";
+        grandTotal += totalCost;
+      });
+      totalLabel.textContent = `總成本 NT$ ${formatNumber(grandTotal)}`;
+    };
+
+    const addRow = (item = {}) => {
+      const quantity = Number(item.quantity || 1);
+      const totalCost = Number(item.totalCost || 0);
+      const unitCost = quantity ? Math.round(totalCost / quantity) : 0;
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><input type="text" data-inventory-draft-name value="${escapeHtml(item.name || "")}" placeholder="例如：130pt卡磚" /></td>
+        <td><input type="number" min="1" step="1" inputmode="numeric" data-inventory-draft-qty value="${quantity || 1}" /></td>
+        <td><input type="number" min="0" step="1" inputmode="numeric" data-inventory-draft-unit-cost value="${unitCost || ""}" /></td>
+        <td><input type="number" tabindex="-1" data-inventory-draft-total-cost readonly /></td>
+        <td><button type="button" class="secondary-button compact-button" data-inventory-draft-remove>刪除</button></td>
+      `;
+      tbody.appendChild(row);
+      updateTotals();
+    };
+
+    (drafts.length ? drafts : [{ name: record.minor || record.item || "", quantity: 1, totalCost: Number(record.amount || 0) }]).forEach(addRow);
+
+    overlay.addEventListener("input", (event) => {
+      if (event.target.matches("[data-inventory-draft-qty], [data-inventory-draft-unit-cost]")) updateTotals();
+    });
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-inventory-draft-cancel]")) {
+        close(null);
+        return;
+      }
+      if (event.target.closest("[data-inventory-draft-add]")) {
+        addRow({ quantity: 1 });
+        tbody.querySelector("tr:last-child [data-inventory-draft-name]")?.focus();
+        return;
+      }
+      const removeButton = event.target.closest("[data-inventory-draft-remove]");
+      if (removeButton) {
+        removeButton.closest("tr")?.remove();
+        updateTotals();
+        return;
+      }
+      if (event.target.closest("[data-inventory-draft-confirm]")) {
+        updateTotals();
+        const items = Array.from(tbody.querySelectorAll("tr")).map((row) => {
+          const name = row.querySelector("[data-inventory-draft-name]")?.value.trim() || "";
+          const quantity = Number(row.querySelector("[data-inventory-draft-qty]")?.value || 0);
+          const unitCost = Number(row.querySelector("[data-inventory-draft-unit-cost]")?.value || 0);
+          return { name, quantity, totalCost: Math.round(quantity * unitCost) };
+        }).filter((item) => item.name && item.quantity > 0);
+        close(items);
+      }
+    });
+
+    document.body.appendChild(overlay);
+    tbody.querySelector("[data-inventory-draft-name]")?.focus();
+  });
 }
 
 function parseInventoryItemsFromText(text) {

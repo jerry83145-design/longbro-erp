@@ -3000,6 +3000,83 @@ textarea:focus {
   line-height: 1.5;
 }
 
+.inventory-draft-dialog {
+  max-width: 820px;
+}
+
+.inventory-draft-table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.inventory-draft-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+
+.inventory-draft-table th,
+.inventory-draft-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+}
+
+.inventory-draft-table th {
+  background: #edf5f1;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.inventory-draft-table td:first-child {
+  width: 42%;
+}
+
+.inventory-draft-table td:nth-child(2),
+.inventory-draft-table td:nth-child(3),
+.inventory-draft-table td:nth-child(4) {
+  width: 15%;
+}
+
+.inventory-draft-table td:last-child {
+  width: 90px;
+}
+
+.inventory-draft-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.inventory-draft-table input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  background: #fff;
+}
+
+.inventory-draft-table input[readonly] {
+  background: #f8faf8;
+  color: var(--muted);
+}
+
+.inventory-draft-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.inventory-draft-footer strong {
+  color: var(--accent);
+  font-size: 18px;
+}
+
 .record-item:first-child {
   margin-top: 0;
 }
