@@ -2548,7 +2548,9 @@ async function handleLedgerInventorySync(record) {
 }
 
 async function createInventoryInFromExpense(record) {
-  const existingInventoryItems = inventoryCache.filter((item) => !item.deletedAt && item.linkedLedgerId === record.id && item.action === "in");
+  const existingInventoryItems = inventoryCache
+    .filter((item) => !item.deletedAt && item.linkedLedgerId === record.id && item.action === "in")
+    .sort(compareSyncedInventoryItems);
   const drafts = existingInventoryItems.length
     ? existingInventoryItems.map((item) => ({
       name: item.name || record.minor || record.item,
@@ -2565,7 +2567,10 @@ async function createInventoryInFromExpense(record) {
   }
 
   for (const [index, item] of inventoryItems.entries()) {
-    const inventoryRecord = buildInventoryInRecordFromExpense(record, item);
+    const inventoryRecord = {
+      ...buildInventoryInRecordFromExpense(record, item),
+      syncOrder: index,
+    };
     const existingInventory = existingInventoryItems[index];
     if (existingInventory) {
       await updateSyncedInventoryRecord(existingInventory, inventoryRecord);
@@ -2577,6 +2582,13 @@ async function createInventoryInFromExpense(record) {
   for (const extraRecord of existingInventoryItems.slice(inventoryItems.length)) {
     await softDeleteRecord("inventoryRecords", extraRecord.id, extraRecord);
   }
+}
+
+function compareSyncedInventoryItems(a, b) {
+  const orderA = Number.isFinite(Number(a.syncOrder)) ? Number(a.syncOrder) : Number.POSITIVE_INFINITY;
+  const orderB = Number.isFinite(Number(b.syncOrder)) ? Number(b.syncOrder) : Number.POSITIVE_INFINITY;
+  if (orderA !== orderB) return orderA - orderB;
+  return getRecordTimeValue(a) - getRecordTimeValue(b);
 }
 
 function buildInventoryInDraftsFromExpense(record) {
@@ -2643,24 +2655,24 @@ function confirmInventoryInDrafts(record, drafts) {
       tbody.querySelectorAll("tr").forEach((row) => {
         const quantity = Number(row.querySelector("[data-inventory-draft-qty]")?.value || 0);
         const unitCost = Number(row.querySelector("[data-inventory-draft-unit-cost]")?.value || 0);
-        const totalCost = Math.max(0, Math.round(quantity * unitCost));
+        const totalCost = Math.max(0, quantity * unitCost);
         const totalInput = row.querySelector("[data-inventory-draft-total-cost]");
-        if (totalInput) totalInput.value = totalCost || "";
+        if (totalInput) totalInput.value = totalCost ? formatInventoryDraftAmount(totalCost) : "";
         grandTotal += totalCost;
       });
-      totalLabel.textContent = `總成本 NT$ ${formatNumber(grandTotal)}`;
+      totalLabel.textContent = `總成本 NT$ ${formatInventoryDraftAmount(grandTotal)}`;
     };
 
     const addRow = (item = {}) => {
       const quantity = Number(item.quantity || 1);
       const totalCost = Number(item.totalCost || 0);
-      const unitCost = quantity ? Math.round(totalCost / quantity) : 0;
+      const unitCost = quantity ? totalCost / quantity : 0;
       const row = document.createElement("tr");
       row.innerHTML = `
         <td><input type="text" data-inventory-draft-name value="${escapeHtml(item.name || "")}" placeholder="例如：130pt卡磚" /></td>
         <td><input type="number" min="1" step="1" inputmode="numeric" data-inventory-draft-qty value="${quantity || 1}" /></td>
-        <td><input type="number" min="0" step="1" inputmode="numeric" data-inventory-draft-unit-cost value="${unitCost || ""}" /></td>
-        <td><input type="number" tabindex="-1" data-inventory-draft-total-cost readonly /></td>
+        <td><input type="number" min="0" step="0.01" inputmode="decimal" data-inventory-draft-unit-cost value="${unitCost ? formatInventoryDraftAmount(unitCost) : ""}" /></td>
+        <td><input type="number" step="0.01" tabindex="-1" data-inventory-draft-total-cost readonly /></td>
         <td><button type="button" class="secondary-button compact-button" data-inventory-draft-remove>刪除</button></td>
       `;
       tbody.appendChild(row);
@@ -2700,7 +2712,7 @@ function confirmInventoryInDrafts(record, drafts) {
           const name = row.querySelector("[data-inventory-draft-name]")?.value.trim() || "";
           const quantity = Number(row.querySelector("[data-inventory-draft-qty]")?.value || 0);
           const unitCost = Number(row.querySelector("[data-inventory-draft-unit-cost]")?.value || 0);
-          return { name, quantity, totalCost: Math.round(quantity * unitCost) };
+          return { name, quantity, totalCost: quantity * unitCost };
         }).filter((item) => item.name && item.quantity > 0);
         close(items);
       }
@@ -2708,6 +2720,13 @@ function confirmInventoryInDrafts(record, drafts) {
 
     document.body.appendChild(overlay);
     tbody.querySelector("[data-inventory-draft-name]")?.focus();
+  });
+}
+
+function formatInventoryDraftAmount(value) {
+  return Number(value || 0).toLocaleString("en-US", {
+    maximumFractionDigits: 4,
+    useGrouping: false,
   });
 }
 
@@ -9322,7 +9341,7 @@ async function exportFullBackup() {
 const backupFields = {
   ledgerRecords: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "settlementStatus", "dueDate", "settledDate", "major", "middle", "minor", "invoiceNumber", "invoiceStatus", "hasVoucher", "pendingReason", "deletedAt", "createdBy"],
   bankTransactions: ["id", "date", "account", "description", "counterparty", "deposit", "withdrawal", "amount", "balance", "status", "linkedType", "linkedRecordId", "sourceFile", "deletedAt", "createdBy"],
-  inventoryRecords: ["id", "date", "type", "action", "source", "name", "quantity", "remainingQuantity", "unitCost", "totalCost", "reference", "linkedLedgerId", "deletedAt", "createdBy"],
+  inventoryRecords: ["id", "date", "type", "action", "source", "name", "quantity", "remainingQuantity", "unitCost", "totalCost", "syncOrder", "reference", "linkedLedgerId", "deletedAt", "createdBy"],
   assetRecords: ["id", "assetNumber", "category", "name", "quantity", "purchaseDate", "amount", "warrantyMonths", "warrantyEndDate", "warrantyStatus", "labelStatus", "note", "source", "sourceLedgerId", "deletedAt", "createdBy"],
   voucherInbox: ["id", "invoiceNumber", "originalInvoiceNumber", "adjustmentNumber", "documentType", "adjustmentKind", "voucherType", "date", "type", "counterparty", "item", "totalAmount", "matchedAmount", "remainingAmount", "status", "source", "sourceWorkbook", "sourceFileName", "sourceRow", "deletedAt", "createdBy"],
   lineDrafts: ["id", "date", "type", "counterparty", "item", "amount", "cashflow", "account", "major", "middle", "minor", "status", "needsReview", "source", "createdBy"],
