@@ -1205,6 +1205,7 @@ toggleOptionsButton.addEventListener("click", () => {
 
 resetOptionsButton.addEventListener("click", () => {
   optionsByType[recordType] = structuredClone(defaultOptionsByType[recordType]);
+  if (recordType === "expense") optionsByType.expense.accountTree = normalizeExpenseAccountTree(defaultExpenseAccountTree);
   saveOptions();
   renderAllOptions();
   renderOptionsEditor();
@@ -1605,24 +1606,22 @@ function getExpenseMinorOptions(major, middle, currentValue = "") {
 }
 
 function getExpenseAccountTree() {
-  const tree = structuredClone(defaultExpenseAccountTree);
+  return normalizeExpenseAccountTree(optionsByType.expense?.accountTree || defaultExpenseAccountTree);
+}
 
-  recordsCache
-    .filter((record) => record.type === "expense" && record.major && record.middle)
-    .forEach((record) => {
-      tree[record.major] ||= {};
-      tree[record.major][record.middle] ||= [];
-      if (record.minor) tree[record.major][record.middle].push(record.minor);
+function normalizeExpenseAccountTree(tree = {}) {
+  const normalized = {};
+  Object.entries(tree || {}).forEach(([major, middles]) => {
+    const majorName = String(major || "").trim();
+    if (!majorName) return;
+    normalized[majorName] ||= {};
+    Object.entries(middles || {}).forEach(([middle, minors]) => {
+      const middleName = String(middle || "").trim();
+      if (!middleName) return;
+      normalized[majorName][middleName] = uniqueOptions(Array.isArray(minors) ? minors : [], ["自訂"]);
     });
-
-  return Object.fromEntries(
-    Object.entries(tree).map(([major, middles]) => [
-      major,
-      Object.fromEntries(
-        Object.entries(middles).map(([middle, minors]) => [middle, uniqueOptions(minors, ["自訂"])]),
-      ),
-    ]),
-  );
+  });
+  return normalized;
 }
 
 function uniqueOptions(...groups) {
@@ -1655,7 +1654,7 @@ function fillDatalist(id, values) {
 function renderOptionsEditor() {
   const options = optionsByType[recordType];
   optionsTitle.textContent = `管理${typeLabel(recordType)}選項`;
-  optionsEditor.innerHTML = Object.entries(optionLabels)
+  const basicEditors = Object.entries(optionLabels)
     .map(([key, label]) => {
       return `
         <article class="option-box">
@@ -1665,6 +1664,7 @@ function renderOptionsEditor() {
       `;
     })
     .join("");
+  optionsEditor.innerHTML = basicEditors + (recordType === "expense" ? renderExpenseAccountTreeEditor() : "");
 
   optionsEditor.querySelectorAll("[data-option-editor]").forEach((textarea) => {
     textarea.addEventListener("change", () => {
@@ -1680,6 +1680,143 @@ function renderOptionsEditor() {
       showToast(`${typeLabel(recordType)}${optionLabels[key]}已更新。`);
     });
   });
+
+  bindExpenseAccountTreeEditor();
+}
+
+function renderExpenseAccountTreeEditor() {
+  const options = optionsByType.expense;
+  const tree = getEditableExpenseAccountTree();
+  const majors = getExpenseMajorOptions(options);
+  const selectedMajor = majors[0] || "";
+  const selectedMiddle = Object.keys(tree[selectedMajor] || {})[0] || "";
+  return `
+    <article class="option-box account-tree-box">
+      <h3>支出：科目關聯</h3>
+      <p>選大項後勾選可用中項，再選中項勾選可用細項。</p>
+      <label>
+        大項
+        <select data-account-tree-major>
+          ${majors.map((major) => `<option value="${escapeHtml(major)}">${escapeHtml(major)}</option>`).join("")}
+        </select>
+      </label>
+      <div>
+        <strong>這個大項底下的中項</strong>
+        <div class="account-tree-checks" data-account-tree-middle-list></div>
+      </div>
+      <label>
+        編輯細項的中項
+        <select data-account-tree-middle>
+          ${selectedMiddle ? `<option value="${escapeHtml(selectedMiddle)}">${escapeHtml(selectedMiddle)}</option>` : ""}
+        </select>
+      </label>
+      <div>
+        <strong>這個中項底下的細項</strong>
+        <div class="account-tree-checks" data-account-tree-minor-list></div>
+      </div>
+      <button type="button" data-account-tree-save>儲存科目關聯</button>
+    </article>
+  `;
+}
+
+function bindExpenseAccountTreeEditor() {
+  if (recordType !== "expense") return;
+  const box = optionsEditor.querySelector(".account-tree-box");
+  if (!box) return;
+
+  const majorSelect = box.querySelector("[data-account-tree-major]");
+  const middleSelect = box.querySelector("[data-account-tree-middle]");
+  const middleList = box.querySelector("[data-account-tree-middle-list]");
+  const minorList = box.querySelector("[data-account-tree-minor-list]");
+  const saveButton = box.querySelector("[data-account-tree-save]");
+
+  const renderMiddleChecks = () => {
+    const tree = getEditableExpenseAccountTree();
+    const major = majorSelect.value;
+    const selectedMiddles = Object.keys(tree[major] || {});
+    const middleOptions = uniqueOptions(optionsByType.expense.middles, selectedMiddles);
+    middleList.innerHTML = middleOptions
+      .map((middle) => `
+        <label class="account-tree-check">
+          <input type="checkbox" data-account-tree-middle-check value="${escapeHtml(middle)}" ${selectedMiddles.includes(middle) ? "checked" : ""} />
+          <span>${escapeHtml(middle)}</span>
+        </label>
+      `)
+      .join("");
+    renderMiddleSelect();
+  };
+
+  const renderMiddleSelect = () => {
+    const tree = getEditableExpenseAccountTree();
+    const major = majorSelect.value;
+    const checkedMiddles = Array.from(middleList.querySelectorAll("[data-account-tree-middle-check]:checked")).map((input) => input.value);
+    checkedMiddles.forEach((middle) => {
+      tree[major] ||= {};
+      tree[major][middle] ||= ["自訂"];
+    });
+    middleSelect.innerHTML = checkedMiddles
+      .map((middle) => `<option value="${escapeHtml(middle)}">${escapeHtml(middle)}</option>`)
+      .join("");
+    if (!checkedMiddles.includes(middleSelect.value)) middleSelect.value = checkedMiddles[0] || "";
+    renderMinorChecks();
+  };
+
+  const renderMinorChecks = () => {
+    const tree = getEditableExpenseAccountTree();
+    const major = majorSelect.value;
+    const middle = middleSelect.value;
+    const selectedMinors = tree[major]?.[middle] || [];
+    const minorOptions = uniqueOptions(optionsByType.expense.minors, selectedMinors);
+    minorList.innerHTML = middle
+      ? minorOptions.map((minor) => `
+          <label class="account-tree-check">
+            <input type="checkbox" data-account-tree-minor-check value="${escapeHtml(minor)}" ${selectedMinors.includes(minor) ? "checked" : ""} />
+            <span>${escapeHtml(minor)}</span>
+          </label>
+        `).join("")
+      : `<span class="muted-text">先勾選一個中項。</span>`;
+  };
+
+  const updateCurrentMajorTree = () => {
+    const tree = getEditableExpenseAccountTree();
+    const major = majorSelect.value;
+    const previousTree = tree[major] || {};
+    const selectedMiddles = Array.from(middleList.querySelectorAll("[data-account-tree-middle-check]:checked")).map((input) => input.value);
+    tree[major] = {};
+    selectedMiddles.forEach((middle) => {
+      tree[major][middle] = previousTree[middle] || ["自訂"];
+    });
+    renderMiddleSelect();
+  };
+
+  const updateCurrentMiddleMinors = () => {
+    const tree = getEditableExpenseAccountTree();
+    const major = majorSelect.value;
+    const middle = middleSelect.value;
+    if (!major || !middle) return;
+    const selectedMinors = Array.from(minorList.querySelectorAll("[data-account-tree-minor-check]:checked")).map((input) => input.value);
+    tree[major] ||= {};
+    tree[major][middle] = uniqueOptions(selectedMinors, ["自訂"]);
+  };
+
+  majorSelect.addEventListener("change", renderMiddleChecks);
+  middleSelect.addEventListener("change", renderMinorChecks);
+  middleList.addEventListener("change", updateCurrentMajorTree);
+  minorList.addEventListener("change", updateCurrentMiddleMinors);
+  saveButton.addEventListener("click", () => {
+    updateCurrentMiddleMinors();
+    optionsByType.expense.accountTree = normalizeExpenseAccountTree(optionsByType.expense.accountTree);
+    saveOptions();
+    renderAllOptions();
+    showToast("支出科目關聯已儲存。");
+  });
+
+  renderMiddleChecks();
+}
+
+function getEditableExpenseAccountTree() {
+  optionsByType.expense.accountTree = normalizeExpenseAccountTree(optionsByType.expense.accountTree || defaultExpenseAccountTree);
+  return optionsByType.expense.accountTree;
 }
 
 function normalizeOptions(values, fallback) {
@@ -11639,7 +11776,10 @@ function saveOptionsLocalOnly() {
 
 function normalizeOptionsByType(saved = {}) {
   return {
-    expense: normalizeOptionGroup(saved.expense, defaultOptionsByType.expense),
+    expense: {
+      ...normalizeOptionGroup(saved.expense, defaultOptionsByType.expense),
+      accountTree: normalizeExpenseAccountTree(saved.expense?.accountTree || defaultExpenseAccountTree),
+    },
     income: normalizeOptionGroup(saved.income, defaultOptionsByType.income),
   };
 }

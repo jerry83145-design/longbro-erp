@@ -1214,6 +1214,56 @@ textarea:focus {
   font-weight: 600;
 }
 
+.account-tree-box {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+}
+
+.account-tree-box p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.account-tree-box label {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.account-tree-box select {
+  width: min(420px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  background: #fff;
+}
+
+.account-tree-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.account-tree-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.account-tree-check input {
+  width: 18px;
+  height: 18px;
+}
+
 .record-list {
   min-height: 220px;
   padding: clamp(16px, 2vw, 20px);
