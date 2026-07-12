@@ -2671,7 +2671,7 @@ function confirmInventoryInDrafts(record, drafts) {
     });
 
     overlay.addEventListener("click", (event) => {
-      if (event.target === overlay || event.target.closest("[data-inventory-draft-cancel]")) {
+      if (event.target.closest("[data-inventory-draft-cancel]")) {
         close(null);
         return;
       }
