@@ -2780,7 +2780,7 @@ function buildInventoryInRecordFromExpense(record, item) {
   return {
     date: record.date,
     month: record.month,
-    type: inferInventoryTypeFromText(`${record.minor} ${item.name}`),
+    type: inferInventoryTypeFromExpenseRecord(record, item),
     action: "in",
     source: "支出同步入庫",
     name: item.name,
@@ -2791,6 +2791,14 @@ function buildInventoryInRecordFromExpense(record, item) {
     note: `由支出紀錄同步入庫；交易對象：${record.counterparty}`,
     linkedLedgerId: record.id,
   };
+}
+
+function inferInventoryTypeFromExpenseRecord(record, item) {
+  const categoryText = `${record.major || ""} ${record.middle || ""} ${record.minor || ""}`;
+  const itemText = `${item.name || ""}`;
+  if (/包材|包裝|耗材/.test(categoryText)) return "supply";
+  if (/卡磚|卡夾|卡膜|自黏袋|自粘袋|保護套|team\s*bag|sleeve|toploader|holder/i.test(itemText)) return "supply";
+  return inferInventoryTypeFromText(`${categoryText} ${itemText}`);
 }
 
 async function updateSyncedInventoryRecord(previousRecord, updatedFields) {
