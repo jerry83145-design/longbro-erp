@@ -2617,12 +2617,15 @@ function confirmInventoryInDrafts(record, drafts) {
           </table>
         </div>
         <div class="inventory-draft-footer">
-          <button type="button" class="secondary-button" data-inventory-draft-add>＋新增細項</button>
+          <div class="inventory-draft-tools">
+            <button type="button" class="secondary-button" data-inventory-draft-add>＋新增細項</button>
+            <button type="button" class="secondary-button" data-inventory-draft-add-batch>＋新增 5 列</button>
+          </div>
           <strong data-inventory-draft-total>總成本 NT$ 0</strong>
-        </div>
-        <div class="match-dialog-actions">
-          <button type="button" class="secondary-button" data-inventory-draft-cancel>取消</button>
-          <button type="button" data-inventory-draft-confirm>確認入庫</button>
+          <div class="inventory-draft-actions">
+            <button type="button" class="secondary-button" data-inventory-draft-cancel>取消</button>
+            <button type="button" data-inventory-draft-confirm>確認入庫</button>
+          </div>
         </div>
       </div>
     `;
@@ -2677,6 +2680,11 @@ function confirmInventoryInDrafts(record, drafts) {
       }
       if (event.target.closest("[data-inventory-draft-add]")) {
         addRow({ quantity: 1 });
+        tbody.querySelector("tr:last-child [data-inventory-draft-name]")?.focus();
+        return;
+      }
+      if (event.target.closest("[data-inventory-draft-add-batch]")) {
+        Array.from({ length: 5 }).forEach(() => addRow({ quantity: 1 }));
         tbody.querySelector("tr:last-child [data-inventory-draft-name]")?.focus();
         return;
       }

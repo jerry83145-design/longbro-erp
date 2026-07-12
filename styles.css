@@ -3001,13 +3001,18 @@ textarea:focus {
 }
 
 .inventory-draft-dialog {
-  max-width: 820px;
+  max-width: min(1080px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .inventory-draft-table-wrap {
   border: 1px solid var(--line);
   border-radius: 8px;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: min(68vh, 720px);
 }
 
 .inventory-draft-table {
@@ -3019,7 +3024,7 @@ textarea:focus {
 .inventory-draft-table th,
 .inventory-draft-table td {
   border-bottom: 1px solid var(--line);
-  padding: 10px;
+  padding: 6px 10px;
   text-align: left;
 }
 
@@ -3027,6 +3032,9 @@ textarea:focus {
   background: #edf5f1;
   color: var(--text);
   font-size: 13px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   white-space: nowrap;
 }
 
@@ -3052,7 +3060,8 @@ textarea:focus {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 12px;
+  min-height: 42px;
+  padding: 8px 12px;
   font: inherit;
   font-weight: 700;
   color: var(--text);
@@ -3070,11 +3079,39 @@ textarea:focus {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  background: #fffdf8;
+  margin: 0 -24px -24px;
+  padding: 12px 24px;
 }
 
 .inventory-draft-footer strong {
   color: var(--accent);
   font-size: 18px;
+  white-space: nowrap;
+}
+
+.inventory-draft-tools,
+.inventory-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .inventory-draft-footer {
+    align-items: stretch;
+  }
+
+  .inventory-draft-tools,
+  .inventory-draft-actions {
+    width: 100%;
+  }
+
+  .inventory-draft-footer strong {
+    width: 100%;
+  }
 }
 
 .record-item:first-child {
