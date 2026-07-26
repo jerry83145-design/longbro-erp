@@ -8876,7 +8876,7 @@ function showInventoryTypeDetailDialog(type) {
         <div>
           <p class="eyebrow">INVENTORY SUMMARY</p>
           <h3>${escapeHtml(label)}明細</h3>
-          <p>依品名 / 規格彙總目前庫存</p>
+          <p>依入帳時間排序目前庫存</p>
         </div>
         <button type="button" data-inventory-type-close>×</button>
       </div>
@@ -8958,12 +8958,15 @@ function buildInventoryTypeDetails(type) {
         source: record.source || "",
         reference: record.reference || "",
         pendingCost: !Number(record.totalCost || 0),
+        timeValue: getRecordTimeValue(record),
       });
     });
 
   return Array.from(map.values()).sort((a, b) => {
-    const qtyDiff = Number(b.quantity || 0) - Number(a.quantity || 0);
-    if (qtyDiff) return qtyDiff;
+    const timeDiff = Number(b.latestTimeValue || 0) - Number(a.latestTimeValue || 0);
+    if (timeDiff) return timeDiff;
+    const dateDiff = String(b.latestDate || "").localeCompare(String(a.latestDate || ""));
+    if (dateDiff) return dateDiff;
     return String(a.name).localeCompare(String(b.name), "zh-Hant");
   });
 }
@@ -8977,6 +8980,7 @@ function addInventoryTypeDetail(map, entry) {
     movementCount: 0,
     pendingCount: 0,
     latestDate: "",
+    latestTimeValue: 0,
     sources: new Set(),
     references: new Set(),
   };
@@ -8986,6 +8990,7 @@ function addInventoryTypeDetail(map, entry) {
   current.movementCount += 1;
   if (entry.pendingCost) current.pendingCount += 1;
   if (entry.date && String(entry.date) > String(current.latestDate || "")) current.latestDate = entry.date;
+  current.latestTimeValue = Math.max(Number(current.latestTimeValue || 0), Number(entry.timeValue || 0));
   if (entry.source) current.sources.add(entry.source);
   if (entry.reference) current.references.add(entry.reference);
   map.set(key, current);
