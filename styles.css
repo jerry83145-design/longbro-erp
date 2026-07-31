@@ -3163,7 +3163,7 @@ textarea:focus {
 
 .inventory-out-table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 960px;
   border-collapse: collapse;
 }
 
@@ -3210,7 +3210,7 @@ textarea:focus {
 
 .inventory-out-table input[type="number"] {
   min-height: 40px;
-  min-width: 100px;
+  min-width: 84px;
 }
 
 .inventory-out-footer {

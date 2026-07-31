@@ -3059,9 +3059,9 @@ function confirmInventoryOutSelections(record, options = {}) {
                 <th>類型</th>
                 <th>可用</th>
                 <th>庫存成本</th>
+                ${splitMode ? "<th>總盒數</th><th>賣出盒數</th>" : "<th>本次沖銷數量</th>"}
                 <th>修正庫存數量</th>
                 <th>修正總成本</th>
-                ${splitMode ? "<th>總盒數</th><th>賣出盒數</th>" : "<th>本次沖銷數量</th>"}
               </tr>
             </thead>
             <tbody>
@@ -3121,8 +3121,6 @@ function renderInventoryOutSelectionRow(lot, splitMode) {
       <td>${escapeHtml(inventoryTypeLabels[lot.type] || lot.type)}</td>
       <td>${formatNumber(lot.remainingQuantity)} ${unit}</td>
       <td>NT$ ${formatNumber(lot.totalCost)}</td>
-      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.quantity)}" data-inventory-adjust-qty="${escapeHtml(lot.id)}" /></td>
-      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.totalCost)}" data-inventory-adjust-cost="${escapeHtml(lot.id)}" /></td>
       ${
         splitMode
           ? `
@@ -3131,6 +3129,8 @@ function renderInventoryOutSelectionRow(lot, splitMode) {
           `
           : `<td><input type="number" min="1" max="${escapeHtml(lot.remainingQuantity)}" step="1" value="1" data-inventory-out-qty="${escapeHtml(lot.id)}" /></td>`
       }
+      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.quantity)}" data-inventory-adjust-qty="${escapeHtml(lot.id)}" /></td>
+      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.totalCost)}" data-inventory-adjust-cost="${escapeHtml(lot.id)}" /></td>
     </tr>
   `;
 }
