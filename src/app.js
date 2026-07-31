@@ -327,6 +327,7 @@ const fields = {
   note: document.querySelector("#noteSelect"),
   noteText: document.querySelector("#noteInput"),
   inventorySync: document.querySelector("#inventorySyncSelect"),
+  inventorySplitIncome: document.querySelector("#inventorySplitIncomeInput"),
   inventorySyncHint: document.querySelector("#inventorySyncHint"),
   inventoryPicker: document.querySelector("#ledgerInventoryPicker"),
 };
@@ -1181,6 +1182,7 @@ fields.note.addEventListener("input", () => {
 });
 
 fields.inventorySync.addEventListener("change", renderLedgerInventorySync);
+fields.inventorySplitIncome?.addEventListener("change", renderLedgerInventorySync);
 fields.major.addEventListener("change", () => {
   if (recordType === "expense") renderExpenseDependentOptions({ preserveMiddle: false, preserveMinor: false });
   renderLedgerInventorySync();
@@ -1247,6 +1249,12 @@ recordsList.addEventListener("click", async (event) => {
   if (button.dataset.recordAction === "match-inventory") {
     await handleInventoryMatch(record, button);
   }
+});
+
+recordsList.addEventListener("change", (event) => {
+  const toggle = event.target.closest("[data-inventory-match-split]");
+  if (!toggle) return;
+  toggle.closest(".inventory-match-panel")?.classList.toggle("split-mode", toggle.checked);
 });
 
 bankTransactionList.addEventListener("click", async (event) => {
@@ -2972,24 +2980,27 @@ async function createInventoryOutFromIncome(record) {
     return;
   }
 
-  if (selected.some((item) => item.quantity <= 0 || item.quantity > item.lot.remainingQuantity)) {
+  if (selected.some((item) => !isValidInventoryOutSelection(item))) {
     showToast("出庫數量必須大於 0，且不可超過可用庫存。");
     return;
   }
 
   const links = [];
   for (const item of selected) {
-    const unitCost = Number(item.lot.unitCost || item.lot.totalCost / item.lot.quantity || 0);
+    const outbound = buildInventoryOutboundFromSelection(item);
     const outRecord = {
       date: record.date,
       month: record.month,
-      type: item.lot.type,
+      type: outbound.type,
       action: "out",
       source: "銷售出庫",
-      name: item.lot.name,
-      quantity: item.quantity,
-      unitCost,
-      totalCost: unitCost * item.quantity,
+      name: outbound.name,
+      quantity: outbound.quantity,
+      unitCost: outbound.unitCost,
+      totalCost: outbound.totalCost,
+      sourceQuantityUsed: outbound.sourceQuantityUsed,
+      splitTotalUnits: outbound.splitTotalUnits,
+      splitSoldUnits: outbound.splitSoldUnits,
       reference: `收入：${record.item}`,
       note: `由收入紀錄同步出庫；來源庫存：${item.lot.source}`,
       linkedLedgerId: record.id,
@@ -2999,15 +3010,90 @@ async function createInventoryOutFromIncome(record) {
     links.push({
       inventoryRecordId: savedId,
       sourceInventoryId: item.lot.id,
-      name: item.lot.name,
-      type: item.lot.type,
-      quantity: item.quantity,
-      unitCost,
-      totalCost: unitCost * item.quantity,
+      name: outbound.name,
+      type: outbound.type,
+      quantity: outbound.displayQuantity,
+      unitCost: outbound.unitCost,
+      totalCost: outbound.totalCost,
+      splitTotalUnits: outbound.splitTotalUnits,
+      splitSoldUnits: outbound.splitSoldUnits,
     });
   }
 
   await updateLedgerInventoryLinks(record, links);
+}
+
+function isLedgerSplitIncomeMode() {
+  return recordType === "income" && fields.inventorySplitIncome?.checked;
+}
+
+function buildInventorySelection(lot, options = {}) {
+  const splitMode = Boolean(options.splitMode);
+  const splitTotalUnits = Number(options.splitTotalUnits || 0);
+  const splitSoldUnits = Number(options.splitSoldUnits || 0);
+  const lotQuantity = Number(lot?.quantity || 0);
+  return {
+    lot,
+    quantity: Number(options.quantity || 0),
+    splitMode,
+    splitTotalUnits,
+    splitSoldUnits,
+    sourceQuantityUsed: splitMode && splitTotalUnits ? lotQuantity * (splitSoldUnits / splitTotalUnits) : Number(options.quantity || 0),
+  };
+}
+
+function isValidInventoryOutSelection(item) {
+  if (!item?.lot) return false;
+  if (item.splitMode) {
+    return (
+      item.splitTotalUnits > 0 &&
+      item.splitSoldUnits > 0 &&
+      item.splitSoldUnits <= item.splitTotalUnits &&
+      item.sourceQuantityUsed > 0 &&
+      item.sourceQuantityUsed <= Number(item.lot.remainingQuantity || 0)
+    );
+  }
+  return item.quantity > 0 && item.quantity <= Number(item.lot.remainingQuantity || 0);
+}
+
+function buildInventoryOutboundFromSelection(item) {
+  const lotQuantity = Number(item.lot.quantity || 0);
+  const lotTotalCost = Number(item.lot.totalCost || 0);
+
+  if (item.splitMode) {
+    const sourceQuantityUsed = lotQuantity * (item.splitSoldUnits / item.splitTotalUnits);
+    const totalCost = lotTotalCost * (item.splitSoldUnits / item.splitTotalUnits);
+    const unitCost = item.splitSoldUnits ? totalCost / item.splitSoldUnits : 0;
+    return {
+      type: item.lot.type,
+      name: `${item.lot.name}（拆盒 ${formatInventorySplitNumber(item.splitSoldUnits)}/${formatInventorySplitNumber(item.splitTotalUnits)}）`,
+      quantity: sourceQuantityUsed,
+      displayQuantity: item.splitSoldUnits,
+      unitCost,
+      totalCost,
+      sourceQuantityUsed,
+      splitTotalUnits: item.splitTotalUnits,
+      splitSoldUnits: item.splitSoldUnits,
+      note: `拆盒收入出庫；原庫存 ${formatInventorySplitNumber(lotQuantity)} 單位，共拆 ${formatInventorySplitNumber(item.splitTotalUnits)} 盒，本次賣出 ${formatInventorySplitNumber(item.splitSoldUnits)} 盒。`,
+    };
+  }
+
+  const unitCost = Number(item.lot.unitCost || lotTotalCost / lotQuantity || 0);
+  return {
+    type: item.lot.type,
+    name: item.lot.name,
+    quantity: item.quantity,
+    displayQuantity: item.quantity,
+    unitCost,
+    totalCost: unitCost * item.quantity,
+    sourceQuantityUsed: item.quantity,
+    splitTotalUnits: 0,
+    splitSoldUnits: 0,
+  };
+}
+
+function formatInventorySplitNumber(value) {
+  return Number(value || 0).toLocaleString("zh-TW", { maximumFractionDigits: 4 });
 }
 
 function inferInventoryTypeFromText(text) {
@@ -3021,10 +3107,18 @@ function inferInventoryTypeFromText(text) {
 function getSelectedLedgerInventoryLots() {
   if (fields.inventorySync.value !== "yes" || recordType !== "income") return [];
   const availableLots = getAvailableInventoryLots();
+  const splitMode = isLedgerSplitIncomeMode();
   return Array.from(fields.inventoryPicker.querySelectorAll("[data-ledger-inventory-id]:checked")).map((checkbox) => {
     const lot = availableLots.find((item) => item.id === checkbox.dataset.ledgerInventoryId);
     const qtyInput = fields.inventoryPicker.querySelector(`[data-ledger-inventory-qty="${CSS.escape(checkbox.dataset.ledgerInventoryId)}"]`);
-    return { lot, quantity: Number(qtyInput?.value || 0) };
+    const splitTotalInput = fields.inventoryPicker.querySelector(`[data-inventory-split-total="${CSS.escape(checkbox.dataset.ledgerInventoryId)}"]`);
+    const splitSoldInput = fields.inventoryPicker.querySelector(`[data-inventory-split-sold="${CSS.escape(checkbox.dataset.ledgerInventoryId)}"]`);
+    return buildInventorySelection(lot, {
+      quantity: Number(qtyInput?.value || 0),
+      splitMode,
+      splitTotalUnits: Number(splitTotalInput?.value || 0),
+      splitSoldUnits: Number(splitSoldInput?.value || 0),
+    });
   }).filter((item) => item.lot);
 }
 
@@ -8044,10 +8138,18 @@ async function loadInventoryRecords() {
 async function handleInventoryMatch(record, button) {
   const panel = button.closest(".inventory-match-panel");
   const availableLots = getAvailableInventoryLots();
+  const splitMode = panel?.classList.contains("split-mode");
   const selected = Array.from(panel.querySelectorAll("[data-inventory-match-id]:checked")).map((checkbox) => {
     const lot = availableLots.find((item) => item.id === checkbox.dataset.inventoryMatchId);
     const qtyInput = panel.querySelector(`[data-inventory-match-qty="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
-    return { lot, quantity: Number(qtyInput?.value || 0) };
+    const splitTotalInput = panel.querySelector(`[data-inventory-split-total="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
+    const splitSoldInput = panel.querySelector(`[data-inventory-split-sold="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
+    return buildInventorySelection(lot, {
+      quantity: Number(qtyInput?.value || 0),
+      splitMode,
+      splitTotalUnits: Number(splitTotalInput?.value || 0),
+      splitSoldUnits: Number(splitSoldInput?.value || 0),
+    });
   });
 
   if (!selected.length) {
@@ -8055,24 +8157,27 @@ async function handleInventoryMatch(record, button) {
     return;
   }
 
-  if (selected.some((item) => !item.lot || item.quantity <= 0 || item.quantity > item.lot.remainingQuantity)) {
+  if (selected.some((item) => !isValidInventoryOutSelection(item))) {
     showToast("請確認出庫數量不可超過可用庫存。");
     return;
   }
 
   const links = [];
   for (const item of selected) {
-    const unitCost = Number(item.lot.unitCost || item.lot.totalCost / item.lot.quantity || 0);
+    const outbound = buildInventoryOutboundFromSelection(item);
     const outRecord = {
       date: record.date,
       month: record.date.slice(0, 7).replace("-", ""),
-      type: item.lot.type,
+      type: outbound.type,
       action: "out",
       source: "銷售出庫",
-      name: item.lot.name,
-      quantity: item.quantity,
-      unitCost,
-      totalCost: unitCost * item.quantity,
+      name: outbound.name,
+      quantity: outbound.quantity,
+      unitCost: outbound.unitCost,
+      totalCost: outbound.totalCost,
+      sourceQuantityUsed: outbound.sourceQuantityUsed,
+      splitTotalUnits: outbound.splitTotalUnits,
+      splitSoldUnits: outbound.splitSoldUnits,
       reference: `收入：${record.item}`,
       note: `由收入紀錄配對出庫；原庫存來源：${item.lot.source}`,
       linkedLedgerId: record.id,
@@ -8082,11 +8187,13 @@ async function handleInventoryMatch(record, button) {
     links.push({
       inventoryRecordId: savedId,
       sourceInventoryId: item.lot.id,
-      name: item.lot.name,
-      type: item.lot.type,
-      quantity: item.quantity,
-      unitCost,
-      totalCost: unitCost * item.quantity,
+      name: outbound.name,
+      type: outbound.type,
+      quantity: outbound.displayQuantity,
+      unitCost: outbound.unitCost,
+      totalCost: outbound.totalCost,
+      splitTotalUnits: outbound.splitTotalUnits,
+      splitSoldUnits: outbound.splitSoldUnits,
     });
   }
 
@@ -8817,7 +8924,7 @@ function getAvailableInventoryLots() {
     .forEach((record) => {
       outboundBySource.set(
         record.sourceInventoryId,
-        Number(outboundBySource.get(record.sourceInventoryId) || 0) + Number(record.quantity || 0),
+        Number(outboundBySource.get(record.sourceInventoryId) || 0) + Number(record.sourceQuantityUsed || record.quantity || 0),
       );
     });
 
@@ -11439,6 +11546,10 @@ function renderLedgerInventorySync() {
   if (!fields.inventorySync || !fields.inventoryPicker) return;
 
   const isEnabled = fields.inventorySync.value === "yes";
+  const splitToggle = fields.inventorySplitIncome?.closest(".inventory-split-toggle");
+  if (splitToggle) splitToggle.hidden = !isEnabled || recordType !== "income";
+  if ((!isEnabled || recordType !== "income") && fields.inventorySplitIncome) fields.inventorySplitIncome.checked = false;
+  fields.inventoryPicker.classList.toggle("split-mode", isLedgerSplitIncomeMode());
   fields.inventoryPicker.hidden = !isEnabled || recordType !== "income";
 
   if (!isEnabled) {
@@ -11481,6 +11592,10 @@ function renderLedgerInventoryOption(lot) {
         <small>${escapeHtml(inventoryTypeLabels[lot.type] || lot.type)} · 可用 ${formatNumber(lot.remainingQuantity)} · 成本 NT$ ${formatNumber(lot.totalCost)}</small>
       </span>
       <input type="number" min="1" max="${escapeHtml(lot.remainingQuantity)}" step="1" value="1" data-ledger-inventory-qty="${escapeHtml(lot.id)}" />
+      <div class="inventory-split-controls">
+        <label>總盒數<input type="number" min="1" step="1" value="" data-inventory-split-total="${escapeHtml(lot.id)}" /></label>
+        <label>賣出盒數<input type="number" min="1" step="1" value="1" data-inventory-split-sold="${escapeHtml(lot.id)}" /></label>
+      </div>
     </label>
   `;
 }
@@ -11564,6 +11679,10 @@ function renderInventoryMatchPanel(record) {
         <strong>庫存配對</strong>
         <span>可多選庫存來源；適合一天賣多箱、多盒、多張卡或同一筆收入包含多個商品。</span>
       </div>
+      <label class="inline-check inventory-split-toggle">
+        <input type="checkbox" data-inventory-match-split />
+        <span>拆盒收入</span>
+      </label>
       <div class="inventory-match-list">
         ${availableLots.map(renderInventoryMatchOption).join("")}
       </div>
@@ -11582,6 +11701,10 @@ function renderInventoryMatchOption(lot) {
         <small>${escapeHtml(inventoryTypeLabels[lot.type])} · ${escapeHtml(lot.source)} · 剩 ${formatNumber(lot.remainingQuantity)} ${unit}</small>
       </span>
       <input type="number" min="1" max="${lot.remainingQuantity}" step="1" value="1" data-inventory-match-qty="${escapeHtml(lot.id)}" aria-label="出庫數量" />
+      <div class="inventory-split-controls">
+        <label>總盒數<input type="number" min="1" step="1" value="" data-inventory-split-total="${escapeHtml(lot.id)}" /></label>
+        <label>賣出盒數<input type="number" min="1" step="1" value="1" data-inventory-split-sold="${escapeHtml(lot.id)}" /></label>
+      </div>
     </label>
   `;
 }

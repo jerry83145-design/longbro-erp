@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260726-inventory-detail-time-sort" />
+    <link rel="stylesheet" href="./styles.css?v=20260731-split-box-income" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -264,6 +264,10 @@
                   <option value="yes">是，同步處理庫存</option>
                 </select>
                 <p id="inventorySyncHint" class="muted-text">支出可同步入庫；收入可同步出庫。</p>
+                <label class="inline-check inventory-split-toggle" hidden>
+                  <input id="inventorySplitIncomeInput" type="checkbox" />
+                  <span>拆盒收入</span>
+                </label>
                 <div id="ledgerInventoryPicker" class="ledger-inventory-picker" hidden></div>
               </div>
 
@@ -839,6 +843,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260726-inventory-detail-time-sort"></script>
+    <script type="module" src="./src/app.js?v=20260731-split-box-income"></script>
   </body>
 </html>
