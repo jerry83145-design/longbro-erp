@@ -349,6 +349,7 @@ let bankTransactionsCache = loadLocalBankTransactions();
 let lineDraftsCache = loadLocalLineDrafts();
 let voucherInboxCache = loadLocalVoucherInbox();
 let optionsByType = loadOptions();
+let pendingLedgerInventorySelections = null;
 let lastReportRows = [];
 let lastReportSummary = null;
 let currentVoucherOcrRecordId = "";
@@ -1355,6 +1356,14 @@ ledgerForm.addEventListener("submit", async (event) => {
   const record = buildRecord();
   if (!record) return;
 
+  if (!editingRecordId && record.type === "income" && fields.inventorySync.value === "yes") {
+    const selectedInventory = await confirmInventoryOutSelections(record, {
+      splitMode: isLedgerSplitIncomeMode(),
+    });
+    if (selectedInventory === null) return;
+    pendingLedgerInventorySelections = selectedInventory;
+  }
+
   saveButton.disabled = true;
   saveButton.textContent = "儲存中...";
 
@@ -1418,6 +1427,7 @@ ledgerForm.addEventListener("submit", async (event) => {
   } catch (error) {
     showToast(`儲存失敗：${error.message}`);
   } finally {
+    pendingLedgerInventorySelections = null;
     saveButton.disabled = false;
     saveButton.textContent = "儲存紀錄";
   }
@@ -3023,6 +3033,119 @@ async function createInventoryOutFromIncome(record) {
   await updateLedgerInventoryLinks(record, links);
 }
 
+function confirmInventoryOutSelections(record, options = {}) {
+  return new Promise((resolve) => {
+    const availableLots = getAvailableInventoryLots();
+    const splitMode = Boolean(options.splitMode);
+    const overlay = document.createElement("div");
+    overlay.className = "match-dialog-overlay";
+    overlay.innerHTML = `
+      <div class="match-dialog inventory-out-dialog ${splitMode ? "split-mode" : ""}" role="dialog" aria-modal="true" aria-label="庫存配對">
+        <div class="match-dialog-header">
+          <div>
+            <p class="eyebrow">INVENTORY MATCH</p>
+            <h3>庫存配對</h3>
+            <p>${escapeHtml(record.item || "收入")} · 收入 NT$ ${formatNumber(record.amount || 0)}</p>
+          </div>
+          <button type="button" data-inventory-out-cancel>×</button>
+        </div>
+        <div class="inventory-out-table-wrap">
+          <table class="inventory-out-table">
+            <thead>
+              <tr>
+                <th>選</th>
+                <th>庫存品項</th>
+                <th>類型</th>
+                <th>可用</th>
+                <th>庫存成本</th>
+                ${splitMode ? "<th>總盒數</th><th>賣出盒數</th>" : "<th>出庫數量</th>"}
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                availableLots.length
+                  ? availableLots.map((lot) => renderInventoryOutSelectionRow(lot, splitMode)).join("")
+                  : `<tr><td colspan="${splitMode ? 7 : 6}">目前沒有可出庫的庫存。</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+        <div class="inventory-out-footer">
+          <span>${splitMode ? "拆盒收入：用原庫存總成本按盒數比例計算成本。" : "一般配對：直接扣選取庫存數量。"}</span>
+          <div>
+            <button type="button" class="secondary-button" data-inventory-out-cancel>取消</button>
+            <button type="button" data-inventory-out-confirm ${availableLots.length ? "" : "disabled"}>確認配對</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-inventory-out-cancel]")) {
+        overlay.remove();
+        resolve(null);
+        return;
+      }
+
+      if (event.target.closest("[data-inventory-out-confirm]")) {
+        const selected = readInventoryOutSelectionsFromContainer(overlay, splitMode);
+        if (!selected.length) {
+          showToast("請至少勾選一筆庫存。");
+          return;
+        }
+        if (selected.some((item) => !isValidInventoryOutSelection(item))) {
+          showToast(splitMode ? "請確認總盒數、賣出盒數與可用庫存。" : "請確認出庫數量不可超過可用庫存。");
+          return;
+        }
+        overlay.remove();
+        resolve(selected);
+      }
+    });
+
+    document.body.appendChild(overlay);
+  });
+}
+
+function renderInventoryOutSelectionRow(lot, splitMode) {
+  const unit = inventoryUnitLabels[lot.type] || "件";
+  return `
+    <tr>
+      <td><input type="checkbox" data-inventory-out-id="${escapeHtml(lot.id)}" /></td>
+      <td>
+        <strong>${escapeHtml(lot.name)}</strong>
+        <small>${escapeHtml(lot.source || "未填來源")}</small>
+      </td>
+      <td>${escapeHtml(inventoryTypeLabels[lot.type] || lot.type)}</td>
+      <td>${formatNumber(lot.remainingQuantity)} ${unit}</td>
+      <td>NT$ ${formatNumber(lot.totalCost)}</td>
+      ${
+        splitMode
+          ? `
+            <td><input type="number" min="1" step="1" data-inventory-split-total="${escapeHtml(lot.id)}" /></td>
+            <td><input type="number" min="1" step="1" value="1" data-inventory-split-sold="${escapeHtml(lot.id)}" /></td>
+          `
+          : `<td><input type="number" min="1" max="${escapeHtml(lot.remainingQuantity)}" step="1" value="1" data-inventory-out-qty="${escapeHtml(lot.id)}" /></td>`
+      }
+    </tr>
+  `;
+}
+
+function readInventoryOutSelectionsFromContainer(container, splitMode) {
+  const availableLots = getAvailableInventoryLots();
+  return Array.from(container.querySelectorAll("[data-inventory-out-id]:checked")).map((checkbox) => {
+    const lot = availableLots.find((item) => item.id === checkbox.dataset.inventoryOutId);
+    const qtyInput = container.querySelector(`[data-inventory-out-qty="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
+    const splitTotalInput = container.querySelector(`[data-inventory-split-total="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
+    const splitSoldInput = container.querySelector(`[data-inventory-split-sold="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
+    return buildInventorySelection(lot, {
+      quantity: Number(qtyInput?.value || 0),
+      splitMode,
+      splitTotalUnits: Number(splitTotalInput?.value || 0),
+      splitSoldUnits: Number(splitSoldInput?.value || 0),
+    });
+  }).filter((item) => item.lot);
+}
+
 function isLedgerSplitIncomeMode() {
   return recordType === "income" && fields.inventorySplitIncome?.checked;
 }
@@ -3105,6 +3228,7 @@ function inferInventoryTypeFromText(text) {
 }
 
 function getSelectedLedgerInventoryLots() {
+  if (pendingLedgerInventorySelections) return pendingLedgerInventorySelections;
   if (fields.inventorySync.value !== "yes" || recordType !== "income") return [];
   const availableLots = getAvailableInventoryLots();
   const splitMode = isLedgerSplitIncomeMode();
@@ -8137,20 +8261,10 @@ async function loadInventoryRecords() {
 
 async function handleInventoryMatch(record, button) {
   const panel = button.closest(".inventory-match-panel");
-  const availableLots = getAvailableInventoryLots();
-  const splitMode = panel?.classList.contains("split-mode");
-  const selected = Array.from(panel.querySelectorAll("[data-inventory-match-id]:checked")).map((checkbox) => {
-    const lot = availableLots.find((item) => item.id === checkbox.dataset.inventoryMatchId);
-    const qtyInput = panel.querySelector(`[data-inventory-match-qty="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
-    const splitTotalInput = panel.querySelector(`[data-inventory-split-total="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
-    const splitSoldInput = panel.querySelector(`[data-inventory-split-sold="${CSS.escape(checkbox.dataset.inventoryMatchId)}"]`);
-    return buildInventorySelection(lot, {
-      quantity: Number(qtyInput?.value || 0),
-      splitMode,
-      splitTotalUnits: Number(splitTotalInput?.value || 0),
-      splitSoldUnits: Number(splitSoldInput?.value || 0),
-    });
+  const selected = await confirmInventoryOutSelections(record, {
+    splitMode: panel?.classList.contains("split-mode"),
   });
+  if (selected === null) return;
 
   if (!selected.length) {
     showToast("請先勾選要出庫的庫存。");
@@ -11567,7 +11681,9 @@ function renderLedgerInventorySync() {
   }
 
   const availableLots = getAvailableInventoryLots();
-  fields.inventorySyncHint.textContent = "請勾選要出庫的庫存，並填寫本次出庫數量。";
+  fields.inventorySyncHint.textContent = isLedgerSplitIncomeMode()
+    ? "儲存收入時會開啟拆盒配對視窗，請在彈窗內選庫存並填總盒數、賣出盒數。"
+    : "儲存收入時會開啟庫存配對視窗，請在彈窗內選庫存並填出庫數量。";
 
   if (!availableLots.length) {
     fields.inventoryPicker.hidden = false;
@@ -11576,11 +11692,7 @@ function renderLedgerInventorySync() {
   }
 
   fields.inventoryPicker.hidden = false;
-  fields.inventoryPicker.innerHTML = `
-    <div class="inventory-match-list">
-      ${availableLots.map(renderLedgerInventoryOption).join("")}
-    </div>
-  `;
+  fields.inventoryPicker.innerHTML = `<div class="record-group-empty">可用庫存 ${formatNumber(availableLots.length)} 筆，儲存時會開啟配對視窗。</div>`;
 }
 
 function renderLedgerInventoryOption(lot) {
@@ -11683,9 +11795,6 @@ function renderInventoryMatchPanel(record) {
         <input type="checkbox" data-inventory-match-split />
         <span>拆盒收入</span>
       </label>
-      <div class="inventory-match-list">
-        ${availableLots.map(renderInventoryMatchOption).join("")}
-      </div>
       <button type="button" data-record-action="match-inventory" data-record-id="${escapeHtml(record.id)}">配對選取庫存</button>
     </div>
   `;
