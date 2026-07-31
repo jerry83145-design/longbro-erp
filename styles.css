@@ -3042,11 +3042,26 @@ textarea:focus {
 
 .inventory-match-panel.split-mode .inventory-match-option,
 .ledger-inventory-picker.split-mode .inventory-match-option {
-  grid-template-columns: auto 1fr 86px minmax(160px, 220px);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
 }
 
 .inventory-split-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 10px;
+  width: fit-content;
+}
+
+.inventory-split-toggle input,
+.inventory-match-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  inline-size: 16px;
+  block-size: 16px;
+  min-height: 0;
+  padding: 0;
 }
 
 .inventory-split-controls {
@@ -3058,7 +3073,7 @@ textarea:focus {
 .inventory-match-panel.split-mode .inventory-split-controls,
 .ledger-inventory-picker.split-mode .inventory-split-controls {
   display: grid;
-  grid-column: 3 / 5;
+  grid-column: 1 / -1;
 }
 
 .inventory-match-panel.split-mode [data-inventory-match-qty],
