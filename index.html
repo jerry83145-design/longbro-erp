@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260731-inventory-offset-visible" />
+    <link rel="stylesheet" href="./styles.css?v=20260731-manual-inventory-out" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -466,6 +466,8 @@
               <div class="field wide">
                 <label for="inventoryNameInput">品名／卡名 <b>*</b></label>
                 <input id="inventoryNameInput" type="text" placeholder="例如：2026 Topps Chrome Hobby / Shohei Ohtani #17" required />
+                <input id="inventorySourceRecordInput" type="hidden" />
+                <button id="selectInventoryOutButton" class="secondary-button compact-button" type="button" hidden>選擇庫存出庫</button>
               </div>
               <div class="field">
                 <label for="inventoryQtyInput">數量 <b>*</b></label>
@@ -843,6 +845,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260731-inventory-offset-visible"></script>
+    <script type="module" src="./src/app.js?v=20260731-manual-inventory-out"></script>
   </body>
 </html>

@@ -261,6 +261,8 @@ const inventoryTypeSelect = document.querySelector("#inventoryTypeSelect");
 const inventoryActionSelect = document.querySelector("#inventoryActionSelect");
 const inventorySourceSelect = document.querySelector("#inventorySourceSelect");
 const inventoryNameInput = document.querySelector("#inventoryNameInput");
+const inventorySourceRecordInput = document.querySelector("#inventorySourceRecordInput");
+const selectInventoryOutButton = document.querySelector("#selectInventoryOutButton");
 const inventoryQtyInput = document.querySelector("#inventoryQtyInput");
 const inventoryUnitCostInput = document.querySelector("#inventoryUnitCostInput");
 const inventoryTotalCostInput = document.querySelector("#inventoryTotalCostInput");
@@ -544,6 +546,7 @@ updateFormLabels();
 renderBatchVoucherList([]);
 renderLedgerInventorySync();
 renderInventorySources();
+renderInventoryOutSelector();
 renderInventory();
 renderAssets();
 renderPendingCenter();
@@ -976,6 +979,8 @@ ledgerImportPreview?.addEventListener("click", async (event) => {
 });
 
 inventoryTypeSelect.addEventListener("change", renderInventorySources);
+inventoryActionSelect.addEventListener("change", renderInventoryOutSelector);
+selectInventoryOutButton?.addEventListener("click", selectInventoryForManualOut);
 inventoryQtyInput.addEventListener("input", syncInventoryTotalCost);
 inventoryUnitCostInput.addEventListener("input", syncInventoryTotalCost);
 clearInventoryButton.addEventListener("click", clearInventoryForm);
@@ -3038,6 +3043,9 @@ function confirmInventoryOutSelections(record, options = {}) {
   return new Promise((resolve) => {
     const availableLots = getAvailableInventoryLots();
     const splitMode = Boolean(options.splitMode);
+    const singleSelect = Boolean(options.singleSelect);
+    const confirmLabel = options.confirmLabel || "確認配對";
+    const footerText = options.footerText || (splitMode ? "拆盒收入：用原庫存總成本按盒數比例計算成本。" : "一般配對：直接扣選取庫存數量。");
     const overlay = document.createElement("div");
     overlay.className = "match-dialog-overlay";
     overlay.innerHTML = `
@@ -3074,10 +3082,10 @@ function confirmInventoryOutSelections(record, options = {}) {
           </table>
         </div>
         <div class="inventory-out-footer">
-          <span>${splitMode ? "拆盒收入：用原庫存總成本按盒數比例計算成本。" : "一般配對：直接扣選取庫存數量。"}</span>
+          <span>${escapeHtml(footerText)}</span>
           <div>
             <button type="button" class="secondary-button" data-inventory-out-cancel>取消</button>
-            <button type="button" data-inventory-out-confirm ${availableLots.length ? "" : "disabled"}>確認配對</button>
+            <button type="button" data-inventory-out-confirm ${availableLots.length ? "" : "disabled"}>${escapeHtml(confirmLabel)}</button>
           </div>
         </div>
       </div>
@@ -3094,6 +3102,10 @@ function confirmInventoryOutSelections(record, options = {}) {
         const selected = readInventoryOutSelectionsFromContainer(overlay, splitMode);
         if (!selected.length) {
           showToast("請至少勾選一筆庫存。");
+          return;
+        }
+        if (singleSelect && selected.length > 1) {
+          showToast("手動出庫一次請選一筆庫存。");
           return;
         }
         if (selected.some((item) => !isValidInventoryOutSelection(item))) {
@@ -8221,6 +8233,52 @@ function renderInventorySources() {
   inventorySourceSelect.innerHTML = sources.map((source) => `<option value="${source}">${source}</option>`).join("");
 }
 
+function renderInventoryOutSelector() {
+  if (!selectInventoryOutButton) return;
+  selectInventoryOutButton.hidden = inventoryActionSelect.value !== "out";
+}
+
+async function selectInventoryForManualOut() {
+  const selected = await confirmInventoryOutSelections(
+    {
+      item: "手動出庫",
+      amount: 0,
+    },
+    {
+      splitMode: false,
+      singleSelect: true,
+      confirmLabel: "帶入出庫表單",
+      footerText: "選一筆庫存並填本次沖銷數量，系統會自動帶入品名、成本與來源。",
+    },
+  );
+  if (selected === null) return;
+  const item = selected[0];
+  if (!item?.lot) return;
+  await applyInventoryAdjustmentsFromSelections([item]);
+  if (isConfigured) await loadInventoryRecords();
+  applyManualInventoryOutSelection(item);
+}
+
+function applyManualInventoryOutSelection(item) {
+  const outbound = buildInventoryOutboundFromSelection(item);
+  inventorySourceRecordInput.value = item.lot.id || "";
+  inventoryTypeSelect.value = outbound.type || item.lot.type || "box";
+  renderInventorySources();
+  inventoryActionSelect.value = "out";
+  renderInventoryOutSelector();
+  const desiredSource = "手動出庫";
+  if (![...inventorySourceSelect.options].some((option) => option.value === desiredSource)) {
+    inventorySourceSelect.add(new Option(desiredSource, desiredSource));
+  }
+  inventorySourceSelect.value = desiredSource;
+  inventoryNameInput.value = item.lot.name || "";
+  inventoryQtyInput.value = formatInventorySplitNumber(outbound.quantity);
+  inventoryUnitCostInput.value = outbound.unitCost ? formatInventorySplitNumber(outbound.unitCost) : "";
+  inventoryTotalCostInput.value = outbound.totalCost ? formatInventorySplitNumber(outbound.totalCost) : "";
+  inventoryReferenceInput.value = `來源庫存：${item.lot.name || ""}`;
+  inventoryNoteInput.value = item.inventoryAdjustment ? "出庫前已同步修正來源庫存數量／成本。" : "";
+}
+
 function syncInventoryTotalCost() {
   const qty = Number(inventoryQtyInput.value || 0);
   const unitCost = Number(inventoryUnitCostInput.value || 0);
@@ -8260,6 +8318,8 @@ function buildInventoryRecord() {
     quantity,
     unitCost,
     totalCost,
+    sourceInventoryId: inventoryActionSelect.value === "out" ? inventorySourceRecordInput?.value || "" : "",
+    sourceQuantityUsed: inventoryActionSelect.value === "out" ? quantity : 0,
     reference: inventoryReferenceInput.value.trim(),
     note: inventoryNoteInput.value.trim(),
   };
@@ -8412,7 +8472,9 @@ function startEditingInventoryRecord(record) {
   inventoryTypeSelect.value = record.type || "box";
   renderInventorySources();
   inventoryActionSelect.value = record.action || "in";
+  renderInventoryOutSelector();
   inventorySourceSelect.value = record.source || inventorySourceSelect.value;
+  inventorySourceRecordInput.value = record.sourceInventoryId || "";
   inventoryNameInput.value = record.name || "";
   inventoryQtyInput.value = record.quantity || "";
   inventoryUnitCostInput.value = record.unitCost || "";
@@ -9016,9 +9078,11 @@ function compareAssets(a, b) {
 function clearInventoryForm() {
   inventoryForm.reset();
   editingInventoryId = null;
+  inventorySourceRecordInput.value = "";
   saveInventoryButton.textContent = "儲存庫存";
   setDefaultInventoryDate();
   renderInventorySources();
+  renderInventoryOutSelector();
 }
 
 function renderInventory() {
@@ -9097,7 +9161,7 @@ function getInventoryOpening() {
 function getAvailableInventoryLots() {
   const outboundBySource = new Map();
   inventoryCache
-    .filter((record) => record.action === "out" && record.sourceInventoryId && isSalesInventoryOut(record))
+    .filter((record) => record.action === "out" && record.sourceInventoryId)
     .forEach((record) => {
       outboundBySource.set(
         record.sourceInventoryId,
