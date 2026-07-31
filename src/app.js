@@ -2996,6 +2996,7 @@ async function createInventoryOutFromIncome(record) {
   }
 
   const links = [];
+  await applyInventoryAdjustmentsFromSelections(selected);
   for (const item of selected) {
     const outbound = buildInventoryOutboundFromSelection(item);
     const outRecord = {
@@ -3058,14 +3059,16 @@ function confirmInventoryOutSelections(record, options = {}) {
                 <th>類型</th>
                 <th>可用</th>
                 <th>庫存成本</th>
-                ${splitMode ? "<th>總盒數</th><th>賣出盒數</th>" : "<th>出庫數量</th>"}
+                <th>修正庫存數量</th>
+                <th>修正總成本</th>
+                ${splitMode ? "<th>總盒數</th><th>賣出盒數</th>" : "<th>本次沖銷數量</th>"}
               </tr>
             </thead>
             <tbody>
               ${
                 availableLots.length
                   ? availableLots.map((lot) => renderInventoryOutSelectionRow(lot, splitMode)).join("")
-                  : `<tr><td colspan="${splitMode ? 7 : 6}">目前沒有可出庫的庫存。</td></tr>`
+                  : `<tr><td colspan="${splitMode ? 9 : 8}">目前沒有可出庫的庫存。</td></tr>`
               }
             </tbody>
           </table>
@@ -3118,6 +3121,8 @@ function renderInventoryOutSelectionRow(lot, splitMode) {
       <td>${escapeHtml(inventoryTypeLabels[lot.type] || lot.type)}</td>
       <td>${formatNumber(lot.remainingQuantity)} ${unit}</td>
       <td>NT$ ${formatNumber(lot.totalCost)}</td>
+      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.quantity)}" data-inventory-adjust-qty="${escapeHtml(lot.id)}" /></td>
+      <td><input type="number" min="0" step="0.01" value="${escapeHtml(lot.totalCost)}" data-inventory-adjust-cost="${escapeHtml(lot.id)}" /></td>
       ${
         splitMode
           ? `
@@ -3135,6 +3140,8 @@ function readInventoryOutSelectionsFromContainer(container, splitMode) {
   return Array.from(container.querySelectorAll("[data-inventory-out-id]:checked")).map((checkbox) => {
     const lot = availableLots.find((item) => item.id === checkbox.dataset.inventoryOutId);
     const qtyInput = container.querySelector(`[data-inventory-out-qty="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
+    const adjustQtyInput = container.querySelector(`[data-inventory-adjust-qty="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
+    const adjustCostInput = container.querySelector(`[data-inventory-adjust-cost="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
     const splitTotalInput = container.querySelector(`[data-inventory-split-total="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
     const splitSoldInput = container.querySelector(`[data-inventory-split-sold="${CSS.escape(checkbox.dataset.inventoryOutId)}"]`);
     return buildInventorySelection(lot, {
@@ -3142,6 +3149,8 @@ function readInventoryOutSelectionsFromContainer(container, splitMode) {
       splitMode,
       splitTotalUnits: Number(splitTotalInput?.value || 0),
       splitSoldUnits: Number(splitSoldInput?.value || 0),
+      adjustedQuantity: Number(adjustQtyInput?.value || lot?.quantity || 0),
+      adjustedTotalCost: Number(adjustCostInput?.value || lot?.totalCost || 0),
     });
   }).filter((item) => item.lot);
 }
@@ -3155,14 +3164,67 @@ function buildInventorySelection(lot, options = {}) {
   const splitTotalUnits = Number(options.splitTotalUnits || 0);
   const splitSoldUnits = Number(options.splitSoldUnits || 0);
   const lotQuantity = Number(lot?.quantity || 0);
+  const adjustedQuantity = Number(options.adjustedQuantity || lotQuantity);
+  const adjustedTotalCost = Number(options.adjustedTotalCost ?? lot?.totalCost ?? 0);
+  const adjustedLot = lot
+    ? {
+        ...lot,
+        quantity: adjustedQuantity,
+        remainingQuantity: Number(lot.remainingQuantity || 0) + (adjustedQuantity - lotQuantity),
+        totalCost: adjustedTotalCost,
+        unitCost: adjustedQuantity ? adjustedTotalCost / adjustedQuantity : Number(lot.unitCost || 0),
+      }
+    : lot;
+  const hasAdjustment = Boolean(lot) && (
+    adjustedQuantity !== Number(lot.quantity || 0) ||
+    adjustedTotalCost !== Number(lot.totalCost || 0)
+  );
   return {
-    lot,
+    lot: adjustedLot,
     quantity: Number(options.quantity || 0),
     splitMode,
     splitTotalUnits,
     splitSoldUnits,
-    sourceQuantityUsed: splitMode && splitTotalUnits ? lotQuantity * (splitSoldUnits / splitTotalUnits) : Number(options.quantity || 0),
+    sourceQuantityUsed: splitMode && splitTotalUnits ? adjustedQuantity * (splitSoldUnits / splitTotalUnits) : Number(options.quantity || 0),
+    inventoryAdjustment: hasAdjustment
+      ? {
+          id: lot.id,
+          quantity: adjustedQuantity,
+          totalCost: adjustedTotalCost,
+          unitCost: adjustedQuantity ? adjustedTotalCost / adjustedQuantity : 0,
+        }
+      : null,
   };
+}
+
+async function applyInventoryAdjustmentsFromSelections(selections) {
+  const adjustments = selections
+    .map((item) => item.inventoryAdjustment)
+    .filter(Boolean);
+  if (!adjustments.length) return;
+
+  for (const adjustment of adjustments) {
+    const previousRecord = inventoryCache.find((item) => item.id === adjustment.id);
+    if (!previousRecord) continue;
+    const updatedRecord = {
+      ...previousRecord,
+      quantity: adjustment.quantity,
+      totalCost: adjustment.totalCost,
+      unitCost: adjustment.unitCost,
+      updatedAt: isConfigured ? firebaseApi.serverTimestamp() : new Date(),
+      updatedBy: currentUser?.email || "local-preview",
+    };
+
+    await writeAuditLog("update", "inventoryRecords", previousRecord.id, previousRecord, updatedRecord);
+    if (isConfigured) {
+      const { id, ...payload } = updatedRecord;
+      await firebaseApi.updateDoc(firebaseApi.doc(db, "inventoryRecords", previousRecord.id), payload);
+    } else {
+      inventoryCache = inventoryCache.map((item) => (item.id === previousRecord.id ? updatedRecord : item));
+    }
+  }
+
+  if (!isConfigured) saveLocalInventoryRecords();
 }
 
 function isValidInventoryOutSelection(item) {
@@ -8277,6 +8339,7 @@ async function handleInventoryMatch(record, button) {
   }
 
   const links = [];
+  await applyInventoryAdjustmentsFromSelections(selected);
   for (const item of selected) {
     const outbound = buildInventoryOutboundFromSelection(item);
     const outRecord = {
