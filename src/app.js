@@ -9250,6 +9250,10 @@ function showInventoryTypeDetailDialog(type) {
     if (event.target === overlay || event.target.closest("[data-inventory-type-close]")) {
       overlay.remove();
     }
+    const historyButton = event.target.closest("[data-inventory-type-history]");
+    if (historyButton) {
+      showInventoryTypeHistoryDialog(historyButton.dataset.inventoryTypeHistory, historyButton.dataset.inventoryType);
+    }
   });
   document.body.appendChild(overlay);
 }
@@ -9261,6 +9265,7 @@ function buildInventoryTypeDetails(type) {
   if (type === "sealedCase" && opening.sealedCaseQty) {
     addInventoryTypeDetail(map, {
       name: "期初完整箱庫存",
+      type,
       quantity: opening.sealedCaseQty,
       totalCost: 0,
       date: "",
@@ -9273,6 +9278,7 @@ function buildInventoryTypeDetails(type) {
   if (type === "box" && opening.boxQty) {
     addInventoryTypeDetail(map, {
       name: "期初散盒庫存",
+      type,
       quantity: opening.boxQty,
       totalCost: 0,
       date: "",
@@ -9285,6 +9291,7 @@ function buildInventoryTypeDetails(type) {
   if (type === "card" && opening.cardQty) {
     addInventoryTypeDetail(map, {
       name: "期初散卡庫存",
+      type,
       quantity: opening.cardQty,
       totalCost: 0,
       date: "",
@@ -9294,14 +9301,15 @@ function buildInventoryTypeDetails(type) {
     });
   }
 
-  inventoryCache
+  getAvailableInventoryLots()
     .filter((record) => record.type === type)
     .forEach((record) => {
-      const direction = record.action === "out" ? -1 : 1;
+      const unitCost = Number(record.unitCost || record.totalCost / record.quantity || 0);
       addInventoryTypeDetail(map, {
         name: record.name || "未填品名",
-        quantity: Number(record.quantity || 0) * direction,
-        totalCost: Number(record.totalCost || 0) * direction,
+        type: record.type || type,
+        quantity: Number(record.remainingQuantity || 0),
+        totalCost: unitCost * Number(record.remainingQuantity || 0),
         date: record.date || "",
         source: record.source || "",
         reference: record.reference || "",
@@ -9310,7 +9318,7 @@ function buildInventoryTypeDetails(type) {
       });
     });
 
-  return Array.from(map.values()).sort((a, b) => {
+  return Array.from(map.values()).filter((row) => Number(row.quantity || 0) > 0).sort((a, b) => {
     const timeDiff = Number(b.latestTimeValue || 0) - Number(a.latestTimeValue || 0);
     if (timeDiff) return timeDiff;
     const dateDiff = String(b.latestDate || "").localeCompare(String(a.latestDate || ""));
@@ -9323,6 +9331,7 @@ function addInventoryTypeDetail(map, entry) {
   const key = String(entry.name || "未填品名").trim() || "未填品名";
   const current = map.get(key) || {
     name: key,
+    type: entry.type || "",
     quantity: 0,
     totalCost: 0,
     movementCount: 0,
@@ -9358,7 +9367,86 @@ function renderInventoryTypeDetailRow(row, unit) {
       <span>NT$ ${formatNumber(row.totalCost)}</span>
       <span>均 NT$ ${formatNumber(averageCost)}</span>
       <small>${formatNumber(row.movementCount)} 筆異動 · ${row.latestDate ? escapeHtml(row.latestDate) : "未填日期"}${row.pendingCount ? ` · ${formatNumber(row.pendingCount)} 筆待成本` : ""}</small>
+      <button type="button" class="secondary-button compact-button" data-inventory-type-history="${escapeHtml(row.name)}" data-inventory-type="${escapeHtml(row.type || "")}">出入帳明細</button>
     </article>
+  `;
+}
+
+function showInventoryTypeHistoryDialog(name, type) {
+  const unit = inventoryUnitLabels[type] || "件";
+  const rows = sortInventoryRecordsByTime(
+    inventoryCache.filter((record) => {
+      if (record.type !== type) return false;
+      if (record.name === name) return true;
+      const sourceInventory = record.sourceInventoryId
+        ? inventoryCache.find((item) => item.id === record.sourceInventoryId)
+        : null;
+      return sourceInventory?.name === name;
+    }),
+  );
+
+  const overlay = document.createElement("div");
+  overlay.className = "match-dialog-overlay";
+  overlay.innerHTML = `
+    <div class="match-dialog inventory-out-dialog" role="dialog" aria-modal="true" aria-label="出入帳明細">
+      <div class="match-dialog-header">
+        <div>
+          <p class="eyebrow">INVENTORY LEDGER</p>
+          <h3>出入帳明細</h3>
+          <p>${escapeHtml(name)}</p>
+        </div>
+        <button type="button" data-inventory-history-close>×</button>
+      </div>
+      <div class="inventory-out-table-wrap">
+        <table class="inventory-out-table inventory-history-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>動作</th>
+              <th>數量</th>
+              <th>成本</th>
+              <th>來源</th>
+              <th>備註</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows.map((record) => renderInventoryHistoryRow(record, unit)).join("")
+                : `<tr><td colspan="6">目前沒有出入帳明細。</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="inventory-out-footer">
+        <span>此處顯示該品項相關入庫、出庫與調整紀錄。</span>
+        <div>
+          <button type="button" class="secondary-button" data-inventory-history-close>關閉</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-inventory-history-close]")) {
+      overlay.remove();
+    }
+  });
+  document.body.appendChild(overlay);
+}
+
+function renderInventoryHistoryRow(record, unit) {
+  const direction = record.action === "out" ? "-" : "+";
+  const quantity = Number(record.splitSoldUnits || record.quantity || 0);
+  return `
+    <tr>
+      <td>${escapeHtml(record.date || "未填日期")}</td>
+      <td>${escapeHtml(inventoryActionLabels[record.action] || record.action || "未填")}</td>
+      <td>${direction}${formatNumber(quantity)} ${unit}</td>
+      <td>NT$ ${formatNumber(record.totalCost)}</td>
+      <td>${escapeHtml(record.source || "未填來源")}</td>
+      <td>${escapeHtml(record.reference || record.note || "")}</td>
+    </tr>
   `;
 }
 
