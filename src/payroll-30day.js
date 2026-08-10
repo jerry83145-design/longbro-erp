@@ -190,7 +190,7 @@ function renderPayrollTableRow(row) {
       <td>${escapePayrollHtml(row.role)}</td>
       <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.baseSalary}" /></td>
       <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.dutyAllowance || 0}" /></td>
-      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.mealAllowance || fixedMealAllowance}" readonly /></td>
+      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.mealAllowance ?? fixedMealAllowance}" /></td>
       <td><strong>${formatCurrency(row.monthlySalaryTotal)}</strong></td>
       <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}" /></td>
       <td>${row.employedDays}</td>
@@ -267,7 +267,7 @@ function readPayrollInputs() {
       ...row,
       baseSalary: moneyValue("baseSalary", row.baseSalary),
       dutyAllowance: moneyValue("dutyAllowance"),
-      mealAllowance: fixedMealAllowance,
+      mealAllowance: moneyValue("mealAllowance", row.mealAllowance ?? fixedMealAllowance),
       hireDate: findValue("hireDate") || row.hireDate,
       personalLeaveDays: Number(findValue("personalLeaveDays") || 0),
       sickLeaveDays: Number(findValue("sickLeaveDays") || 0),
@@ -484,9 +484,10 @@ function mergePayrollEmployee(saved) {
   return {
     ...employee,
     ...saved,
-    hireDate: employee.hireDate || saved.hireDate || "",
-    baseSalary: employee.baseSalary ?? Number(saved.baseSalary || 0),
-    mealAllowance: fixedMealAllowance,
+    hireDate: saved.hireDate || employee.hireDate || "",
+    baseSalary: Number(saved.baseSalary ?? employee.baseSalary ?? 0),
+    dutyAllowance: Number(saved.dutyAllowance ?? employee.dutyAllowance ?? 0),
+    mealAllowance: Number(saved.mealAllowance ?? employee.mealAllowance ?? fixedMealAllowance),
     personalLeaveDays: Number(saved.personalLeaveDays ?? saved.leaveDays ?? 0),
     sickLeaveDays: Number(saved.sickLeaveDays ?? 0),
   };
@@ -512,11 +513,41 @@ function getPayrollCloudDocId(month) {
   return `payrollRows_${String(month || getCurrentMonth()).replace("-", "_")}`;
 }
 
+function hasPayrollRowsLocal(month) {
+  const saved = localStorage.getItem(getPayrollStorageKey(month));
+  if (!saved) return false;
+  try {
+    const rows = JSON.parse(saved);
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function refreshPayrollRowsFromCloud() {
   if (!payrollInitialized || !canUsePayrollCloud()) return;
   const token = ++payrollCloudLoadToken;
   const month = getPayrollMonth();
   if (canWritePayrollCloud()) {
+    const hasLocalRows = hasPayrollRowsLocal(month);
+    const cloudData = hasLocalRows ? null : await loadPayrollDataFromCloud(month).catch((error) => {
+      console.warn("Payroll owner cloud preload failed", error);
+      return null;
+    });
+    const cloudRows = Array.isArray(cloudData?.rows) ? cloudData.rows : null;
+    const cloudMasterRows = Array.isArray(cloudData?.employeeMasterRows) ? cloudData.employeeMasterRows : null;
+    if (token !== payrollCloudLoadToken || month !== getPayrollMonth()) return;
+    if (!hasLocalRows && cloudRows?.length) {
+      if (cloudMasterRows?.length) {
+        employeeMasterRows = normalizeEmployeeMasterRows(cloudMasterRows);
+        saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
+      }
+      payrollRows = cloudRows.map(mergePayrollEmployee).map(calculatePayrollRow);
+      savePayrollRowsLocalOnly(month, payrollRows);
+      syncSelectedPayrollId();
+      renderPayroll();
+      return;
+    }
     await savePayrollDataToCloud(month, getCalculatedRows(), getEmployeeMasterRows()).catch((error) => {
       console.warn("Payroll owner cloud refresh failed", error);
     });
@@ -603,7 +634,7 @@ function cleanPayrollRowForStorage(row) {
     department: row.department,
     baseSalary: Number(row.baseSalary || 0),
     dutyAllowance: Number(row.dutyAllowance || 0),
-    mealAllowance: fixedMealAllowance,
+    mealAllowance: Number(row.mealAllowance ?? fixedMealAllowance),
     hireDate: row.hireDate || "",
     laborInsuredSalary: Number(row.laborInsuredSalary || 0),
     healthInsuredSalary: Number(row.healthInsuredSalary || 0),
