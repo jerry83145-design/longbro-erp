@@ -23,6 +23,7 @@ let payrollRows = [];
 let selectedPayrollId = "";
 let payrollInitialized = false;
 let employeeMasterRows = [];
+let payrollStatus = getDefaultPayrollStatus();
 let payrollCloudContext = null;
 let payrollCloudLoadToken = 0;
 const payrollReadOnlyMessage = "此帳號僅可查閱與匯出，不能新增、刪除、修改、匯入或同步資料。";
@@ -37,6 +38,13 @@ function blockPayrollReadOnly() {
   return true;
 }
 
+function blockPaidPayrollMonth() {
+  if (!isPayrollMonthPaid()) return false;
+  showPayrollToast("此月份已標記為已發薪，請先解除發薪狀態再修改。");
+  renderPayrollTable();
+  return true;
+}
+
 export function initPayrollPage() {
   const monthInput = document.querySelector("#payrollMonthInput");
   const table = document.querySelector("#payrollTable");
@@ -46,6 +54,7 @@ export function initPayrollPage() {
     monthInput.value = getCurrentMonth();
     employeeMasterRows = loadEmployeeMasterRows();
     payrollRows = loadPayrollRows(monthInput.value);
+    payrollStatus = loadPayrollStatus(monthInput.value);
     syncSelectedPayrollId();
     bindPayrollEvents();
     payrollInitialized = true;
@@ -70,6 +79,7 @@ function bindPayrollEvents() {
 
   monthInput?.addEventListener("change", () => {
     payrollRows = loadPayrollRows(monthInput.value);
+    payrollStatus = loadPayrollStatus(monthInput.value);
     syncSelectedPayrollId();
     renderPayroll();
     refreshPayrollRowsFromCloud();
@@ -77,6 +87,7 @@ function bindPayrollEvents() {
 
   document.querySelector("#payrollCalculateButton")?.addEventListener("click", () => {
     if (blockPayrollReadOnly()) return;
+    if (blockPaidPayrollMonth()) return;
     payrollRows = readPayrollInputs().map(calculatePayrollRow);
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayroll();
@@ -92,9 +103,34 @@ function bindPayrollEvents() {
     exportPayrollSlips(getVisiblePayrollRows(), getPayrollMonth());
   });
 
+  document.querySelector("#payrollStatusPanel")?.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-payroll-status-action]")?.dataset.payrollStatusAction;
+    if (!action) return;
+    if (blockPayrollReadOnly()) return;
+    if (action === "paid") {
+      payrollRows = readPayrollInputs().map(calculatePayrollRow);
+      payrollStatus = {
+        status: "paid",
+        paidAt: new Date().toISOString(),
+        paidBy: payrollCloudContext?.currentUser?.email || "",
+      };
+      savePayrollRows(getPayrollMonth(), payrollRows);
+      savePayrollStatus(getPayrollMonth(), payrollStatus);
+      renderPayroll();
+      showPayrollToast("此月份已標記為已發薪，會列入薪資成本報表。");
+    }
+    if (action === "draft") {
+      payrollStatus = getDefaultPayrollStatus();
+      savePayrollStatus(getPayrollMonth(), payrollStatus);
+      renderPayroll();
+      showPayrollToast("已解除發薪狀態，此月份暫不列入薪資成本報表。");
+    }
+  });
+
   table?.addEventListener("input", (event) => {
     if (!event.target.matches("[data-payroll-field]")) return;
     if (blockPayrollReadOnly()) return;
+    if (blockPaidPayrollMonth()) return;
     payrollRows = readPayrollInputs().map(calculatePayrollRow);
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayrollSummary();
@@ -126,10 +162,26 @@ function bindPayrollEvents() {
 
 function renderPayroll() {
   syncSelectedPayrollId();
+  renderPayrollStatusPanel();
   renderPayrollSummary();
   renderPayrollTable();
   renderPayrollPreview();
   renderEmployeeMasterTable();
+}
+
+function renderPayrollStatusPanel() {
+  const panel = document.querySelector("#payrollStatusPanel");
+  if (!panel) return;
+  const isPaid = isPayrollMonthPaid();
+  const paidDate = payrollStatus.paidAt ? payrollStatus.paidAt.slice(0, 10) : "";
+  panel.innerHTML = `
+    <span class="payroll-status-badge ${isPaid ? "is-paid" : "is-draft"}">${isPaid ? `已發薪${paidDate ? `：${escapePayrollHtml(paidDate)}` : ""}` : "草稿"}</span>
+    ${
+      isPaid
+        ? '<button class="secondary-button" type="button" data-payroll-status-action="draft">解除發薪</button>'
+        : '<button class="secondary-button" type="button" data-payroll-status-action="paid">標記為已發薪</button>'
+    }
+  `;
 }
 
 function renderPayrollSummary() {
@@ -183,21 +235,22 @@ function renderPayrollTable() {
 }
 
 function renderPayrollTableRow(row) {
+  const disabledAttr = isPayrollMonthPaid() ? " disabled" : "";
   return `
     <tr class="${row.id === selectedPayrollId ? "active" : ""}">
       <td>${escapePayrollHtml(row.id)}</td>
       <td>${escapePayrollHtml(row.name)}</td>
       <td>${escapePayrollHtml(row.role)}</td>
-      <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.baseSalary}" /></td>
-      <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.dutyAllowance || 0}" /></td>
-      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.mealAllowance ?? fixedMealAllowance}" /></td>
+      <td><input data-payroll-field="baseSalary" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.baseSalary}"${disabledAttr} /></td>
+      <td><input data-payroll-field="dutyAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.dutyAllowance || 0}"${disabledAttr} /></td>
+      <td><input data-payroll-field="mealAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.mealAllowance ?? fixedMealAllowance}"${disabledAttr} /></td>
       <td><strong>${formatCurrency(row.monthlySalaryTotal)}</strong></td>
-      <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}" /></td>
+      <td><input data-payroll-field="hireDate" data-payroll-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.hireDate)}"${disabledAttr} /></td>
       <td>${row.employedDays}</td>
-      <td><input data-payroll-field="personalLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.personalLeaveDays || 0}" /></td>
-      <td><input data-payroll-field="sickLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.sickLeaveDays || 0}" /></td>
-      <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherAllowance || 0}" /></td>
-      <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherDeduction || 0}" /></td>
+      <td><input data-payroll-field="personalLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.personalLeaveDays || 0}"${disabledAttr} /></td>
+      <td><input data-payroll-field="sickLeaveDays" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" step="0.5" value="${row.sickLeaveDays || 0}"${disabledAttr} /></td>
+      <td><input data-payroll-field="otherAllowance" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherAllowance || 0}"${disabledAttr} /></td>
+      <td><input data-payroll-field="otherDeduction" data-payroll-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="${payrollMoneyMax}" step="1" value="${row.otherDeduction || 0}"${disabledAttr} /></td>
       <td>${row.billableDependentCount}</td>
       <td>${formatCurrency(row.dependentHealthPersonal)}</td>
       <td><strong>${formatCurrency(row.netPay)}</strong></td>
@@ -295,6 +348,44 @@ function loadPayrollRows(month) {
     otherAllowance: 0,
     otherDeduction: 0,
   }));
+}
+
+function getDefaultPayrollStatus() {
+  return { status: "draft", paidAt: "", paidBy: "" };
+}
+
+function normalizePayrollStatus(status) {
+  if (!status || typeof status !== "object") return getDefaultPayrollStatus();
+  const isPaid = status.status === "paid" || Boolean(status.paidAt);
+  return {
+    status: isPaid ? "paid" : "draft",
+    paidAt: isPaid ? String(status.paidAt || "") : "",
+    paidBy: isPaid ? String(status.paidBy || "") : "",
+  };
+}
+
+function loadPayrollStatus(month) {
+  const saved = localStorage.getItem(getPayrollStatusStorageKey(month));
+  if (!saved) return getDefaultPayrollStatus();
+  try {
+    return normalizePayrollStatus(JSON.parse(saved));
+  } catch {
+    localStorage.removeItem(getPayrollStatusStorageKey(month));
+    return getDefaultPayrollStatus();
+  }
+}
+
+function savePayrollStatus(month, status) {
+  payrollStatus = normalizePayrollStatus(status);
+  savePayrollStatusLocalOnly(month, payrollStatus);
+  savePayrollDataToCloud(month, getCalculatedRows(), getEmployeeMasterRows(), payrollStatus).catch((error) => {
+    console.warn("Payroll status cloud save failed", error);
+    showPayrollToast("薪資狀態已先存本機，雲端同步稍後再試。");
+  });
+}
+
+function isPayrollMonthPaid() {
+  return normalizePayrollStatus(payrollStatus).status === "paid";
 }
 
 function getEmployeeMasterRows() {
@@ -536,18 +627,22 @@ async function refreshPayrollRowsFromCloud() {
     });
     const cloudRows = Array.isArray(cloudData?.rows) ? cloudData.rows : null;
     const cloudMasterRows = Array.isArray(cloudData?.employeeMasterRows) ? cloudData.employeeMasterRows : null;
+    const cloudStatus = normalizePayrollStatus(cloudData?.payrollStatus);
     if (token !== payrollCloudLoadToken || month !== getPayrollMonth()) return;
     if (!hasLocalRows && cloudRows?.length) {
       if (cloudMasterRows?.length) {
         employeeMasterRows = normalizeEmployeeMasterRows(cloudMasterRows);
         saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
       }
+      payrollStatus = cloudStatus;
       payrollRows = cloudRows.map(mergePayrollEmployee).map(calculatePayrollRow);
       savePayrollRowsLocalOnly(month, payrollRows);
+      savePayrollStatusLocalOnly(month, payrollStatus);
       syncSelectedPayrollId();
       renderPayroll();
       return;
     }
+    if (!hasLocalRows) return;
     await savePayrollDataToCloud(month, getCalculatedRows(), getEmployeeMasterRows()).catch((error) => {
       console.warn("Payroll owner cloud refresh failed", error);
     });
@@ -560,14 +655,17 @@ async function refreshPayrollRowsFromCloud() {
   });
   const rows = Array.isArray(cloudData?.rows) ? cloudData.rows : null;
   const masterRows = Array.isArray(cloudData?.employeeMasterRows) ? cloudData.employeeMasterRows : null;
+  const status = normalizePayrollStatus(cloudData?.payrollStatus);
   if (token !== payrollCloudLoadToken || !rows?.length || month !== getPayrollMonth()) return;
 
   if (masterRows?.length) {
     employeeMasterRows = normalizeEmployeeMasterRows(masterRows);
     saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
   }
+  payrollStatus = status;
   payrollRows = rows.map(mergePayrollEmployee).map(calculatePayrollRow);
   savePayrollRowsLocalOnly(month, payrollRows);
+  savePayrollStatusLocalOnly(month, payrollStatus);
   syncSelectedPayrollId();
   renderPayroll();
 }
@@ -581,14 +679,14 @@ async function loadPayrollDataFromCloud(month) {
 }
 
 async function savePayrollRowsToCloud(month, rows) {
-  return savePayrollDataToCloud(month, rows, getEmployeeMasterRows());
+  return savePayrollDataToCloud(month, rows, getEmployeeMasterRows(), payrollStatus);
 }
 
 async function saveEmployeeMasterRowsToCloud(rows) {
-  return savePayrollDataToCloud(getPayrollMonth(), getCalculatedRows(), rows);
+  return savePayrollDataToCloud(getPayrollMonth(), getCalculatedRows(), rows, payrollStatus);
 }
 
-async function savePayrollDataToCloud(month, rows, masterRows) {
+async function savePayrollDataToCloud(month, rows, masterRows, status = payrollStatus) {
   if (!canWritePayrollCloud()) return;
   const { firebaseApi, db, currentUser } = payrollCloudContext;
   const reference = firebaseApi.doc(db, "systemSettings", getPayrollCloudDocId(month));
@@ -598,6 +696,7 @@ async function savePayrollDataToCloud(month, rows, masterRows) {
       month,
       rows: rows.map(cleanPayrollRowForStorage),
       employeeMasterRows: normalizeEmployeeMasterRows(masterRows),
+      payrollStatus: normalizePayrollStatus(status),
       updatedAt: firebaseApi.serverTimestamp(),
       updatedBy: currentUser.email,
       userId: currentUser.uid,
@@ -612,6 +711,10 @@ function savePayrollRowsLocalOnly(month, rows) {
 
 function saveEmployeeMasterRowsLocalOnly(rows) {
   localStorage.setItem("longbroEmployeeMasterRows", JSON.stringify(rows));
+}
+
+function savePayrollStatusLocalOnly(month, status) {
+  localStorage.setItem(getPayrollStatusStorageKey(month), JSON.stringify(normalizePayrollStatus(status)));
 }
 
 function normalizeEmployeeMasterRows(rows) {
@@ -974,6 +1077,10 @@ function getCurrentMonth() {
 
 function getPayrollStorageKey(month) {
   return `longbroPayrollRows:${month}`;
+}
+
+function getPayrollStatusStorageKey(month) {
+  return `longbroPayrollStatus:${month}`;
 }
 
 function formatPayrollMonthLabel(month) {

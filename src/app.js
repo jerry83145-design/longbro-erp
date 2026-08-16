@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260810-payroll-monthly-inputs";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260816-payroll-paid-status";
 
 const defaultOptionsByType = {
   expense: {
@@ -10869,15 +10869,20 @@ function buildCategorySummaryRows(records, options = {}) {
 
 async function loadPayrollRowsForReport(start, end) {
   const months = getMonthRange(start, end);
-  const cloudRows = [];
+  const reportRows = [];
   for (const month of months) {
-    const rows = await loadPayrollRowsForMonthFromCloud(month);
-    if (rows.length) cloudRows.push(...rows.map((row) => normalizePayrollReportRow(row, month)));
+    const cloudData = await loadPayrollDataForMonthFromCloud(month);
+    const localData = loadPayrollDataForMonthFromLocal(month);
+    const rows = Array.isArray(cloudData.rows) && cloudData.rows.length ? cloudData.rows : localData.rows;
+    const status = isPayrollStatusPaid(cloudData.payrollStatus) ? cloudData.payrollStatus : localData.payrollStatus;
+    if (!isPayrollStatusPaid(status)) continue;
+    if (rows.length) reportRows.push(...rows.map((row) => normalizePayrollReportRow(row, month)));
   }
-  if (cloudRows.length) return cloudRows.filter(isPayrollReportRowVisible);
-  return months
-    .flatMap((month) => loadPayrollRowsForMonthFromLocal(month).map((row) => normalizePayrollReportRow(row, month)))
-    .filter(isPayrollReportRowVisible);
+  return reportRows.filter(isPayrollReportRowVisible);
+}
+
+function isPayrollStatusPaid(status) {
+  return status?.status === "paid" || Boolean(status?.paidAt);
 }
 
 const payrollReportHireDateOverrides = {
@@ -10928,24 +10933,40 @@ function calculatePayrollReportEmployedDays(month, hireDate) {
 }
 
 async function loadPayrollRowsForMonthFromCloud(month) {
-  if (!isConfigured || !currentUser || !db || !firebaseApi.getDoc) return [];
+  const data = await loadPayrollDataForMonthFromCloud(month);
+  return Array.isArray(data.rows) ? data.rows : [];
+}
+
+async function loadPayrollDataForMonthFromCloud(month) {
+  if (!isConfigured || !currentUser || !db || !firebaseApi.getDoc) return { rows: [], payrollStatus: null };
   try {
     const reference = firebaseApi.doc(db, "systemSettings", `payrollRows_${month.replace("-", "_")}`);
     const snapshot = await firebaseApi.getDoc(reference);
-    if (!snapshot.exists()) return [];
-    const rows = snapshot.data()?.rows;
-    return Array.isArray(rows) ? rows : [];
+    if (!snapshot.exists()) return { rows: [], payrollStatus: null };
+    const data = snapshot.data() || {};
+    return {
+      rows: Array.isArray(data.rows) ? data.rows : [],
+      payrollStatus: data.payrollStatus || null,
+    };
   } catch {
-    return [];
+    return { rows: [], payrollStatus: null };
   }
 }
 
 function loadPayrollRowsForMonthFromLocal(month) {
+  return loadPayrollDataForMonthFromLocal(month).rows;
+}
+
+function loadPayrollDataForMonthFromLocal(month) {
   try {
     const rows = JSON.parse(localStorage.getItem(`longbroPayrollRows:${month}`) || "[]");
-    return Array.isArray(rows) ? rows : [];
+    const payrollStatus = JSON.parse(localStorage.getItem(`longbroPayrollStatus:${month}`) || "null");
+    return {
+      rows: Array.isArray(rows) ? rows : [],
+      payrollStatus,
+    };
   } catch {
-    return [];
+    return { rows: [], payrollStatus: null };
   }
 }
 

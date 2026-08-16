@@ -188,6 +188,39 @@ body {
   color: var(--text);
 }
 
+.payroll-status-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+}
+
+.payroll-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fbf9;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.payroll-status-badge.is-paid {
+  border-color: rgba(18, 128, 112, 0.28);
+  background: #e8f5f1;
+  color: #0d6f61;
+}
+
+.payroll-status-badge.is-draft {
+  border-color: rgba(166, 107, 0, 0.24);
+  background: #fff7e8;
+  color: #9a5f00;
+}
+
 .payroll-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));
