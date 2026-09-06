@@ -2966,15 +2966,59 @@ textarea:focus {
   margin-top: 16px;
 }
 
-.category-row {
+.category-row summary {
   display: grid;
   grid-template-columns: 1fr 140px 110px;
   align-items: center;
   gap: 12px;
+  cursor: pointer;
+  list-style: none;
 }
 
-.category-row span {
+.category-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.category-row summary::before {
+  content: "＋";
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.category-row[open] summary::before {
+  content: "－";
+}
+
+.category-row summary {
+  grid-template-columns: 28px 1fr 140px 110px;
+}
+
+.category-row span,
+.category-detail-row span {
   color: var(--muted);
+}
+
+.category-detail-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.category-detail-row {
+  display: grid;
+  grid-template-columns: 110px minmax(180px, 1fr) minmax(120px, 0.55fr) 110px 140px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(28, 78, 72, 0.12);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.category-detail-row strong:last-child {
+  text-align: right;
 }
 
 .record-list.grouped {
@@ -4018,6 +4062,19 @@ textarea:focus {
   .bank-import-grid,
   .bank-row {
     grid-template-columns: 1fr;
+  }
+
+  .category-row summary,
+  .category-detail-row {
+    grid-template-columns: 1fr;
+  }
+
+  .category-row summary::before {
+    justify-self: start;
+  }
+
+  .category-detail-row strong:last-child {
+    text-align: left;
   }
 
   .ledger-form {

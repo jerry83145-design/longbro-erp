@@ -4006,7 +4006,7 @@ async function renderCustomReport() {
   const net = grossProfit - operatingExpense;
   const grossMargin = salesIncome ? grossProfit / salesIncome : null;
   const netMargin = salesIncome ? net / salesIncome : null;
-  const breakdown = addPayrollToCategoryBreakdown(buildCategoryBreakdown(adjustedRecords), payrollOperatingExpense, payrollRows.length);
+  const breakdown = addPayrollToCategoryBreakdown(buildCategoryBreakdown(adjustedRecords), payrollOperatingExpense, payrollRows);
   lastReportRows = records;
   lastReportSummary = {
     start,
@@ -11854,28 +11854,34 @@ function buildCategoryBreakdown(records) {
       major: record.major || "未分類",
       amount: 0,
       count: 0,
+      records: [],
     };
     current.amount += Number(record.amount || 0);
     current.count += 1;
+    current.records.push(record);
     totals.set(key, current);
   });
 
   return Array.from(totals.values()).sort((a, b) => b.amount - a.amount);
 }
 
-function addPayrollToCategoryBreakdown(rows, payrollAmount, payrollRowCount) {
+function addPayrollToCategoryBreakdown(rows, payrollAmount, payrollRows = []) {
   if (!payrollAmount) return rows;
   const nextRows = [...rows];
+  const payrollRecords = getPayrollBreakdownRecords(payrollRows, payrollAmount);
+  const payrollRowCount = payrollRecords.length || payrollRows.length || 1;
   const operatingRow = nextRows.find((row) => row.type === "expense" && row.major === "營業費用");
   if (operatingRow) {
     operatingRow.amount += payrollAmount;
     operatingRow.count += payrollRowCount || 1;
+    operatingRow.records = [...(operatingRow.records || []), ...payrollRecords];
   } else {
     nextRows.push({
       type: "expense",
       major: "營業費用",
       amount: payrollAmount,
       count: payrollRowCount || 1,
+      records: payrollRecords,
     });
   }
   nextRows.push({
@@ -11883,18 +11889,76 @@ function addPayrollToCategoryBreakdown(rows, payrollAmount, payrollRowCount) {
     major: "薪資成本",
     amount: payrollAmount,
     count: payrollRowCount || 1,
+    records: payrollRecords,
   });
   return nextRows.sort((a, b) => b.amount - a.amount);
 }
 
+function getPayrollBreakdownRecords(payrollRows, payrollAmount) {
+  if (Array.isArray(payrollRows) && payrollRows.length) {
+    return payrollRows.map((row) => ({
+      type: "expense",
+      date: row.month ? `${row.month}-01` : lastReportSummary?.start || "",
+      major: "薪資成本",
+      counterparty: row.name || row.id || "員工",
+      item: `${row.month || ""} ${row.name || row.id || "員工"} 薪資`.trim(),
+      amount: getPayrollNetPay(row),
+      settlementStatus: "已發薪",
+      note: "薪資頁已發薪資料",
+      sourceLabel: "薪資頁",
+    }));
+  }
+  if (!payrollAmount) return [];
+  return [{
+    type: "expense",
+    date: lastReportSummary?.start || "",
+    major: "薪資成本",
+    item: "已發薪薪資",
+    amount: payrollAmount,
+    settlementStatus: "已發薪",
+    note: "薪資頁已發薪資料",
+    sourceLabel: "薪資頁",
+  }];
+}
+
 function renderCategoryRow(row) {
+  const detailRecords = [...(row.records || [])].sort(compareCategoryDetailByDate);
   return `
-    <article class="category-row">
-      <strong>${escapeHtml(typeLabel(row.type))} - ${escapeHtml(row.major)}</strong>
-      <span>NT$ ${formatNumber(row.amount)}</span>
-      <span>${row.count} 筆</span>
+    <details class="category-row">
+      <summary>
+        <strong>${escapeHtml(typeLabel(row.type))} - ${escapeHtml(row.major)}</strong>
+        <span>NT$ ${formatNumber(row.amount)}</span>
+        <span>${row.count} 筆</span>
+      </summary>
+      <div class="category-detail-list">
+        ${detailRecords.length ? detailRecords.map(renderCategoryDetailRow).join("") : `<p class="muted-text">此分類沒有明細。</p>`}
+      </div>
+    </details>
+  `;
+}
+
+function renderCategoryDetailRow(record) {
+  const amount = getCategoryDetailAmount(record);
+  return `
+    <article class="category-detail-row">
+      <span>${escapeHtml(record.date || "")}</span>
+      <strong>${escapeHtml(record.item || record.summary || record.major || "未填項目")}</strong>
+      <span>${escapeHtml(record.counterparty || record.sourceLabel || "")}</span>
+      <span>${escapeHtml(record.settlementStatus || record.invoiceStatus || "")}</span>
+      <strong>NT$ ${formatNumber(amount)}</strong>
     </article>
   `;
+}
+
+function getCategoryDetailAmount(record) {
+  if (record.type === "income") return Number(record.amount || 0);
+  return Number(record.amount || 0) || Number(record.productCost || 0) + Number(record.logisticsCost || 0) + Number(record.extraExpense || 0);
+}
+
+function compareCategoryDetailByDate(a, b) {
+  const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+  if (dateCompare) return dateCompare;
+  return getRecordTimeValue(a) - getRecordTimeValue(b);
 }
 
 function renderRecords(records) {
