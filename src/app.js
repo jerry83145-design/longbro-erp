@@ -1,6 +1,6 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
-import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260816-payroll-paid-status";
+import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260906-payroll-accrual-report";
 
 const defaultOptionsByType = {
   expense: {
@@ -370,6 +370,7 @@ let secondaryDataLoadPromise = null;
 let pendingLedgerImportPreview = null;
 let pendingBankImportPreview = null;
 let isReadOnlyUser = false;
+let customReportRenderToken = 0;
 
 const readOnlyWritableBlockMessage = "此帳號僅可查閱與匯出，不能新增、刪除、修改、匯入或同步資料。";
 const readOnlyAllowedControlIds = new Set([
@@ -3966,7 +3967,8 @@ async function loadRecords() {
   renderSettlementCenter();
 }
 
-function renderCustomReport() {
+async function renderCustomReport() {
+  const renderToken = ++customReportRenderToken;
   const start = reportStartInput.value;
   const end = reportEndInput.value;
 
@@ -3982,10 +3984,14 @@ function renderCustomReport() {
     return;
   }
 
+  customReportResult.innerHTML = `<div class="empty-state">正在整理區間報表與已發薪資料...</div>`;
   const records = recordsCache.filter((record) => record.date >= start && record.date <= end);
+  const payrollRows = await loadPayrollRowsForReport(start, end);
+  if (renderToken !== customReportRenderToken) return;
+  const payrollOperatingExpense = sumPayrollNetPay(payrollRows);
   const adjustmentSummary = buildLedgerAdjustmentSummary(records);
   const adjustedRecords = applyLedgerAdjustments(records, adjustmentSummary);
-  const expense = sumByType(adjustedRecords, "expense");
+  const expense = sumByType(adjustedRecords, "expense") + payrollOperatingExpense;
   const income = sumByType(adjustedRecords, "income");
   const soldCost = buildSoldCostSummary(adjustedRecords, adjustmentSummary);
   const salesIncome = soldCost.salesIncome;
@@ -3996,11 +4002,11 @@ function renderCustomReport() {
   const costOfGoodsSold = productCost + logisticsCost + packagingCost;
   const pending = records.filter(hasReportablePendingReason).length;
   const grossProfit = salesIncome - productCost - logisticsCost - packagingCost;
-  const operatingExpense = sumOperatingExpense(adjustedRecords);
+  const operatingExpense = sumOperatingExpense(adjustedRecords) + payrollOperatingExpense;
   const net = grossProfit - operatingExpense;
   const grossMargin = salesIncome ? grossProfit / salesIncome : null;
   const netMargin = salesIncome ? net / salesIncome : null;
-  const breakdown = buildCategoryBreakdown(adjustedRecords);
+  const breakdown = addPayrollToCategoryBreakdown(buildCategoryBreakdown(adjustedRecords), payrollOperatingExpense, payrollRows.length);
   lastReportRows = records;
   lastReportSummary = {
     start,
@@ -4013,6 +4019,7 @@ function renderCustomReport() {
     packagingCost,
     costOfGoodsSold,
     bankDirectCost,
+    payrollOperatingExpense,
     grossProfit,
     grossMargin,
     otherExpense: operatingExpense,
@@ -4024,7 +4031,7 @@ function renderCustomReport() {
     breakdown,
     adjustmentSummary,
   };
-  exportReportButton.disabled = records.length === 0;
+  exportReportButton.disabled = records.length === 0 && !payrollOperatingExpense;
 
   customReportResult.innerHTML = `
     <div class="report-summary-grid">
@@ -10744,6 +10751,17 @@ function buildDecisionIncomeDetailSheet() {
 function buildDecisionExpenseSummarySheet(payrollRows = []) {
   const expenseRecords = lastReportRows.filter((record) => record.type === "expense");
   const payrollTotal = sumPayrollNetPay(payrollRows);
+  const summaryRows = buildCategorySummaryRows(expenseRecords, { includeCashflow: true });
+  if (payrollTotal) {
+    summaryRows.push({
+      major: "營業費用",
+      middle: "薪資成本",
+      minor: "已發薪",
+      cashflow: "薪資頁",
+      count: payrollRows.length,
+      amount: payrollTotal,
+    });
+  }
   return [
     ["支出彙總"],
     ["報表期間", `${lastReportSummary.start} 至 ${lastReportSummary.end}`],
@@ -10753,7 +10771,7 @@ function buildDecisionExpenseSummarySheet(payrollRows = []) {
     ["薪資成本參考", payrollTotal || getLedgerPayrollExpenseTotal(), payrollTotal ? "薪資頁資料" : "流水帳薪資支出估算"],
     [],
     ["大類", "中類", "細項", "付款方式", "筆數", "金額", "占支出"],
-    ...buildCategorySummaryRows(expenseRecords, { includeCashflow: true }).map((row) => [
+    ...summaryRows.sort((a, b) => b.amount - a.amount).map((row) => [
       row.major,
       row.middle,
       row.minor,
@@ -11843,6 +11861,30 @@ function buildCategoryBreakdown(records) {
   });
 
   return Array.from(totals.values()).sort((a, b) => b.amount - a.amount);
+}
+
+function addPayrollToCategoryBreakdown(rows, payrollAmount, payrollRowCount) {
+  if (!payrollAmount) return rows;
+  const nextRows = [...rows];
+  const operatingRow = nextRows.find((row) => row.type === "expense" && row.major === "營業費用");
+  if (operatingRow) {
+    operatingRow.amount += payrollAmount;
+    operatingRow.count += payrollRowCount || 1;
+  } else {
+    nextRows.push({
+      type: "expense",
+      major: "營業費用",
+      amount: payrollAmount,
+      count: payrollRowCount || 1,
+    });
+  }
+  nextRows.push({
+    type: "expense",
+    major: "薪資成本",
+    amount: payrollAmount,
+    count: payrollRowCount || 1,
+  });
+  return nextRows.sort((a, b) => b.amount - a.amount);
 }
 
 function renderCategoryRow(row) {
