@@ -9197,6 +9197,14 @@ function getAvailableInventoryLots() {
 
   // Older manual outbounds have no source lot. Deduct them by product FIFO so
   // the detailed inventory and sale picker agree with the net stock summary.
+  // A historical source-linked overdraw can also leave a negative lot while
+  // a later correction lot is positive; carry that deficit forward by SKU.
+  lots.forEach((lot) => {
+    if (lot.remainingQuantity >= 0) return;
+    const key = `${lot.type || ""}\u0000${String(lot.name || "").trim()}`;
+    unlinkedOutboundByProduct.set(key, Number(unlinkedOutboundByProduct.get(key) || 0) - lot.remainingQuantity);
+    lot.remainingQuantity = 0;
+  });
   lots.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || getRecordTimeValue(a) - getRecordTimeValue(b));
   lots.forEach((lot) => {
     const key = `${lot.type || ""}\u0000${String(lot.name || "").trim()}`;
