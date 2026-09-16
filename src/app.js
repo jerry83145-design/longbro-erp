@@ -9174,21 +9174,40 @@ function getInventoryOpening() {
 
 function getAvailableInventoryLots() {
   const outboundBySource = new Map();
+  const inboundIds = new Set(inventoryCache.filter((record) => record.action !== "out").map((record) => record.id));
+  const unlinkedOutboundByProduct = new Map();
   inventoryCache
-    .filter((record) => record.action === "out" && record.sourceInventoryId)
+    .filter((record) => record.action === "out")
     .forEach((record) => {
-      outboundBySource.set(
-        record.sourceInventoryId,
-        Number(outboundBySource.get(record.sourceInventoryId) || 0) + Number(record.sourceQuantityUsed || record.quantity || 0),
-      );
+      const quantity = Number(record.sourceQuantityUsed || record.quantity || 0);
+      if (record.sourceInventoryId && inboundIds.has(record.sourceInventoryId)) {
+        outboundBySource.set(record.sourceInventoryId, Number(outboundBySource.get(record.sourceInventoryId) || 0) + quantity);
+      } else {
+        const key = `${record.type || ""}\u0000${String(record.name || "").trim()}`;
+        unlinkedOutboundByProduct.set(key, Number(unlinkedOutboundByProduct.get(key) || 0) + quantity);
+      }
     });
 
-  return inventoryCache
+  const lots = inventoryCache
     .filter((record) => record.action !== "out")
     .map((record) => {
       const remainingQuantity = Number(record.quantity || 0) - Number(outboundBySource.get(record.id) || 0);
       return { ...record, remainingQuantity };
-    })
+    });
+
+  // Older manual outbounds have no source lot. Deduct them by product FIFO so
+  // the detailed inventory and sale picker agree with the net stock summary.
+  lots.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || getRecordTimeValue(a) - getRecordTimeValue(b));
+  lots.forEach((lot) => {
+    const key = `${lot.type || ""}\u0000${String(lot.name || "").trim()}`;
+    const pending = Number(unlinkedOutboundByProduct.get(key) || 0);
+    if (!pending || lot.remainingQuantity <= 0) return;
+    const used = Math.min(pending, lot.remainingQuantity);
+    lot.remainingQuantity -= used;
+    unlinkedOutboundByProduct.set(key, pending - used);
+  });
+
+  return lots
     .filter((record) => record.remainingQuantity > 0)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
@@ -12172,8 +12191,6 @@ function renderVoucherLinkList(record) {
 }
 
 function renderInventoryMatchPanel(record) {
-  if (record.inventoryLinks?.length) return "";
-
   const availableLots = getAvailableInventoryLots();
 
   if (!availableLots.length) {
@@ -12189,13 +12206,13 @@ function renderInventoryMatchPanel(record) {
     <div class="inventory-match-panel">
       <div>
         <strong>庫存配對</strong>
-        <span>可多選庫存來源；適合一天賣多箱、多盒、多張卡或同一筆收入包含多個商品。</span>
+        <span>${record.inventoryLinks?.length ? `已配 ${record.inventoryLinks.length} 筆；可補配漏掉的商品，原有配對不會移除。` : "可多選庫存來源；適合一天賣多箱、多盒、多張卡或同一筆收入包含多個商品。"}</span>
       </div>
       <label class="inline-check inventory-split-toggle">
         <input type="checkbox" data-inventory-match-split />
         <span>拆盒收入</span>
       </label>
-      <button type="button" data-record-action="match-inventory" data-record-id="${escapeHtml(record.id)}">配對選取庫存</button>
+      <button type="button" data-record-action="match-inventory" data-record-id="${escapeHtml(record.id)}">${record.inventoryLinks?.length ? "補配庫存" : "配對選取庫存"}</button>
     </div>
   `;
 }
