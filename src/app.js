@@ -626,7 +626,7 @@ function readableCollectionQuery(collectionName, resultLimit = 1000) {
   if (!isReadOnlyUser) {
     constraints.push(firebaseApi.where("userId", "==", currentUser.uid));
   }
-  constraints.push(firebaseApi.limit(resultLimit));
+  if (resultLimit != null) constraints.push(firebaseApi.limit(resultLimit));
   return firebaseApi.query(firebaseApi.collection(db, collectionName), ...constraints);
 }
 
@@ -4006,7 +4006,14 @@ async function renderCustomReport() {
   const net = grossProfit - operatingExpense;
   const grossMargin = salesIncome ? grossProfit / salesIncome : null;
   const netMargin = salesIncome ? net / salesIncome : null;
-  const breakdown = addPayrollToCategoryBreakdown(buildCategoryBreakdown(adjustedRecords), payrollOperatingExpense, payrollRows);
+  const breakdown = addSoldCostToCategoryBreakdown(
+    addPayrollToCategoryBreakdown(buildCategoryBreakdown(adjustedRecords), payrollOperatingExpense, payrollRows),
+    adjustedRecords,
+    soldCost,
+    bankDirectCost,
+    costOfGoodsSold,
+    end,
+  );
   lastReportRows = records;
   lastReportSummary = {
     start,
@@ -8375,7 +8382,7 @@ async function loadInventoryRecords() {
   if (!currentUser || !db) return;
 
   const snapshot = await firebaseApi.getDocs(
-    readableCollectionQuery("inventoryRecords", 200),
+    readableCollectionQuery("inventoryRecords", null),
   );
   inventoryCache = snapshot.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -11894,6 +11901,57 @@ function addPayrollToCategoryBreakdown(rows, payrollAmount, payrollRows = []) {
   return nextRows.sort((a, b) => b.amount - a.amount);
 }
 
+function addSoldCostToCategoryBreakdown(rows, records, soldCost, bankDirectCost, totalCost, endDate) {
+  const details = records.filter(isSalesRevenueRecord).map((record) => {
+    const links = record.inventoryLinks || [];
+    const linkedCost = links.length
+      ? links.reduce((sum, link) => sum + Number(link.totalCost || 0), 0)
+      : Number(record.productCost || 0) + Number(record.packagingCost || 0);
+    return {
+      type: "soldCost",
+      date: record.date,
+      item: record.item,
+      counterparty: record.counterparty,
+      amount: linkedCost + Number(record.logisticsCost || 0),
+    };
+  });
+
+  const rawCost = details.reduce((sum, record) => sum + record.amount, 0);
+  const adjustedCost = soldCost.productCost + soldCost.logisticsCost + soldCost.packagingCost;
+  const reduction = rawCost - adjustedCost;
+  if (reduction) {
+    details.push({
+      type: "soldCost",
+      date: endDate,
+      item: "銷貨成本折讓／退出調整",
+      counterparty: "帳務調整",
+      amount: -reduction,
+    });
+  }
+  if (bankDirectCost) {
+    details.push({
+      type: "soldCost",
+      date: endDate,
+      item: "金流／平台成本（銀行配帳差額）",
+      counterparty: "銀行配帳",
+      amount: bankDirectCost,
+    });
+  }
+
+  const soldCostRow = {
+    type: "soldCost",
+    major: "銷貨成本",
+    label: "銷貨成本",
+    amount: totalCost,
+    count: details.length,
+    records: details,
+  };
+  const salesRow = rows.find((row) => row.type === "income" && row.major === "銷貨收入");
+  const purchaseRow = rows.find((row) => row.type === "expense" && row.major === "進貨成本");
+  return [salesRow, soldCostRow, purchaseRow,
+    ...rows.filter((row) => row !== salesRow && row !== purchaseRow)].filter(Boolean);
+}
+
 function getPayrollBreakdownRecords(payrollRows, payrollAmount) {
   if (Array.isArray(payrollRows) && payrollRows.length) {
     return payrollRows.map((row) => ({
@@ -11926,7 +11984,7 @@ function renderCategoryRow(row) {
   return `
     <details class="category-row">
       <summary>
-        <strong>${escapeHtml(typeLabel(row.type))} - ${escapeHtml(row.major)}</strong>
+        <strong>${escapeHtml(row.label || `${typeLabel(row.type)} - ${row.major}`)}</strong>
         <span>NT$ ${formatNumber(row.amount)}</span>
         <span>${row.count} 筆</span>
       </summary>
