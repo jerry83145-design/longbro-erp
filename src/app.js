@@ -1,4 +1,5 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
+import { initSalesCalculation } from "./sales-calculation.js?v=20261004-items";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
 import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260906-payroll-accrual-report";
 
@@ -441,6 +442,12 @@ const isConfigured = !Object.values(firebaseConfig).some((value) =>
 );
 
 const pageMeta = {
+  sales: {
+    eyebrow: "SALES CALCULATION",
+    title: "銷售計算",
+    subtitle: "整理官網訂單、補填金額並保存獨立計算紀錄",
+    action: "匯入訂單",
+  },
   overview: {
     eyebrow: "ERP OVERVIEW",
     title: "營運總覽",
@@ -523,6 +530,10 @@ setDefaultCashflowDates();
 loadCashflowSettings();
 loadInventorySettings();
 restoreOrder(".sidebar-nav", ".nav-item", "sidebarNavOrder", getNavKey);
+const salesNav = document.querySelector('[data-view="sales"]');
+const incomeNav = document.querySelector('[data-view="ledger"][data-type="income"]');
+if (salesNav && incomeNav) incomeNav.before(salesNav);
+initSalesCalculation();
 restoreOrder(".summary-grid", ".summary-card", "summaryCardOrder", (item) => item.dataset.cardId);
 enableDragSort(".sidebar-nav", ".nav-item", ".drag-handle", "sidebarNavOrder", getNavKey);
 enableDragSort(".summary-grid", ".summary-card", ".card-drag-handle", "summaryCardOrder", (item) => item.dataset.cardId);
@@ -786,6 +797,10 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 });
 
 topActionButton.addEventListener("click", () => {
+  if (currentView === "sales") {
+    document.querySelector('[data-sales-file]')?.click();
+    return;
+  }
   if (currentView === "payroll") {
     document.querySelector("#payrollCalculateButton")?.click();
     return;

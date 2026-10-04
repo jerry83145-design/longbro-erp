@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>隆博ERP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260802-current-inventory-first" />
+    <link rel="stylesheet" href="./styles.css?v=20261004-sales-items" />
   </head>
   <body>
     <div class="dashboard-shell">
@@ -22,6 +22,11 @@
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
             <span class="nav-icon">◆</span>
             總覽
+          </button>
+          <button class="nav-item" type="button" data-view="sales">
+            <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
+            <span class="nav-icon">▤</span>
+            銷售計算
           </button>
           <button class="nav-item" type="button" data-view="ledger" data-type="income">
             <span class="drag-handle" draggable="true" aria-label="拖曳排序">☰</span>
@@ -162,6 +167,31 @@
           </div>
         </section>
 
+        <section id="salesView" class="view-panel">
+          <section class="ledger-panel">
+            <div class="panel-heading"><h2 data-sales-editor-title>銷售計算控台</h2></div>
+            <p>排除已取消訂單。已付款以商品價格 × 數量計算；未付款逐列補填商品總額，直接納入該貨號。修正後金額不再乘數量。</p>
+            <p>紀錄保存在此瀏覽器，請定期匯出。幣別依來源資料，未標示時待確認。</p>
+            <div class="sales-controls">
+              <label>匯入訂單 Excel <input data-sales-file type="file" accept=".xlsx,.xls"></label>
+              <label>載入紀錄／草稿 <select data-sales-history></select></label>
+              <button type="button" data-sales-copy class="secondary-button">複製計算總額</button>
+              <button type="button" data-sales-save>儲存紀錄</button>
+              <button type="button" data-sales-export>匯出 Excel</button>
+            </div>
+            <p data-sales-status role="status" aria-live="polite"></p>
+            <p data-sales-saved-at></p>
+            <div data-sales-summary></div>
+            <label><input data-sales-unpaid type="checkbox" checked> 只顯示未付款明細</label>
+            <p>取消以訂單狀態「已取消／取消」判定。付款狀態沿用官網資料，補填後仍保留原始狀態。</p>
+            <div data-sales-items class="sales-item-list"></div>
+          </section>
+          <section class="ledger-panel sales-record-panel">
+            <div class="panel-heading"><h2>已儲存紀錄</h2></div>
+            <div data-sales-records class="sales-item-list"></div>
+            <div data-sales-record-detail hidden></div>
+          </section>
+        </section>
         <section id="ledgerView" class="view-panel">
           <section class="ledger-panel">
             <div class="panel-heading">
@@ -846,6 +876,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20260917-inventory-reconciliation"></script>
+    <script type="module" src="./src/app.js?v=20261004-sales-items"></script>
   </body>
 </html>
