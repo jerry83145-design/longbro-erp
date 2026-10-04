@@ -31,18 +31,28 @@ export function parseSalesSheet(sheet, XLSX) {
   return orders;
 }
 export const isCancelled = o => ['已取消','取消'].includes(o.status);
+export const needsSalesReview = o => o.payment==='未付款'||o.original===0;
+export function allocatedAmount(o,i){
+  if(o.payment!=='已付款'||o.original===0)return null;
+  const weights=o.items.map(x=>x.price*x.quantity);
+  if(o.items.some(x=>typeof x.price!=='number'||typeof x.quantity!=='number')||weights.some(x=>!Number.isFinite(x)||x<0))return null;
+  const sum=weights.reduce((a,b)=>a+b,0),index=o.items.indexOf(i);
+  if(sum<=0||index<0)return null;
+  const before=weights.slice(0,index).reduce((a,b)=>a+b,0);
+  const cents=Math.round(o.original*100);
+  return (Math.round(cents*(before+weights[index])/sum)-Math.round(cents*before/sum))/100;
+}
 export function itemAmount(o,i) {
   if(i.override!==undefined && i.override!=='')return Number(i.override);
-  if(o.payment!=='已付款'||typeof i.price!=='number')return null;
-  return i.price*i.quantity;
+  return allocatedAmount(o,i);
 }
-export const effectiveAmount = o => o.items.reduce((n,i)=>n+(itemAmount(o,i)??0),0);
+export const effectiveAmount = o => Math.round(o.items.reduce((n,i)=>n+(itemAmount(o,i)??0),0)*100)/100;
 export function salesTotals(orders){
   const skus=new Map();let total=0,pending=0;
   for(const o of orders.filter(o=>!isCancelled(o)))for(const i of o.items){
     const a=itemAmount(o,i);const key=i.sku||'未提供貨號';
     const entry=skus.get(key)||{sku:key,amount:0,pending:0};
-    if(a===null){entry.pending++;pending++;}else{entry.amount+=a;total+=a;}skus.set(key,entry);
+    if(a===null){entry.pending++;pending++;}else{entry.amount=Math.round((entry.amount+a)*100)/100;total=Math.round((total+a)*100)/100;}skus.set(key,entry);
   }
   return {total,pending,skus:[...skus.values()].sort((a,b)=>a.sku.localeCompare(b.sku))};
 }
@@ -64,7 +74,7 @@ export function initSalesCalculation() {
     const expanded=root.querySelector('[data-sales-skus]')?.open||false;
     root.querySelector('[data-sales-summary]').innerHTML=`<div class="sales-total"><span>該表商品合計${stats.pending?'（待補填未計入）':''}</span><strong>${total.toLocaleString('zh-TW')}</strong></div><p>保留訂單 ${rows.length} 筆　已取消 ${cancelled} 筆　未付款 ${rows.filter(o=>o.payment==='未付款').length} 筆　待補填商品 ${stats.pending} 列</p>${legacy?'<p class="sales-warning">舊版紀錄缺少商品價格與顧客資料，請重新匯入原始 Excel。舊版訂單修正金額保留在備註提示，需按商品列重新分配。</p>':''}<details data-sales-skus ${expanded?'open':''}><summary>展開各貨號金額（${stats.skus.length} 種）</summary><table class="sales-sku-table"><thead><tr><th>貨號</th><th>商品合計</th><th>待補填列數</th></tr></thead><tbody>${stats.skus.map(s=>`<tr><td>${esc(s.sku)}</td><td>${s.amount.toLocaleString('zh-TW')}</td><td>${s.pending}</td></tr>`).join('')}</tbody></table></details><p>已付款商品原價加總與官網訂單金額不同：${differences.length} 筆${differences.length?'（請核對下方差額）':''}</p>`;
     const unpaidOnly=root.querySelector('[data-sales-unpaid]').checked;
-    root.querySelector('[data-sales-items]').innerHTML=rows.filter(o=>!unpaidOnly||o.payment==='未付款').flatMap(o=>o.items.map(i=>{
+    root.querySelector('[data-sales-items]').innerHTML=rows.filter(o=>!unpaidOnly||needsSalesReview(o)).flatMap(o=>o.items.map(i=>{
       const amount=itemAmount(o,i),diff=o.items.every(i=>typeof i.price==='number')?o.items.reduce((n,i)=>n+i.price*i.quantity,0)-o.original:null;
       const field=(label,value)=>`<div class="sales-item-field"><span>${label}</span><div>${esc(value)}</div></div>`;
       return `<article class="sales-item-card ${o.original===0?'sales-zero':''}">
@@ -72,13 +82,13 @@ export function initSalesCalculation() {
         <div class="sales-item-name">${esc(i.name)}</div>
         <div class="sales-item-grid">
           ${field('訂單編號',o.id)}${field('顧客姓名',o.customer??'待重新匯入')}${field('團拆暱稱',o.nickname??'待重新匯入')}
-          ${field('商品價格',i.price===undefined?'待重新匯入':i.price.toLocaleString('zh-TW'))}${field('數量',i.quantity)}${field('官網訂單金額（整張）',o.original.toLocaleString('zh-TW'))}
+          ${field('商品價格',i.price===undefined?'待重新匯入':i.price.toLocaleString('zh-TW'))}${field('數量',i.quantity)}${field('官網分攤金額（本列）',allocatedAmount(o,i)===null?'待補填':allocatedAmount(o,i).toLocaleString('zh-TW'))}
         </div>
         <div class="sales-item-calculation">
-          <label>本列修正後金額<input aria-label="${esc(o.id)} 商品列 ${i.row} 修正後金額" data-order="${esc(o.id)}" data-item="${i.row}" data-field="override" type="number" step="0.01" value="${esc(i.override??'')}" placeholder="${o.payment==='已付款'?'未填採價格×數量':'請填本列商品總額'}"></label>
+          <label>本列修正後金額<input aria-label="${esc(o.id)} 商品列 ${i.row} 修正後金額" data-order="${esc(o.id)}" data-item="${i.row}" data-field="override" type="number" step="0.01" value="${esc(i.override??'')}" placeholder="${allocatedAmount(o,i)!==null?'未填採官網分攤金額':'請填本列商品總額'}"></label>
           ${field('本列計算金額',amount===null?'待補填':amount.toLocaleString('zh-TW'))}${field('原價與官網差額（整張）',diff===null?'待重新匯入':diff.toLocaleString('zh-TW'))}
         </div>
-        <small>來源列 ${i.row}${o.original===0?'　原始零元':''}</small>${o.override!==''?`<p>舊版訂單修正：${esc(o.override)}（待按商品分配）</p>`:''}
+        <small>來源列 ${i.row}　官網整張訂單總額：${o.original.toLocaleString('zh-TW')}（僅供核對，不逐列加總）${o.original===0?'　原始零元':''}</small>${o.override!==''?`<p>舊版訂單修正：${esc(o.override)}（待按商品分配）</p>`:''}
       </article>`;
     })).join('')||'<p>目前沒有符合條件的訂單。</p>';
     root.querySelector('[data-sales-export]').disabled=!current();root.querySelector('[data-sales-copy]').disabled=!current();root.querySelector('[data-sales-save]').disabled=!current();
@@ -156,7 +166,7 @@ export function initSalesCalculation() {
     const batch=batches.find(b=>b.id===view.dataset.salesRecordView);if(!batch)return;
     const s=salesTotals(batch.savedOrders),detail=root.querySelector('[data-sales-record-detail]');
     const line=(label,value)=>`<div class="sales-item-field"><span>${label}</span><div>${esc(value)}</div></div>`;
-    detail.innerHTML=`<div class="panel-heading"><h3>${esc(batch.name)}｜已儲存明細</h3><button class="secondary-button" type="button" data-sales-detail-close>收起明細</button></div><p>合計 ${s.total.toLocaleString('zh-TW')}　待補填 ${s.pending} 列</p><div class="sales-item-list">${batch.savedOrders.filter(o=>!isCancelled(o)).flatMap(o=>o.items.map(i=>`<article class="sales-item-card"><header><strong>${esc(i.sku)} · ${esc(i.spec)}</strong><span>${esc(o.payment)}</span></header><p>${esc(i.name)}</p><div class="sales-item-grid">${line('訂單編號',o.id)}${line('顧客姓名',o.customer??'待重新匯入')}${line('團拆暱稱',o.nickname??'待重新匯入')}${line('商品價格',i.price??'待重新匯入')}${line('數量',i.quantity)}${line('官網訂單金額（整張）',o.original)}${line('本列修正後金額',i.override??'')}${line('本列計算金額',itemAmount(o,i)??'待補填')}${line('來源列',i.row)}</div></article>`)).join('')}</div>`;
+    detail.innerHTML=`<div class="panel-heading"><h3>${esc(batch.name)}｜已儲存明細</h3><button class="secondary-button" type="button" data-sales-detail-close>收起明細</button></div><p>合計 ${s.total.toLocaleString('zh-TW')}　待補填 ${s.pending} 列</p><div class="sales-item-list">${batch.savedOrders.filter(o=>!isCancelled(o)).flatMap(o=>o.items.map(i=>`<article class="sales-item-card"><header><strong>${esc(i.sku)} · ${esc(i.spec)}</strong><span>${esc(o.payment)}</span></header><p>${esc(i.name)}</p><div class="sales-item-grid">${line('訂單編號',o.id)}${line('顧客姓名',o.customer??'待重新匯入')}${line('團拆暱稱',o.nickname??'待重新匯入')}${line('商品價格',i.price??'待重新匯入')}${line('數量',i.quantity)}${line('官網分攤金額（本列）',allocatedAmount(o,i)??'待補填')}${line('官網總額（整張，僅供核對）',o.original)}${line('本列修正後金額',i.override??'')}${line('本列計算金額',itemAmount(o,i)??'待補填')}${line('來源列',i.row)}</div></article>`)).join('')}</div>`;
     detail.hidden=false;detail.scrollIntoView({behavior:'smooth',block:'start'});
   });
   root.querySelector('[data-sales-copy]').addEventListener('click',async()=>{
@@ -170,10 +180,10 @@ export function initSalesCalculation() {
       const head=['訂單編號','訂單狀態','付款狀態','商品貨號','商品名稱','商品規格','商品價格','數量','顧客姓名','團拆暱稱','官網訂單總金額（不可按商品列加總）','本列修正後金額','本列計算金額','收款日期','收款方式','原因／備註','來源列號'];
       const detail=(o,i)=>[o.id,o.status,o.payment,i.sku,i.name,i.spec,i.price??'',i.quantity,o.customer??'',o.nickname??'',o.original,i.override===''||i.override===undefined?'':Number(i.override),itemAmount(o,i)??'待補填',o.date,o.method,o.note,i.row];
       const add=(name,data)=>{const s=X.utils.aoa_to_sheet(data);s['!cols']=data[0].map(()=>({wch:24}));for(const cell of Object.values(s))if(cell?.t==='n')cell.z='#,##0;[Red](#,##0);-';X.utils.book_append_sheet(wb,s,name);};
-      add('統計摘要',[['項目','內容'],['紀錄名稱',current().name],['商品計算合計',stats.total],['待補填商品列',stats.pending],['保留訂單數',rows.length],['剔除已取消',current().orders.length-rows.length],['來源檔案',current().sourceName||current().name],['來源工作表',current().sheet],['金額規則','商品列修正優先；已付款未修正採價格×數量；其他未修正待補填']]);
+      add('統計摘要',[['項目','內容'],['紀錄名稱',current().name],['商品計算合計',stats.total],['待補填商品列',stats.pending],['保留訂單數',rows.length],['剔除已取消',current().orders.length-rows.length],['來源檔案',current().sourceName||current().name],['來源工作表',current().sheet],['金額規則','商品列修正優先；已付款按價格×數量比例分攤官網總額；未付款或官網零元待補填']]);
       add('貨號統計',[['貨號','商品合計','待補填列數'],...stats.skus.map(s=>[s.sku,s.amount,s.pending])]);
       add('訂單明細',[['訂單編號','付款狀態','官網訂單總金額','商品計算合計','待補填列數','商品原價與官網金額差額','舊版訂單修正金額（未分配）'],...rows.map(o=>[o.id,o.payment,o.original,effectiveAmount(o),o.items.filter(i=>itemAmount(o,i)===null).length,o.items.every(i=>typeof i.price==='number')?o.items.reduce((n,i)=>n+i.price*i.quantity,0)-o.original:'待重新匯入',o.override])]);
-      add('未付款明細',[head,...rows.filter(o=>o.payment==='未付款').flatMap(o=>o.items.map(i=>detail(o,i)))]);
+      add('待補填明細',[head,...rows.filter(needsSalesReview).flatMap(o=>o.items.map(i=>detail(o,i)))]);
       add('商品明細',[head,...rows.flatMap(o=>o.items.map(i=>detail(o,i)))]);
       X.writeFile(wb,`銷售計算_${Date.now()}.xlsx`);status.textContent='已匯出，未新增收入紀錄。';
     }catch(error){status.textContent='匯出失敗：'+error.message;}

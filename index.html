@@ -170,7 +170,7 @@
         <section id="salesView" class="view-panel">
           <section class="ledger-panel">
             <div class="panel-heading"><h2 data-sales-editor-title>銷售計算控台</h2></div>
-            <p>排除已取消訂單。已付款以商品價格 × 數量計算；未付款逐列補填商品總額，直接納入該貨號。修正後金額不再乘數量。</p>
+            <p>排除已取消訂單。已付款按商品價格 × 數量的比例分攤官網訂單總額，尾差調整至分攤合計等於訂單總額。未付款或官網零元訂單逐列補填，直接納入該貨號。</p>
             <p>紀錄保存在此瀏覽器，請定期匯出。幣別依來源資料，未標示時待確認。</p>
             <div class="sales-controls">
               <label>匯入訂單 Excel <input data-sales-file type="file" accept=".xlsx,.xls"></label>
@@ -182,7 +182,7 @@
             <p data-sales-status role="status" aria-live="polite"></p>
             <p data-sales-saved-at></p>
             <div data-sales-summary></div>
-            <label><input data-sales-unpaid type="checkbox" checked> 只顯示未付款明細</label>
+            <label><input data-sales-unpaid type="checkbox" checked> 只顯示未付款／官網零元訂單（包含已付款）</label>
             <p>取消以訂單狀態「已取消／取消」判定。付款狀態沿用官網資料，補填後仍保留原始狀態。</p>
             <div data-sales-items class="sales-item-list"></div>
           </section>
@@ -876,6 +876,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20261004-sales-items"></script>
+    <script type="module" src="./src/app.js?v=20261005-sales-allocation"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 import { allowedEmails, firebaseConfig, readonlyEmails } from "./firebase-config.js";
-import { initSalesCalculation } from "./sales-calculation.js?v=20261004-items";
+import { initSalesCalculation } from "./sales-calculation.js?v=20261005-allocation";
 import { lineEndpointConfig } from "./line-endpoint-config.js";
 import { initPayrollPage, setPayrollCloudContext } from "./payroll-30day.js?v=20260906-payroll-accrual-report";
 
