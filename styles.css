@@ -4438,9 +4438,11 @@ textarea:focus {
 .sales-table td:nth-child(5) { min-width:120px; }
 .sales-total { display:flex; align-items:center; gap:24px; margin:24px 0 12px; }
 .sales-total strong { font-size:32px; color:#38454d; }
-.sales-sku-table { width:100%; max-width:650px; border-collapse:collapse; margin:12px 0; }
+.sales-sku-table { width:100%; border-collapse:collapse; margin:12px 0; table-layout:fixed; }
 .sales-sku-table th,.sales-sku-table td { padding:10px 16px; border-bottom:1px solid #ddd; text-align:left; }
-.sales-sku-table td:nth-child(2) { text-align:right; }
+.sales-sku-table th:first-child { width:45%; }
+.sales-sku-table th,.sales-sku-table td { overflow-wrap:anywhere; }
+.sales-sku-table td:nth-child(3) { text-align:right; }
 .sales-warning { color:#955400; }
 #salesView summary { cursor:pointer; font-weight:600; }
 .sales-item-list { display:grid; gap:16px; margin-top:20px; }
