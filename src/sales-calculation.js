@@ -58,7 +58,7 @@ export function salesTotals(orders){
   return {total,pending,skus:[...skus.values()].sort((a,b)=>a.sku.localeCompare(b.sku))};
 }
 function skuSummary(stats){
-  return `<table class="sales-sku-table"><thead><tr><th>品名</th><th>貨號</th><th>金額</th><th>待補填列數</th></tr></thead><tbody>${stats.skus.map(s=>`<tr><td>${s.names.map(esc).join('<br>')||'未提供品名'}</td><td>${esc(s.sku)}</td><td>${s.amount.toLocaleString('zh-TW')}</td><td>${s.pending}</td></tr>`).join('')}</tbody></table>`;
+  return `<table class="sales-sku-table"><thead><tr><th>品名</th><th>貨號</th><th>金額</th><th>待補填列數</th></tr></thead><tbody>${stats.skus.map(s=>`<tr><td>${s.names.map(esc).join('<br>')||'未提供品名'}</td><td>${esc(s.sku)}</td><td>${s.amount.toLocaleString('zh-TW',{minimumFractionDigits:1,maximumFractionDigits:1})}</td><td>${s.pending}</td></tr>`).join('')}</tbody></table>`;
 }
 export function initSalesCalculation() {
   const root=document.querySelector('#salesView'); if(!root)return;
