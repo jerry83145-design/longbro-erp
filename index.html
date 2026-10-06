@@ -639,6 +639,10 @@
                   <p class="muted-text">健保眷屬人數與加保日期屬於員工主檔；薪資計算會依加保日期判斷當月是否帶入眷屬健保費。</p>
                 </div>
                 <div class="payroll-master-actions">
+                  <button id="addPayrollEmployeeButton" class="secondary-button" type="button">新增員工</button>
+                  <button id="importPayrollEmployeesButton" class="secondary-button" type="button">匯入員工</button>
+                  <button id="downloadEmployeeTemplateButton" class="secondary-button" type="button">下載匯入範本</button>
+                  <input id="importPayrollEmployeesInput" type="file" accept=".xlsx,.xls,.csv" hidden>
                   <button id="syncPayrollEmployeeMasterButton" class="secondary-button" type="button">從 Google 讀取</button>
                   <button id="savePayrollEmployeeMasterButton" class="secondary-button" type="button">儲存到 Google</button>
                   <a
@@ -876,6 +880,6 @@
     <div id="toast" class="toast" hidden></div>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script type="module" src="./src/app.js?v=20261006-dynamic-payroll-employees"></script>
+    <script type="module" src="./src/app.js?v=20261006-employee-import"></script>
   </body>
 </html>

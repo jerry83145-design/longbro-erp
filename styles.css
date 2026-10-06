@@ -4463,3 +4463,16 @@ textarea:focus {
 #salesView .sales-total { flex-wrap:wrap; }
 @media(max-width:850px) { .sales-item-grid,.sales-item-calculation { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:520px) { .sales-item-grid,.sales-item-calculation { grid-template-columns:minmax(0,1fr); } .sales-item-card { padding:14px; } }
+ .employee-import-dialog { width: min(1100px, 94vw); max-height: 90vh; padding: 24px; border: 1px solid #d7dcd9; border-radius: 8px; }
+ .employee-import-dialog::backdrop { background: rgba(0,0,0,.4); }
+ .employee-import-scroll { max-height: 60vh; overflow: auto; }
+ .employee-import-dialog table { border-collapse: collapse; width: 100%; }
+ .employee-import-dialog th { position: sticky; top: 0; background: #edf4f1; }
+ .employee-import-dialog th, .employee-import-dialog td { padding: 10px; border-bottom: 1px solid #ddd; white-space: nowrap; }
+ .employee-import-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+ .employee-import-fields label { display: grid; gap: 6px; }
+ .employee-import-fields input, .employee-import-fields select { width: 100%; min-width: 0; }
+ .employee-import-dialog footer { display: flex; justify-content: flex-end; gap: 12px; padding-top: 16px; flex-wrap: wrap; }
+ .employee-import-dialog input[type=checkbox] { width: 18px; height: 18px; }
+ .employee-import-dialog p label { display: flex; align-items: center; gap: 8px; }
+ @media (max-width: 600px) { .employee-import-fields { grid-template-columns: 1fr; } }

@@ -1,4 +1,5 @@
 import { lineEndpointConfig } from "./line-endpoint-config.js";
+import { bindEmployeeImport } from "./employee-import.js?v=20261006-employee-import";
 
 const payrollEmployeeMasterSpreadsheetId = "16JZXXikxsVGf1angzAXxZqWJXuA5Gtw3MRuXCZw8oyU";
 const payrollEmployeeMasterSheetName = "員工資料建檔";
@@ -168,6 +169,46 @@ function bindPayrollEvents() {
 
   syncMasterButton?.addEventListener("click", syncPayrollEmployeeMasterFromGoogle);
   saveMasterButton?.addEventListener("click", savePayrollEmployeeMasterToGoogle);
+  bindEmployeeImport({
+    getRows: getEmployeeMasterRows,
+    canEdit: () => !blockPayrollReadOnly() && !blockPaidPayrollMonth(),
+    toast: showPayrollToast,
+    saveRows: async (rows) => {
+      if (blockPayrollReadOnly()) throw new Error(payrollReadOnlyMessage);
+      if (isPayrollMonthPaid()) throw new Error("請切換至未發薪月份再建檔");
+      if (!canWritePayrollCloud()) throw new Error("請先登入並確認雲端連線");
+      const capability = await requestPayrollEndpointJsonp({
+        action: "readPayrollEmployeeMaster", secret: lineEndpointConfig.sharedSecret,
+        spreadsheetId: payrollEmployeeMasterSpreadsheetId, sheetName: payrollEmployeeMasterSheetName,
+      });
+      if (capability.employeeSchemaVersion !== 2) throw new Error("Google 串接尚未升級，請先更新 Apps Script 部署");
+      // Small batches keep the existing JSONP endpoint below URL size limits.
+      payrollRows = readPayrollInputs().map(calculatePayrollRow);
+      let syncedCount = 0;
+      try {
+        for (let index = 0; index < rows.length; index += 5) {
+          const batch = rows.slice(index, index + 5);
+          const result = await requestPayrollEndpointJsonp({
+            action: "updatePayrollEmployeeMaster", secret: lineEndpointConfig.sharedSecret,
+            spreadsheetId: payrollEmployeeMasterSpreadsheetId, sheetName: payrollEmployeeMasterSheetName,
+            employees: batch,
+          });
+          if (result.employeeSchemaVersion !== 2 || result.updatedCount !== batch.length) throw new Error("Google 回傳筆數不符，請重新同步確認");
+          const byId = new Map(getEmployeeMasterRows().map((row) => [row.id, row]));
+          batch.forEach((row) => byId.set(row.id, row));
+          employeeMasterRows = normalizeEmployeeMasterRows([...byId.values()]);
+          saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
+          syncedCount += batch.length;
+          await saveEmployeeMasterRowsToCloud(employeeMasterRows);
+        }
+      } catch (error) {
+        throw new Error(`已同步 ${syncedCount}/${rows.length} 位員工；${error.message}`);
+      }
+      payrollRows = loadPayrollRows(getPayrollMonth());
+      syncSelectedPayrollId();
+      renderPayroll();
+    },
+  });
 }
 
 function renderPayroll() {
@@ -522,7 +563,7 @@ async function syncPayrollEmployeeMasterFromGoogle() {
         ...row,
         name: row.name || currentRow.name || row.id,
         healthDependentCount: Math.max(0, Number(row.healthDependentCount ?? currentRow.healthDependentCount ?? 0)),
-        healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate || currentRow.healthDependentStartDate || ""),
+        healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate ?? currentRow.healthDependentStartDate ?? ""),
       });
     });
     employeeMasterRows = normalizeEmployeeMasterRows(Array.from(rowsById.values()));
@@ -570,11 +611,7 @@ async function savePayrollEmployeeMasterToGoogle() {
       secret: lineEndpointConfig.sharedSecret,
       spreadsheetId: payrollEmployeeMasterSpreadsheetId,
       sheetName: payrollEmployeeMasterSheetName,
-      employees: employeeMasterRows.map((row) => ({
-        id: row.id,
-        healthDependentCount: Math.min(Math.max(Number(row.healthDependentCount || 0), 0), 3),
-        healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate || ""),
-      })),
+      employees: employeeMasterRows,
     });
 
     showPayrollToast(`已儲存 ${result.updatedCount || 0} 筆員工眷屬資料到 Google。`);

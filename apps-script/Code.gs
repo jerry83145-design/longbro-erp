@@ -216,18 +216,25 @@ function readPayrollEmployeeMasterFromSheet(payload) {
     const row = values[rowIndex];
     const employeeId = String(row[employeeIdIndex] || "").trim();
     if (!employeeId) continue;
-    employees.push({
+    const employee = {
       id: employeeId,
       name: nameIndex >= 0 ? String(row[nameIndex] || "").trim() : "",
       healthDependentCount: dependentCountIndex >= 0 ? parsePayrollNumber(row[dependentCountIndex]) : 0,
       healthDependentStartDate: dependentDateIndex >= 0 ? normalizePayrollDate(row[dependentDateIndex]) : "",
       sourceRow: headerRow + rowIndex,
+    };
+    payrollMasterFields().forEach(function (field) {
+      const index = findPayrollHeaderIndex(headers, field.headers);
+      if (index < 0 || row[index] === "") return;
+      employee[field.key] = field.type === "number" ? parsePayrollNumber(row[index]) : field.type === "date" ? normalizePayrollDate(row[index]) : String(row[index]).trim();
     });
+    employees.push(employee);
   }
 
   return {
     ok: true,
     employees: employees,
+    employeeSchemaVersion: 2,
     checkedAt: new Date().toISOString(),
   };
 }
@@ -239,6 +246,14 @@ function updatePayrollEmployeeMasterToSheet(payload) {
 
   const employees = Array.isArray(payload.employees) ? payload.employees : [];
   if (!employees.length) return { ok: false, error: "employees is empty" };
+  employees.forEach(function (employee) {
+    if (!String(employee.id || "").trim()) throw new Error("employee id is required");
+    payrollMasterFields().forEach(function (field) {
+      if (employee[field.key] === undefined || field.type !== "number") return;
+      const value = Number(employee[field.key]);
+      if (!Number.isFinite(value) || value < 0 || value > 999999 || !Number.isInteger(value)) throw new Error("invalid number: " + field.key);
+    });
+  });
 
   const spreadsheetId = payload.spreadsheetId || CONFIG.payrollSpreadsheetId;
   const sheetName = payload.sheetName || CONFIG.payrollEmployeeMasterSheetName;
@@ -252,6 +267,10 @@ function updatePayrollEmployeeMasterToSheet(payload) {
 
     const headerRow = findPayrollEmployeeMasterHeaderRow(sheet);
     ensurePayrollEmployeeMasterDependentDateHeader(sheet, headerRow);
+    payrollMasterFields().forEach(function (field) {
+      const current = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(normalizePayrollHeader);
+      if (findPayrollHeaderIndex(current, field.headers) < 0) sheet.getRange(headerRow, sheet.getLastColumn() + 1).setValue(field.headers[0]);
+    });
     const headers = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(normalizePayrollHeader);
     const employeeIdColumn = findPayrollHeaderIndex(headers, ["員工編號", "員編"]) + 1;
     const dependentCountColumn = findPayrollHeaderIndex(headers, ["健保眷屬人數", "眷屬人數"]) + 1;
@@ -271,8 +290,19 @@ function updatePayrollEmployeeMasterToSheet(payload) {
     let updatedCount = 0;
     employees.forEach(function (employee) {
       const employeeId = String(employee.id || "").trim();
-      const targetRow = rowByEmployeeId[employeeId];
-      if (!targetRow) return;
+      if (!rowByEmployeeId[employeeId] && !String(employee.name || "").trim()) throw new Error("new employee name is required");
+      const targetRow = rowByEmployeeId[employeeId] || Math.max(sheet.getLastRow() + 1, headerRow + 1);
+      rowByEmployeeId[employeeId] = targetRow;
+      sheet.getRange(targetRow, employeeIdColumn).setNumberFormat("@").setValue(/^[=+@-]/.test(employeeId) ? "'" + employeeId : employeeId);
+      payrollMasterFields().forEach(function (field) {
+        if (employee[field.key] === undefined) return;
+        const column = findPayrollHeaderIndex(headers, field.headers) + 1;
+        const value = field.type === "number" ? Number(employee[field.key]) : field.type === "date" ? normalizePayrollDate(employee[field.key]) : String(employee[field.key]).trim();
+        if (field.type === "number" && (!Number.isFinite(value) || value < 0)) throw new Error("invalid number: " + field.key);
+        const cell = sheet.getRange(targetRow, column);
+        if (field.type !== "number") cell.setNumberFormat("@");
+        cell.setValue(field.type === "text" && /^[=+@-]/.test(value) ? "'" + value : value);
+      });
       const dependentCount = Math.min(Math.max(parsePayrollNumber(employee.healthDependentCount), 0), 3);
       const dependentStartDate = normalizePayrollDate(employee.healthDependentStartDate);
       sheet.getRange(targetRow, dependentCountColumn).setValue(dependentCount);
@@ -283,6 +313,7 @@ function updatePayrollEmployeeMasterToSheet(payload) {
     return {
       ok: true,
       updatedCount: updatedCount,
+      employeeSchemaVersion: 2,
       checkedAt: new Date().toISOString(),
     };
   } finally {
@@ -300,6 +331,20 @@ function findPayrollEmployeeMasterHeaderRow(sheet) {
     }
   }
   throw new Error("payroll employee master header row not found");
+}
+
+function payrollMasterFields() {
+  return [
+    {key: "name", headers: ["姓名", "員工姓名"], type: "text"},
+    {key: "role", headers: ["身分", "身份"], type: "text"},
+    {key: "department", headers: ["部門"], type: "text"},
+    {key: "hireDate", headers: ["到職日", "到職日期"], type: "date"},
+    {key: "baseSalary", headers: ["底薪", "本薪"], type: "number"},
+    {key: "dutyAllowance", headers: ["職務加給"], type: "number"},
+    {key: "mealAllowance", headers: ["伙食津貼", "伙食加給"], type: "number"},
+    {key: "laborInsuredSalary", headers: ["勞保投保薪資"], type: "number"},
+    {key: "healthInsuredSalary", headers: ["健保投保薪資"], type: "number"},
+  ];
 }
 
 function ensurePayrollEmployeeMasterDependentDateHeader(sheet, headerRow) {
