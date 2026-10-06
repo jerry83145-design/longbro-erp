@@ -18,6 +18,16 @@ const ownerLaborCompany = [[45800, 1053]];
 const ownerHealthCompany = [[60800, 3143]];
 const fixedMealAllowance = 3000;
 const payrollMoneyMax = 999999;
+const defaultPayrollEmployeeTemplate = {
+  role: "員工",
+  department: "營運",
+  baseSalary: 0,
+  dutyAllowance: 0,
+  mealAllowance: fixedMealAllowance,
+  hireDate: "",
+  laborInsuredSalary: 30300,
+  healthInsuredSalary: 30300,
+};
 
 let payrollRows = [];
 let selectedPayrollId = "";
@@ -335,19 +345,72 @@ function loadPayrollRows(month) {
   if (saved) {
     try {
       const rows = JSON.parse(saved);
-      if (Array.isArray(rows) && rows.length) return rows.map(mergePayrollEmployee).map(calculatePayrollRow);
+      if (Array.isArray(rows) && rows.length) return completePayrollRows(month, rows);
     } catch {
       localStorage.removeItem(getPayrollStorageKey(month));
     }
   }
 
-  return payrollEmployees.map((employee) => calculatePayrollRow({
-    ...employee,
-    personalLeaveDays: employee.id === "PH005" && month === "2026-07" ? 10 : 0,
-    sickLeaveDays: 0,
-    otherAllowance: 0,
-    otherDeduction: 0,
-  }));
+  return completePayrollRows(month, []);
+}
+
+function completePayrollRows(month, savedRows) {
+  const usedIds = new Set();
+  const rows = getPayrollEmployeeDefinitions().map((employee) => {
+    const saved = Array.isArray(savedRows) ? savedRows.find((item) => item.id === employee.id) : null;
+    usedIds.add(employee.id);
+    return mergePayrollEmployee({
+      ...employee,
+      ...(saved || {}),
+      personalLeaveDays: saved?.personalLeaveDays ?? saved?.leaveDays ?? (employee.id === "PH005" && month === "2026-07" ? 10 : 0),
+      sickLeaveDays: saved?.sickLeaveDays ?? 0,
+      otherAllowance: saved?.otherAllowance ?? 0,
+      otherDeduction: saved?.otherDeduction ?? 0,
+    });
+  });
+
+  (Array.isArray(savedRows) ? savedRows : []).forEach((saved) => {
+    if (!saved?.id || usedIds.has(saved.id)) return;
+    usedIds.add(saved.id);
+    rows.push(mergePayrollEmployee(saved));
+  });
+
+  return rows.map(calculatePayrollRow);
+}
+
+function getPayrollEmployeeDefinitions() {
+  const rows = Array.isArray(employeeMasterRows) && employeeMasterRows.length ? employeeMasterRows : loadEmployeeMasterRows();
+  const byId = new Map();
+  payrollEmployees.forEach((employee) => {
+    byId.set(employee.id, normalizePayrollEmployeeDefinition(employee));
+  });
+  rows.forEach((row) => {
+    const id = String(row?.id || "").trim();
+    if (!id) return;
+    const base = byId.get(id) || {};
+    byId.set(id, normalizePayrollEmployeeDefinition({ ...base, ...row }));
+  });
+  return Array.from(byId.values());
+}
+
+function normalizePayrollEmployeeDefinition(row) {
+  const id = String(row?.id || "").trim();
+  return {
+    ...defaultPayrollEmployeeTemplate,
+    ...row,
+    id,
+    name: String(row?.name || id || "未命名員工").trim(),
+    role: row?.role || defaultPayrollEmployeeTemplate.role,
+    department: row?.department || defaultPayrollEmployeeTemplate.department,
+    baseSalary: Number(row?.baseSalary ?? defaultPayrollEmployeeTemplate.baseSalary),
+    dutyAllowance: Number(row?.dutyAllowance ?? defaultPayrollEmployeeTemplate.dutyAllowance),
+    mealAllowance: Number(row?.mealAllowance ?? defaultPayrollEmployeeTemplate.mealAllowance),
+    hireDate: normalizeDateInput(row?.hireDate || ""),
+    laborInsuredSalary: Number(row?.laborInsuredSalary ?? defaultPayrollEmployeeTemplate.laborInsuredSalary),
+    healthInsuredSalary: Number(row?.healthInsuredSalary ?? defaultPayrollEmployeeTemplate.healthInsuredSalary),
+    healthDependentCount: Math.max(0, Number(row?.healthDependentCount || 0)),
+    healthDependentStartDate: normalizeDateInput(row?.healthDependentStartDate || ""),
+  };
 }
 
 function getDefaultPayrollStatus() {
@@ -404,15 +467,7 @@ function loadEmployeeMasterRows() {
     }
   }
 
-  return payrollEmployees.map((employee) => {
-    const savedRow = Array.isArray(savedRows) ? savedRows.find((item) => item.id === employee.id) : null;
-    return {
-      id: employee.id,
-      name: employee.name,
-      healthDependentCount: Number(savedRow?.healthDependentCount || employee.healthDependentCount || 0),
-      healthDependentStartDate: savedRow?.healthDependentStartDate || employee.healthDependentStartDate || "",
-    };
-  });
+  return normalizeEmployeeMasterRows(savedRows);
 }
 
 function readEmployeeMasterInputs() {
@@ -458,19 +513,22 @@ async function syncPayrollEmployeeMasterFromGoogle() {
     if (!importedRows.length) throw new Error("Google 員工資料沒有讀到可同步資料");
 
     const currentRows = getEmployeeMasterRows();
-    employeeMasterRows = payrollEmployees.map((employee) => {
-      const currentRow = currentRows.find((item) => item.id === employee.id) || {};
-      const importedRow = importedRows.find((item) => item.id === employee.id) || {};
-      return {
-        id: employee.id,
-        name: importedRow.name || employee.name,
-        healthDependentCount: Math.max(0, Number(importedRow.healthDependentCount ?? currentRow.healthDependentCount ?? 0)),
-        healthDependentStartDate: normalizeDateInput(importedRow.healthDependentStartDate || currentRow.healthDependentStartDate || ""),
-      };
+    const rowsById = new Map();
+    currentRows.forEach((row) => rowsById.set(row.id, row));
+    importedRows.forEach((row) => {
+      const currentRow = rowsById.get(row.id) || {};
+      rowsById.set(row.id, {
+        ...currentRow,
+        ...row,
+        name: row.name || currentRow.name || row.id,
+        healthDependentCount: Math.max(0, Number(row.healthDependentCount ?? currentRow.healthDependentCount ?? 0)),
+        healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate || currentRow.healthDependentStartDate || ""),
+      });
     });
+    employeeMasterRows = normalizeEmployeeMasterRows(Array.from(rowsById.values()));
 
     saveEmployeeMasterRows(employeeMasterRows);
-    payrollRows = getCalculatedRows();
+    payrollRows = loadPayrollRows(getPayrollMonth());
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayroll();
     showPayrollToast(`已同步 ${importedRows.length} 筆 Google 員工資料。`);
@@ -496,7 +554,7 @@ async function savePayrollEmployeeMasterToGoogle() {
   try {
     employeeMasterRows = readEmployeeMasterInputs();
     saveEmployeeMasterRows(employeeMasterRows);
-    payrollRows = getCalculatedRows();
+    payrollRows = loadPayrollRows(getPayrollMonth());
     savePayrollRows(getPayrollMonth(), payrollRows);
     renderPayrollSummary();
     renderPayrollTable();
@@ -635,7 +693,7 @@ async function refreshPayrollRowsFromCloud() {
         saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
       }
       payrollStatus = cloudStatus;
-      payrollRows = cloudRows.map(mergePayrollEmployee).map(calculatePayrollRow);
+      payrollRows = completePayrollRows(month, cloudRows);
       savePayrollRowsLocalOnly(month, payrollRows);
       savePayrollStatusLocalOnly(month, payrollStatus);
       syncSelectedPayrollId();
@@ -663,7 +721,7 @@ async function refreshPayrollRowsFromCloud() {
     saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
   }
   payrollStatus = status;
-  payrollRows = rows.map(mergePayrollEmployee).map(calculatePayrollRow);
+  payrollRows = completePayrollRows(month, rows);
   savePayrollRowsLocalOnly(month, payrollRows);
   savePayrollStatusLocalOnly(month, payrollStatus);
   syncSelectedPayrollId();
@@ -718,15 +776,32 @@ function savePayrollStatusLocalOnly(month, status) {
 }
 
 function normalizeEmployeeMasterRows(rows) {
-  return payrollEmployees.map((employee) => {
-    const row = Array.isArray(rows) ? rows.find((item) => item.id === employee.id) : null;
-    return {
-      id: employee.id,
-      name: row?.name || employee.name,
-      healthDependentCount: Math.max(0, Number(row?.healthDependentCount || 0)),
-      healthDependentStartDate: normalizeDateInput(row?.healthDependentStartDate || ""),
-    };
+  const byId = new Map();
+  payrollEmployees.forEach((employee) => {
+    const normalized = normalizePayrollEmployeeDefinition(employee);
+    byId.set(normalized.id, normalized);
   });
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const normalized = normalizePayrollEmployeeDefinition({
+      ...(byId.get(String(row?.id || "").trim()) || {}),
+      ...row,
+    });
+    if (normalized.id) byId.set(normalized.id, normalized);
+  });
+  return Array.from(byId.values()).map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    department: row.department,
+    baseSalary: Number(row.baseSalary || 0),
+    dutyAllowance: Number(row.dutyAllowance || 0),
+    mealAllowance: Number(row.mealAllowance ?? fixedMealAllowance),
+    hireDate: row.hireDate || "",
+    laborInsuredSalary: Number(row.laborInsuredSalary || 0),
+    healthInsuredSalary: Number(row.healthInsuredSalary || 0),
+    healthDependentCount: Math.max(0, Number(row.healthDependentCount || 0)),
+    healthDependentStartDate: normalizeDateInput(row.healthDependentStartDate || ""),
+  }));
 }
 
 function cleanPayrollRowForStorage(row) {
