@@ -336,14 +336,14 @@ function findPayrollEmployeeMasterHeaderRow(sheet) {
 function payrollMasterFields() {
   return [
     {key: "name", headers: ["姓名", "員工姓名"], type: "text"},
-    {key: "role", headers: ["身分", "身份"], type: "text"},
+    {key: "role", headers: ["身分", "身份", "身分別"], type: "text"},
     {key: "department", headers: ["部門"], type: "text"},
     {key: "hireDate", headers: ["到職日", "到職日期"], type: "date"},
     {key: "baseSalary", headers: ["底薪", "本薪"], type: "number"},
     {key: "dutyAllowance", headers: ["職務加給"], type: "number"},
     {key: "mealAllowance", headers: ["伙食津貼", "伙食加給"], type: "number"},
     {key: "laborInsuredSalary", headers: ["勞保投保薪資"], type: "number"},
-    {key: "healthInsuredSalary", headers: ["健保投保薪資"], type: "number"},
+    {key: "healthInsuredSalary", headers: ["健保投保薪資", "健保投保金額"], type: "number"},
   ];
 }
 
