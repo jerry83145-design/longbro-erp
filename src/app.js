@@ -1377,12 +1377,24 @@ ledgerForm.addEventListener("submit", async (event) => {
   const record = buildRecord();
   if (!record) return;
 
-  if (!editingRecordId && record.type === "income" && fields.inventorySync.value === "yes") {
-    const selectedInventory = await confirmInventoryOutSelections(record, {
-      splitMode: isLedgerSplitIncomeMode(),
-    });
-    if (selectedInventory === null) return;
-    pendingLedgerInventorySelections = selectedInventory;
+  if (saveButton.disabled) return;
+  saveButton.disabled = true;
+  try {
+    if (!editingRecordId && record.type === "income" && fields.inventorySync.value === "yes") {
+      const selectedInventory = await confirmInventoryOutSelections(record, {
+        splitMode: isLedgerSplitIncomeMode(),
+        allowUnmatched: true,
+      });
+      if (selectedInventory === null) return;
+      pendingLedgerInventorySelections = selectedInventory;
+    } else if (record.type === "income") {
+      const previous = recordsCache.find((item) => item.id === editingRecordId);
+      const links = previous?.inventoryLinks || [];
+      if ((isSalesRevenueRecord(record) || links.length || record.middle === "貨品") &&
+          !await confirmInventoryMatchWarning(record, links.map((link) => ({ lot: link })))) return;
+    }
+  } finally {
+    saveButton.disabled = false;
   }
 
   saveButton.disabled = true;
@@ -3007,6 +3019,7 @@ function inferInventoryQuantityFromText(text) {
 async function createInventoryOutFromIncome(record) {
   const selected = getSelectedLedgerInventoryLots();
   if (!selected.length) {
+    if (Array.isArray(pendingLedgerInventorySelections)) return;
     showToast("已選擇同步出庫，但尚未選取庫存。");
     return;
   }
@@ -3055,6 +3068,46 @@ async function createInventoryOutFromIncome(record) {
   await updateLedgerInventoryLinks(record, links);
 }
 
+function getInventoryMatchWarning(record, selected) {
+  if (record.type !== "income") return "";
+  if (!selected.length) return "這筆收入尚未配對庫存，確定不扣庫存並繼續嗎？";
+  const normalize = (value) => String(value || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  const name = normalize(record.item);
+  if (selected.every((item) => name && normalize(item.lot?.name) === name)) return "";
+  return "收入品名與所選庫存名稱不同，請確認是否配對正確。";
+}
+
+function confirmInventoryMatchWarning(record, selected) {
+  const warning = getInventoryMatchWarning(record, selected);
+  if (!warning) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "match-dialog-overlay";
+    overlay.style.zIndex = "10000";
+    overlay.innerHTML = `
+      <div class="match-dialog" role="dialog" aria-modal="true" aria-label="確認貨品配對">
+        <div class="match-dialog-header"><h3>確認貨品配對</h3></div>
+        <div class="match-dialog-list" style="padding:24px;overflow-wrap:anywhere">
+          <p>${escapeHtml(warning)}</p>
+          <p>收入品名：${escapeHtml(record.item || "未填品名")}</p>
+          <p>庫存品名：${selected.length ? selected.map((item) => escapeHtml(item.lot?.name || "未填品名")).join("、") : "未選擇"}</p>
+        </div>
+        <div class="match-dialog-actions">
+          <button type="button" class="secondary-button" data-match-warning-no>否，返回修改</button>
+          <button type="button" data-match-warning-yes>是，確認繼續</button>
+        </div>
+      </div>`;
+    overlay.addEventListener("click", (event) => {
+      const yes = event.target.closest("[data-match-warning-yes]");
+      if (!yes && !event.target.closest("[data-match-warning-no]")) return;
+      overlay.remove();
+      resolve(Boolean(yes));
+    });
+    document.body.appendChild(overlay);
+    overlay.querySelector("[data-match-warning-no]").focus();
+  });
+}
+
 function confirmInventoryOutSelections(record, options = {}) {
   return new Promise((resolve) => {
     const availableLots = getAvailableInventoryLots();
@@ -3101,13 +3154,15 @@ function confirmInventoryOutSelections(record, options = {}) {
           <span>${escapeHtml(footerText)}</span>
           <div>
             <button type="button" class="secondary-button" data-inventory-out-cancel>取消</button>
-            <button type="button" data-inventory-out-confirm ${availableLots.length ? "" : "disabled"}>${escapeHtml(confirmLabel)}</button>
+            <button type="button" data-inventory-out-confirm ${availableLots.length || options.allowUnmatched ? "" : "disabled"}>${escapeHtml(confirmLabel)}</button>
           </div>
         </div>
       </div>
     `;
 
-    overlay.addEventListener("click", (event) => {
+    let confirming = false;
+    overlay.addEventListener("click", async (event) => {
+      if (confirming) return;
       if (event.target === overlay || event.target.closest("[data-inventory-out-cancel]")) {
         overlay.remove();
         resolve(null);
@@ -3116,7 +3171,7 @@ function confirmInventoryOutSelections(record, options = {}) {
 
       if (event.target.closest("[data-inventory-out-confirm]")) {
         const selected = readInventoryOutSelectionsFromContainer(overlay, splitMode);
-        if (!selected.length) {
+        if (!selected.length && !options.allowUnmatched) {
           showToast("請至少勾選一筆庫存。");
           return;
         }
@@ -3128,6 +3183,10 @@ function confirmInventoryOutSelections(record, options = {}) {
           showToast(splitMode ? "請確認總盒數、賣出盒數與可用庫存。" : "請確認出庫數量不可超過可用庫存。");
           return;
         }
+        confirming = true;
+        const accepted = await confirmInventoryMatchWarning(record, selected);
+        confirming = false;
+        if (!accepted) return;
         overlay.remove();
         resolve(selected);
       }
@@ -8414,11 +8473,11 @@ async function handleInventoryMatch(record, button) {
   const panel = button.closest(".inventory-match-panel");
   const selected = await confirmInventoryOutSelections(record, {
     splitMode: panel?.classList.contains("split-mode"),
+    allowUnmatched: true,
   });
   if (selected === null) return;
 
   if (!selected.length) {
-    showToast("請先勾選要出庫的庫存。");
     return;
   }
 
