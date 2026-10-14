@@ -9160,21 +9160,30 @@ function renderInventory() {
 }
 
 function buildInventorySummary(records) {
-  return records.reduce(
+  return getAvailableInventoryLots(records).reduce(
     (summary, record) => {
-      const direction = record.action === "out" ? -1 : 1;
-      const qty = Number(record.quantity || 0) * direction;
-      const cost = Number(record.totalCost || 0) * direction;
+      const qty = Number(record.remainingQuantity || 0);
+      const cost = getRemainingInventoryCost(record);
       if (record.type === "sealedCase") summary.sealedCaseQty += qty;
       if (record.type === "box") summary.boxQty += qty;
       if (record.type === "card") summary.cardQty += qty;
       if (record.type === "supply") summary.supplyQty += qty;
       summary.totalCost += cost;
-      if (!Number(record.totalCost || 0)) summary.pendingCost += 1;
+      if (isInventoryCostMissing(record)) summary.pendingCost += 1;
       return summary;
     },
     { ...getInventoryOpening(), pendingCost: 0 },
   );
+}
+
+function isInventoryCostMissing(record) {
+  // Explicit zero is valid for bundled goods whose cost is on the main item.
+  return [record.totalCost, record.unitCost].every((value) => value == null || value === "");
+}
+
+function getRemainingInventoryCost(record) {
+  const unitCost = Number(record.unitCost || record.totalCost / record.quantity || 0);
+  return unitCost * Number(record.remainingQuantity || 0);
 }
 
 function getInventoryOpening() {
@@ -9187,11 +9196,11 @@ function getInventoryOpening() {
   };
 }
 
-function getAvailableInventoryLots() {
+function getAvailableInventoryLots(records = inventoryCache) {
   const outboundBySource = new Map();
-  const inboundIds = new Set(inventoryCache.filter((record) => record.action !== "out").map((record) => record.id));
+  const inboundIds = new Set(records.filter((record) => record.action !== "out").map((record) => record.id));
   const unlinkedOutboundByProduct = new Map();
-  inventoryCache
+  records
     .filter((record) => record.action === "out")
     .forEach((record) => {
       const quantity = Number(record.sourceQuantityUsed || record.quantity || 0);
@@ -9203,7 +9212,7 @@ function getAvailableInventoryLots() {
       }
     });
 
-  const lots = inventoryCache
+  const lots = records
     .filter((record) => record.action !== "out")
     .map((record) => {
       const remainingQuantity = Number(record.quantity || 0) - Number(outboundBySource.get(record.id) || 0);
@@ -9360,16 +9369,15 @@ function buildInventoryTypeDetails(type) {
   getAvailableInventoryLots()
     .filter((record) => record.type === type)
     .forEach((record) => {
-      const unitCost = Number(record.unitCost || record.totalCost / record.quantity || 0);
       addInventoryTypeDetail(map, {
         name: record.name || "未填品名",
         type: record.type || type,
         quantity: Number(record.remainingQuantity || 0),
-        totalCost: unitCost * Number(record.remainingQuantity || 0),
+        totalCost: getRemainingInventoryCost(record),
         date: record.date || "",
         source: record.source || "",
         reference: record.reference || "",
-        pendingCost: !Number(record.totalCost || 0),
+        pendingCost: isInventoryCostMissing(record),
         timeValue: getRecordTimeValue(record),
       });
     });
@@ -11293,8 +11301,8 @@ function buildInventoryReportSheet() {
     ["散盒庫存", summary.boxQty, "盒", "期初加入庫減出庫"],
     ["散卡庫存", summary.cardQty, "張", "期初加入庫減出庫"],
     ["包材庫存", summary.supplyQty, "件", "入庫減出庫"],
-    ["庫存成本", summary.totalCost, "TWD", "期初成本加庫存異動成本"],
-    ["待成本確認", summary.pendingCost, "筆", "成本為 0 或未輸入的庫存紀錄"],
+    ["庫存成本", summary.totalCost, "TWD", "期初成本加目前剩餘批次成本；零成本搭貨不重複計價"],
+    ["待成本確認", summary.pendingCost, "筆", "目前剩餘庫存中未填成本的紀錄；明確填 0 的搭貨不列入"],
     [],
     ["庫存明細"],
     ["日期", "類型", "動作", "品名", "數量", "單位", "單位成本", "總成本", "來源", "關聯", "備註"],
