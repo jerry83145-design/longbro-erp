@@ -12115,18 +12115,17 @@ function renderReportCategoryGroups(rows) {
   for (const row of rows) {
     const contributes = row.type === "soldCost" ||
       (row.type === "income" && (row.major === "銷貨收入" || (row.records || []).some(isSalesRevenueRecord))) ||
-      isOperatingExpenseRecord(row) ||
-      (row.type === "expense" && row.major === "薪資成本");
+      isOperatingExpenseRecord(row);
     (contributes ? included : excluded).push(row);
   }
-  const order = ["銷貨收入", "銷貨成本", "營業費用", "薪資成本", "其他費用", "稅捐規費"];
+  const order = ["銷貨收入", "銷貨成本", "營業費用", "其他費用", "稅捐規費"];
   included.sort((a, b) => {
     const rank = (row) => row.type === "soldCost" ? 1 : Math.max(0, order.indexOf(row.major));
     return rank(a) - rank(b);
   });
   return [
     ["計入內帳損益", included],
-    ["未直接計入內帳損益", excluded],
+    ["未直接計入／已包含的參考明細", excluded],
   ].filter(([, items]) => items.length).map(([title, items]) => `
     <section class="report-category-group">
       <h3>${title}</h3>
