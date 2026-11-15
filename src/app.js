@@ -4153,7 +4153,7 @@ async function renderCustomReport() {
       </article>
     </div>
     <div class="category-breakdown">
-      ${breakdown.length ? breakdown.map(renderCategoryRow).join("") : `<div class="empty-state">此區間沒有紀錄。</div>`}
+      ${renderReportCategoryGroups(breakdown)}
     </div>
   `;
 }
@@ -12108,12 +12108,41 @@ function getPayrollBreakdownRecords(payrollRows, payrollAmount) {
   }];
 }
 
+function renderReportCategoryGroups(rows) {
+  if (!rows.length) return `<div class="empty-state">此區間沒有紀錄。</div>`;
+  const included = [];
+  const excluded = [];
+  for (const row of rows) {
+    const contributes = row.type === "soldCost" ||
+      (row.type === "income" && (row.major === "銷貨收入" || (row.records || []).some(isSalesRevenueRecord))) ||
+      isOperatingExpenseRecord(row) ||
+      (row.type === "expense" && row.major === "薪資成本");
+    (contributes ? included : excluded).push(row);
+  }
+  const order = ["銷貨收入", "銷貨成本", "營業費用", "薪資成本", "其他費用", "稅捐規費"];
+  included.sort((a, b) => {
+    const rank = (row) => row.type === "soldCost" ? 1 : Math.max(0, order.indexOf(row.major));
+    return rank(a) - rank(b);
+  });
+  return [
+    ["計入內帳損益", included],
+    ["未直接計入內帳損益", excluded],
+  ].filter(([, items]) => items.length).map(([title, items]) => `
+    <section class="report-category-group">
+      <h3>${title}</h3>
+      ${items.map(renderCategoryRow).join("")}
+    </section>
+  `).join("");
+}
+
 function renderCategoryRow(row) {
   const detailRecords = [...(row.records || [])].sort(compareCategoryDetailByDate);
+  const label = row.label || `${typeLabel(row.type)} - ${row.major}`;
+  const suffix = row.type === "expense" && row.major === "薪資成本" ? "（已計入營業費用）" : "";
   return `
     <details class="category-row">
       <summary>
-        <strong>${escapeHtml(row.label || `${typeLabel(row.type)} - ${row.major}`)}</strong>
+        <strong>${escapeHtml(label + suffix)}</strong>
         <span>NT$ ${formatNumber(row.amount)}</span>
         <span>${row.count} 筆</span>
       </summary>

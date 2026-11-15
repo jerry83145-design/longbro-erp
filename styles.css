@@ -2966,6 +2966,24 @@ textarea:focus {
   margin-top: 16px;
 }
 
+.report-category-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.report-category-group + .report-category-group {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.report-category-group h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
 .category-row summary {
   display: grid;
   grid-template-columns: 1fr 140px 110px;
