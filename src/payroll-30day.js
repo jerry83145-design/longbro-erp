@@ -18,6 +18,24 @@ const employeeHealthCompany = [[30300, 1466], [40100, 1939]];
 const ownerLaborCompany = [[45800, 1053]];
 const ownerHealthCompany = [[60800, 3143]];
 const fixedMealAllowance = 3000;
+const payrollBaselineVersion = "2026-11-fixed-pay-v1";
+const payrollBaselineFromMonth = "2026-11";
+const payrollBaselineSalaries = {
+  PH005: { baseSalary: 32000, dutyAllowance: 5000, mealAllowance: 3000 },
+  PH003: { baseSalary: 37000, dutyAllowance: 0, mealAllowance: 3000 },
+  PH002: { baseSalary: 37000, dutyAllowance: 0, mealAllowance: 3000 },
+  PH004: { baseSalary: 82000, dutyAllowance: 15000, mealAllowance: 3000 },
+};
+
+function applyPayrollBaseline(month, row, paid = false) {
+  if (paid || month < payrollBaselineFromMonth || !payrollBaselineSalaries[row.id] ||
+      row.salaryBaselineVersion === payrollBaselineVersion) return row;
+  return { ...row, ...payrollBaselineSalaries[row.id], salaryBaselineVersion: payrollBaselineVersion };
+}
+
+function getEmployeeLastWorkingDate(row) {
+  return normalizeDateInput(row?.lastWorkingDate ?? (row?.id === "PH006" ? "2026-10-20" : ""));
+}
 const payrollMoneyMax = 999999;
 const defaultPayrollEmployeeTemplate = {
   role: "員工",
@@ -334,6 +352,7 @@ function renderEmployeeMasterTable() {
           <th>員工編號</th>
           <th>姓名</th>
           <th>健保眷屬人數</th>
+          <th>最後在職日</th>
           <th>眷屬加保日期</th>
           <th>計費說明</th>
         </tr>
@@ -357,6 +376,7 @@ function renderEmployeeMasterRow(row) {
       <td>${escapePayrollHtml(row.id)}</td>
       <td>${escapePayrollHtml(row.name)}</td>
       <td><input data-employee-master-field="healthDependentCount" data-employee-id="${escapePayrollHtml(row.id)}" type="number" min="0" max="10" step="1" value="${row.healthDependentCount || 0}" /></td>
+      <td><input data-employee-master-field="lastWorkingDate" data-employee-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(getEmployeeLastWorkingDate(row))}" aria-label="最後在職日 ${escapePayrollHtml(row.id)}" /></td>
       <td><input data-employee-master-field="healthDependentStartDate" data-employee-id="${escapePayrollHtml(row.id)}" type="date" value="${escapePayrollHtml(row.healthDependentStartDate || "")}" /></td>
       <td>${escapePayrollHtml(activeText)}</td>
     </tr>
@@ -395,19 +415,23 @@ function loadPayrollRows(month) {
   return completePayrollRows(month, []);
 }
 
-function completePayrollRows(month, savedRows) {
+function completePayrollRows(month, savedRows, status = loadPayrollStatus(month)) {
+  // Paid months are immutable snapshots, including employees who later leave.
+  if (normalizePayrollStatus(status).status === "paid" && savedRows?.length) {
+    return savedRows.map((row) => ({ ...row }));
+  }
   const usedIds = new Set();
   const rows = getPayrollEmployeeDefinitions().map((employee) => {
     const saved = Array.isArray(savedRows) ? savedRows.find((item) => item.id === employee.id) : null;
     usedIds.add(employee.id);
-    return mergePayrollEmployee({
+    return applyPayrollBaseline(month, mergePayrollEmployee({
       ...employee,
       ...(saved || {}),
       personalLeaveDays: saved?.personalLeaveDays ?? saved?.leaveDays ?? (employee.id === "PH005" && month === "2026-07" ? 10 : 0),
       sickLeaveDays: saved?.sickLeaveDays ?? 0,
       otherAllowance: saved?.otherAllowance ?? 0,
       otherDeduction: saved?.otherDeduction ?? 0,
-    });
+    }));
   });
 
   (Array.isArray(savedRows) ? savedRows : []).forEach((saved) => {
@@ -447,6 +471,7 @@ function normalizePayrollEmployeeDefinition(row) {
     dutyAllowance: Number(row?.dutyAllowance ?? defaultPayrollEmployeeTemplate.dutyAllowance),
     mealAllowance: Number(row?.mealAllowance ?? defaultPayrollEmployeeTemplate.mealAllowance),
     hireDate: normalizeDateInput(row?.hireDate || ""),
+    lastWorkingDate: getEmployeeLastWorkingDate(row),
     laborInsuredSalary: Number(row?.laborInsuredSalary ?? defaultPayrollEmployeeTemplate.laborInsuredSalary),
     healthInsuredSalary: Number(row?.healthInsuredSalary ?? defaultPayrollEmployeeTemplate.healthInsuredSalary),
     healthDependentCount: Math.max(0, Number(row?.healthDependentCount || 0)),
@@ -518,6 +543,7 @@ function readEmployeeMasterInputs() {
       ...row,
       healthDependentCount: Math.max(0, Number(findValue("healthDependentCount") || 0)),
       healthDependentStartDate: findValue("healthDependentStartDate") || "",
+      lastWorkingDate: findValue("lastWorkingDate") ?? getEmployeeLastWorkingDate(row),
     };
   });
 }
@@ -730,7 +756,7 @@ async function refreshPayrollRowsFromCloud() {
         saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
       }
       payrollStatus = cloudStatus;
-      payrollRows = completePayrollRows(month, cloudRows);
+      payrollRows = completePayrollRows(month, cloudRows, cloudStatus);
       savePayrollRowsLocalOnly(month, payrollRows);
       savePayrollStatusLocalOnly(month, payrollStatus);
       syncSelectedPayrollId();
@@ -758,7 +784,7 @@ async function refreshPayrollRowsFromCloud() {
     saveEmployeeMasterRowsLocalOnly(employeeMasterRows);
   }
   payrollStatus = status;
-  payrollRows = completePayrollRows(month, rows);
+  payrollRows = completePayrollRows(month, rows, status);
   savePayrollRowsLocalOnly(month, payrollRows);
   savePayrollStatusLocalOnly(month, payrollStatus);
   syncSelectedPayrollId();
@@ -834,6 +860,7 @@ function normalizeEmployeeMasterRows(rows) {
     dutyAllowance: Number(row.dutyAllowance || 0),
     mealAllowance: Number(row.mealAllowance ?? fixedMealAllowance),
     hireDate: row.hireDate || "",
+    lastWorkingDate: getEmployeeLastWorkingDate(row),
     laborInsuredSalary: Number(row.laborInsuredSalary || 0),
     healthInsuredSalary: Number(row.healthInsuredSalary || 0),
     healthDependentCount: Math.max(0, Number(row.healthDependentCount || 0)),
@@ -843,6 +870,7 @@ function normalizeEmployeeMasterRows(rows) {
 
 function cleanPayrollRowForStorage(row) {
   return {
+    salaryBaselineVersion: row.salaryBaselineVersion || "",
     id: row.id,
     name: row.name,
     role: row.role,
@@ -875,12 +903,19 @@ function cleanPayrollRowForStorage(row) {
 }
 
 function getCalculatedRows() {
+  if (isPayrollMonthPaid()) return payrollRows;
   payrollRows = payrollRows.map(calculatePayrollRow);
   return payrollRows;
 }
 
 function getVisiblePayrollRows(rows = getCalculatedRows()) {
-  return rows.filter((row) => Number(row.employedDays || 0) > 0);
+  return rows.filter((row) => {
+    if (Number(row.employedDays || 0) <= 0) return false;
+    if (isPayrollMonthPaid()) return true;
+    const master = getEmployeeMasterRows().find((item) => item.id === row.id) || row;
+    const lastWorkingDate = getEmployeeLastWorkingDate(master);
+    return !lastWorkingDate || lastWorkingDate >= `${getPayrollMonth()}-01`;
+  });
 }
 
 function syncSelectedPayrollId() {
@@ -890,7 +925,11 @@ function syncSelectedPayrollId() {
 
 function calculatePayrollRow(row) {
   const month = getPayrollMonth();
-  const employedDays = calculateEmployedDays(month, row.hireDate);
+  const master = getEmployeeMasterRows().find((item) => item.id === row.id) || row;
+  const lastWorkingDate = getEmployeeLastWorkingDate(master);
+  // Keep the final month's existing settlement; exclude subsequent months only.
+  const employedDays = lastWorkingDate && lastWorkingDate < `${month}-01`
+    ? 0 : calculateEmployedDays(month, row.hireDate);
   const isEmployedInMonth = employedDays > 0;
   const baseSalary = Number(row.baseSalary || 0);
   const dutyAllowance = Number(row.dutyAllowance || 0);
