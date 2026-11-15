@@ -4059,6 +4059,13 @@ async function renderCustomReport() {
   }
 
   customReportResult.innerHTML = `<div class="empty-state">正在整理區間報表與已發薪資料...</div>`;
+  exportReportButton.disabled = true;
+  const supportingData = await loadSecondaryData();
+  if (renderToken !== customReportRenderToken) return;
+  if (supportingData?.some((result) => result.status === "rejected")) {
+    customReportResult.innerHTML = `<div class="empty-state">報表所需資料載入未完成，請重新整理後再試。</div>`;
+    return;
+  }
   const records = recordsCache.filter((record) => record.date >= start && record.date <= end);
   const payrollRows = await loadPayrollRowsForReport(start, end);
   if (renderToken !== customReportRenderToken) return;
@@ -4125,7 +4132,7 @@ async function renderCustomReport() {
         <strong>NT$ ${formatNumber(costOfGoodsSold)}</strong>
       </article>
       <article class="report-summary-card">
-        <span>營業費用</span>
+        <span>期間費用</span>
         <strong>NT$ ${formatNumber(operatingExpense)}</strong>
       </article>
       <article class="report-summary-card">
@@ -4133,11 +4140,11 @@ async function renderCustomReport() {
         <strong>${formatPercent(grossMargin)}</strong>
       </article>
       <article class="report-summary-card">
-        <span>淨利率</span>
+        <span>內帳淨利率</span>
         <strong>${formatPercent(netMargin)}</strong>
       </article>
       <article class="report-summary-card">
-        <span>營業損益</span>
+        <span>內帳損益</span>
         <strong>${net >= 0 ? "" : "-"}NT$ ${formatNumber(Math.abs(net))}</strong>
       </article>
       <article class="report-summary-card">
@@ -10790,7 +10797,7 @@ function buildExecutiveDecisionSummarySheet(payrollRows = []) {
     ["已售商品成本", lastReportSummary.productCost, "依收入配對庫存或匯入成本"],
     ["金流／物流／平台成本", lastReportSummary.logisticsCost, "含銀行差額標記為銷貨成本者"],
     ["包材成本", lastReportSummary.packagingCost, "依配對包材或匯入資料"],
-    ["營業費用", lastReportSummary.operatingExpense, "支出大類為營業費用"],
+    ["期間費用", lastReportSummary.operatingExpense, "營業費用、其他費用、稅捐規費及已發薪薪資；排除已連結庫存或資產金額"],
     ["毛利參考值", lastReportSummary.grossProfit, "銷售收入減已售成本、金流物流成本、包材成本"],
     ["毛利率參考值", formatPercent(lastReportSummary.grossMargin), "毛利參考值／銷售收入"],
     ["淨利參考值", lastReportSummary.net, "毛利參考值減營業費用；未含折舊、所得稅與月底調整"],
@@ -11338,10 +11345,10 @@ function buildIncomeStatementSheet() {
     ["已售包材成本", packagingCost, "依收入配對出庫的包材成本或銷售報表包材成本"],
     ["毛利", { f: "B4-B5-B6-B7" }, "銷售收入減已售商品成本、金流物流成本與包材"],
     ["毛利率", { f: "IF(B4=0,0,B8/B4)" }, "毛利除以銷售收入"],
-    ["營業費用", operatingExpense, "僅納入區間內支出大類為營業費用的紀錄"],
-    ["營業損益", { f: "B8-B10" }, "毛利減營業費用"],
-    ["淨利率", { f: "IF(B4=0,0,B11/B4)" }, "營業損益除以銷售收入"],
-    ["本期損益", { f: "B11" }, "未含折舊、期末調整及所得稅"],
+    ["期間費用", operatingExpense, "營業費用、其他費用、稅捐規費及已發薪薪資；排除已連結庫存或資產金額"],
+    ["內帳損益", { f: "B8-B10" }, "毛利減期間費用；費用按交易日期一次列入"],
+    ["內帳淨利率", { f: 'IF(B4=0,"-",B11/B4)' }, "內帳損益除以銷售收入；收入為零不計比率"],
+    ["本期損益", { f: "B11" }, "內部管理口徑，未含折舊及其他期末調整"],
   ];
 }
 
@@ -11924,13 +11931,26 @@ function isSalesRevenueRecord(record) {
 }
 
 function isOperatingExpenseRecord(record) {
-  return record.type === "expense" && record.major === "營業費用";
+  return record.type === "expense" && ["營業費用", "其他費用", "稅捐規費"].includes(record.major);
 }
 
 function sumOperatingExpense(records) {
   return records
-    .filter((record) => record.type === "expense" && record.major === "營業費用")
-    .reduce((total, record) => total + Number(record.amount || 0), 0);
+    .filter(isOperatingExpenseRecord)
+    .reduce((total, record) => total + getPeriodExpenseAmount(record), 0);
+}
+
+function getPeriodExpenseAmount(record) {
+  const amount = Number(record.amount || 0);
+  if (!record.id) return amount;
+  // Only explicit links can identify capitalized costs; names are not reliable matches.
+  const inventoryAmount = inventoryCache
+    .filter((item) => !item.deletedAt && item.action !== "out" && item.linkedLedgerId === record.id)
+    .reduce((total, item) => total + Math.max(0, Number(item.totalCost || 0)), 0);
+  const assetAmount = assetCache
+    .filter((item) => !item.deletedAt && item.sourceLedgerId === record.id)
+    .reduce((total, item) => total + Math.max(0, Number(item.amount || 0)), 0);
+  return Math.max(0, amount - inventoryAmount - assetAmount);
 }
 
 function sumPackagingCost(records) {
